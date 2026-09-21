@@ -1,0 +1,88 @@
+# TickCompare Default Configuration (Multi-Broker Setup)
+
+active_pair = [1, 2]
+
+# Broker 1: OANDA
+[[brokers]]
+id = 1
+name = "OANDA"
+host = "127.0.0.1"
+port = 39001
+symbol = "USDJPY"
+digits = 3
+point_size = 0.001
+pip_size = 0.01
+utc_offset_sec = 0
+utc_verified = false
+
+# Broker 2: Axiory
+[[brokers]]
+id = 2
+name = "Axiory"
+host = "127.0.0.1"
+port = 39002
+symbol = "USDJPY.pro"
+digits = 3
+point_size = 0.001
+pip_size = 0.01
+utc_offset_sec = 0
+utc_verified = false
+
+# Broker 3: XM
+[[brokers]]
+id = 3
+name = "XM"
+host = "127.0.0.1"
+port = 39003
+symbol = "USDJPY#"
+digits = 3
+point_size = 0.001
+pip_size = 0.01
+utc_offset_sec = 0
+utc_verified = false
+
+[protocol]
+max_payload_length = 1048576
+ack_mode = "off"
+debug_resync_limit = 65536
+
+[ingress]
+max_frames_per_broker = 256
+max_bytes_per_broker = 8388608
+progress_interval_ms = 1
+
+[logger]
+enabled = true
+log_dir = "data/logs"
+max_queue_records = 1024
+max_queue_bytes = 33554432
+flush_interval_ms = 1000
+shutdown_drain_timeout_ms = 5000
+
+[matcher]
+trigger_move_points = 2.0
+matching_window_ms = 100
+event_cooldown_ms = 20
+ema_alpha = 0.1
+pending_event_capacity = 8192
+
+[health]
+stale_after_ms = 1000
+heartbeat_interval_ms = 250
+heartbeat_timeout_ms = 1500
+
+[display]
+repaint_hz = 60
+timeframe_ms = 60000
+visible_seconds = 60
+always_on_top = false
+
+[history]
+max_tick_ring_records = 120000
+ledger_capacity = 16384
+retentions = [
+    { period_ms = 1000, slots = 60 },
+    { period_ms = 5000, slots = 24 },
+    { period_ms = 10000, slots = 12 },
+    { period_ms = 60000, slots = 10 },
+]
