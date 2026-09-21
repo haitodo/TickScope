@@ -34,6 +34,7 @@ long          g_cursor_time_msc        = 0;
 uint          g_cursor_same_ms_count   = 0;
 long          g_last_tick_time_msc     = 0;
 ulong         g_last_heartbeat_us      = 0;
+bool          g_warmup_done            = false;
 
 // Reusable scratch buffers
 MqlTick       g_tick_buffer[];
@@ -243,12 +244,15 @@ int OnInit()
 
    g_socket.Init(InpServerHost, InpServerPort, InpSocketTimeoutMs);
 
-   if(!g_socket.Connect())
+   if(g_socket.Connect())
    {
-      PrintFormat("Initial connection to %s:%d failed. Will retry on timer.", InpServerHost, InpServerPort);
+      PerformWarmup();
+      g_warmup_done = true;
    }
-
-   PerformWarmup();
+   else
+   {
+      PrintFormat("[TickCollector] Initial connection to %s:%d failed. Will automatically retry on timer.", InpServerHost, InpServerPort);
+   }
 
    EventSetMillisecondTimer(InpHeartbeatIntervalMs);
    return INIT_SUCCEEDED;
@@ -262,7 +266,7 @@ void OnDeinit(const int reason)
    EventKillTimer();
    g_socket.Flush();
    g_socket.Disconnect();
-   PrintFormat("TickCollector deinitialized (reason %d)", reason);
+   PrintFormat("[TickCollector] Deinitialized (reason %d)", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -270,6 +274,19 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   if(!g_socket.IsConnected())
+   {
+      if(!g_socket.Connect())
+      {
+         return;
+      }
+      if(!g_warmup_done)
+      {
+         PerformWarmup();
+         g_warmup_done = true;
+      }
+   }
+
    // Invariant I01: OnTick is a retrieval trigger. We collect all new ticks.
    int passes = 0;
    while(passes < 8) // Bounded execution budget
@@ -289,6 +306,27 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   if(!g_socket.IsConnected())
+   {
+      if(g_socket.Connect())
+      {
+         if(!g_warmup_done)
+         {
+            PerformWarmup();
+            g_warmup_done = true;
+         }
+         else
+         {
+            PrintFormat("[TickCollector] Reconnected to %s:%d, resuming streaming.", InpServerHost, InpServerPort);
+            SendStatus(STATUS_CODE_PHASE, g_current_phase, 0, g_current_sequence, g_current_sequence, 0, 0);
+         }
+      }
+      else
+      {
+         return; // Still disconnected, wait for next timer tick
+      }
+   }
+
    // 1. Flush any pending buffered bytes
    g_socket.Flush();
 

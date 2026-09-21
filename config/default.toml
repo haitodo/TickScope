@@ -8,7 +8,7 @@ id = 1
 name = "OANDA"
 host = "127.0.0.1"
 port = 39001
-symbol = "USDJPY"
+symbol = "USDJPY.cl"
 digits = 3
 point_size = 0.001
 pip_size = 0.01
@@ -21,20 +21,7 @@ id = 2
 name = "Axiory"
 host = "127.0.0.1"
 port = 39002
-symbol = "USDJPY.pro"
-digits = 3
-point_size = 0.001
-pip_size = 0.01
-utc_offset_sec = 0
-utc_verified = false
-
-# Broker 3: XM
-[[brokers]]
-id = 3
-name = "XM"
-host = "127.0.0.1"
-port = 39003
-symbol = "USDJPY#"
+symbol = "USDJPY"
 digits = 3
 point_size = 0.001
 pip_size = 0.01

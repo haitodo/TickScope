@@ -56,7 +56,20 @@ public:
       m_timeout_ms = timeout_ms;
    }
    
-   bool IsConnected() const { return m_connected; }
+   bool IsConnected()
+   {
+      if(!m_connected || m_socket == INVALID_HANDLE)
+      {
+         return false;
+      }
+      if(!SocketIsConnected(m_socket))
+      {
+         PrintFormat("[TickCollector] Connection to TickCompare lost. Auto-reconnecting...");
+         Disconnect();
+         return false;
+      }
+      return true;
+   }
    
    bool Connect()
    {
@@ -75,20 +88,43 @@ public:
       m_socket = SocketCreate();
       if(m_socket == INVALID_HANDLE)
       {
-         PrintFormat("SocketCreate failed, error: %d", GetLastError());
+         int err = GetLastError();
+         PrintFormat("[TickCollector] SocketCreate failed, error: %d", err);
          return false;
       }
       
-      if(!SocketConnect(m_socket, m_host, m_port, m_timeout_ms))
+      uint connect_timeout = 2000; // 2000ms for TCP 3-way handshake
+      if(!SocketConnect(m_socket, m_host, m_port, connect_timeout))
       {
          int err = GetLastError();
+         if(err == 4014)
+         {
+            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 4014 (Function not allowed). "
+                        "Please open MT5: Tools -> Options -> Expert Advisors -> check 'Allow WebRequest for listed URL' "
+                        "and add '%s', 'http://%s', and 'http://%s:%d'",
+                        m_host, m_port, m_host, m_host, m_host, m_port);
+         }
+         else if(err == 5272)
+         {
+            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 5272 (Cannot connect). "
+                        "Check that TickCompare app is running and port %d is open.",
+                        m_host, m_port, m_port);
+         }
+         else if(err == 5273)
+         {
+            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 5273 (Timeout).", m_host, m_port);
+         }
+         else
+         {
+            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error %d.", m_host, m_port, err);
+         }
          SocketClose(m_socket);
          m_socket = INVALID_HANDLE;
          return false;
       }
       
       m_connected = true;
-      PrintFormat("Connected to TickCompare Rust Receiver at %s:%d", m_host, m_port);
+      PrintFormat("[TickCollector] Successfully CONNECTED to TickCompare at %s:%d", m_host, m_port);
       return true;
    }
    
@@ -146,7 +182,7 @@ public:
    // Attempt to flush pending bytes with deadline
    bool Flush()
    {
-      if(!m_connected)
+      if(!IsConnected())
       {
          if(!Connect()) return false;
       }
@@ -169,7 +205,7 @@ public:
             // In non-blocking socket, 0 or error might mean socket full or disconnected
             if(err != 0 && err != 5273) // 5273 = ERR_NETSOCKET_WOULDBLOCK
             {
-               PrintFormat("SocketSend error: %d, disconnecting", err);
+               PrintFormat("[TickCollector] SocketSend error: %d, disconnecting", err);
                Disconnect();
                return false;
             }
@@ -188,7 +224,7 @@ public:
    // Drain replies (ACKs)
    void PollReplies(ulong &last_acked_seq)
    {
-      if(!m_connected) return;
+      if(!IsConnected()) return;
       
       uint readable = SocketIsReadable(m_socket);
       if(readable > 0)

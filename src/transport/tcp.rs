@@ -128,8 +128,11 @@ impl TransportReceiver {
                                 frame_index += 1;
                                 let clk = self.clock.sample();
 
+                                let mut frame = decoded.frame.clone();
+                                frame.header.broker_id = self.broker_config.id;
+
                                 let rx_frame = ReceivedFrame {
-                                    frame: decoded.frame.clone(),
+                                    frame,
                                     raw_wire_bytes: decoded.raw_wire_bytes,
                                     run_id: clk.run_id,
                                     rx_mono_ns: clk.mono_ns,

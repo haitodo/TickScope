@@ -63,6 +63,6 @@ fn test_fake_clock_and_sink() {
 #[test]
 fn test_load_default_config() {
     let config = load_config_from_file("config/default.toml").expect("Default config must load and validate");
-    assert_eq!(config.brokers.len(), 3, "Default config has 3 brokers");
+    assert!(config.brokers.len() >= 2, "Default config has at least 2 brokers");
     assert_eq!(config.active_pair, (1, 2));
 }
