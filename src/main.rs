@@ -28,6 +28,12 @@ fn main() -> eframe::Result<()> {
         }
     };
 
+    // Auto-deploy MT5 EA and Include files to detected MT5 terminals
+    if config.mt5.auto_deploy {
+        let deploy_report = tick_compare::runtime::deploy_mt5_files(&config.mt5);
+        tick_compare::runtime::print_deploy_report(&deploy_report);
+    }
+
     let initial_pair = config.active_pair;
     let coordinator = match RuntimeCoordinator::new(config) {
         Ok(coord) => coord,

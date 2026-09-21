@@ -7,7 +7,7 @@
 #property link      "https://www.mql5.com"
 #property strict
 
-#include "Protocol.mqh"
+#include <TickScope/Protocol.mqh>
 
 class CSocketClient
 {

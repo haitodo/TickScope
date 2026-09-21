@@ -8,8 +8,8 @@
 #property version   "1.00"
 #property description "TickCompare Multi-Broker Real-time Tick Collector EA"
 
-#include "Include/Protocol.mqh"
-#include "Include/SocketClient.mqh"
+#include <TickScope/Protocol.mqh>
+#include <TickScope/SocketClient.mqh>
 
 //--- Inputs
 input uint   InpBrokerID            = 1;              // Broker ID (1, 2, 3...)
@@ -160,7 +160,7 @@ bool CollectAndStreamTicks(bool is_warmup)
 
    for(int i = 0; i < new_tick_count; i++)
    {
-      const MqlTick &src = g_tick_buffer[start_index + i];
+      MqlTick src = g_tick_buffer[start_index + i];
 
       wire_tick.sequence = g_current_sequence;
       wire_tick.broker_time_msc = src.time_msc;

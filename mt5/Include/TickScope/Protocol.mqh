@@ -53,6 +53,21 @@ struct WireTickRecord
    uint     reserved;
 };
 
+// Convert double to 8 bytes Little Endian
+void StringToDoubleBytes(double val, uchar &dst[])
+{
+   union DoubleUnion
+   {
+      double d;
+      uchar b[8];
+   } u;
+   u.d = val;
+   for(int i = 0; i < 8; i++)
+   {
+      dst[i] = u.b[i];
+   }
+}
+
 // Pack header into 40 bytes LE
 void PackHeader(uchar &buffer[], int offset,
                 ushort msg_type, ushort header_flags,
@@ -134,21 +149,6 @@ void PackTickRecord(uchar &buffer[], int offset, const WireTickRecord &tick)
    
    // reserved (uint 4 bytes)
    for(int i = 0; i < 4; i++) buffer[offset + 68 + i] = (uchar)((tick.reserved >> (i * 8)) & 0xFF);
-}
-
-// Convert double to 8 bytes Little Endian
-void StringToDoubleBytes(double val, uchar &dst[])
-{
-   union DoubleUnion
-   {
-      double d;
-      uchar b[8];
-   } u;
-   u.d = val;
-   for(int i = 0; i < 8; i++)
-   {
-      dst[i] = u.b[i];
-   }
 }
 
 // Pack 36-byte Heartbeat payload

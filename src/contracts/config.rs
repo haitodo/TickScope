@@ -293,6 +293,23 @@ impl Default for HistoryConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mt5DeployConfig {
+    #[serde(default = "default_true")]
+    pub auto_deploy: bool,
+    #[serde(default)]
+    pub custom_data_dirs: Vec<String>,
+}
+
+impl Default for Mt5DeployConfig {
+    fn default() -> Self {
+        Self {
+            auto_deploy: default_true(),
+            custom_data_dirs: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     pub brokers: Vec<BrokerConfig>,
@@ -312,6 +329,8 @@ pub struct AppConfig {
     pub display: DisplayConfig,
     #[serde(default)]
     pub history: HistoryConfig,
+    #[serde(default)]
+    pub mt5: Mt5DeployConfig,
 }
 
 fn default_active_pair() -> (BrokerId, BrokerId) {
@@ -355,6 +374,7 @@ impl Default for AppConfig {
             health: HealthConfig::default(),
             display: DisplayConfig::default(),
             history: HistoryConfig::default(),
+            mt5: Mt5DeployConfig::default(),
         }
     }
 }

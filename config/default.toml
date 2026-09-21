@@ -86,3 +86,8 @@ retentions = [
     { period_ms = 10000, slots = 12 },
     { period_ms = 60000, slots = 10 },
 ]
+
+[mt5]
+auto_deploy = true
+custom_data_dirs = []
+
