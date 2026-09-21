@@ -1,0 +1,28 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Runtime data & logs
+data/
+*.tlog
+*.log
+
+# MetaTrader 5 compiled executables and logs
+*.ex5
+*.mqproj
+
+# IDE & Editor configs
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+*.bak
+
+# OS specific files
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
