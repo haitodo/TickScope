@@ -110,6 +110,7 @@ impl RuntimeCoordinator {
         for b_cfg in &config.brokers {
             let receiver = Arc::new(TransportReceiver::new(
                 b_cfg.clone(),
+                config.protocol.ack_mode.clone(),
                 clock.clone(),
                 ingress_sink.clone(),
             ));

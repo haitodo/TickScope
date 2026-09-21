@@ -32,7 +32,12 @@ fn test_transport_receiver_lifecycle_and_ack() {
         utc_verified: false,
     };
 
-    let receiver = Arc::new(TransportReceiver::new(config, clock.clone(), ingress.clone()));
+    let receiver = Arc::new(TransportReceiver::new(
+        config,
+        "forced".to_string(),
+        clock.clone(),
+        ingress.clone(),
+    ));
     let rec_clone = receiver.clone();
     let thread_handle = thread::spawn(move || {
         rec_clone.run();
@@ -100,3 +105,82 @@ fn test_transport_receiver_lifecycle_and_ack() {
     assert!(has_frame, "Must contain Frame item");
     assert!(has_end, "Must contain End item");
 }
+
+#[test]
+fn test_transport_receiver_ack_mode_off() {
+    let clock = Arc::new(FakeClock::new(500_000_000, 1_700_000_000_000_000_000));
+    let ingress = Arc::new(FakeIngressSink::new(100));
+
+    let config = BrokerConfig {
+        id: 2,
+        name: "TestBroker2".to_string(),
+        host: "127.0.0.1".to_string(),
+        port: 39102,
+        symbol: "USDJPY".to_string(),
+        digits: 3,
+        point_size: 0.001,
+        pip_size: 0.01,
+        utc_offset_sec: 0,
+        utc_verified: false,
+    };
+
+    let receiver = Arc::new(TransportReceiver::new(
+        config,
+        "off".to_string(),
+        clock.clone(),
+        ingress.clone(),
+    ));
+    let rec_clone = receiver.clone();
+    let thread_handle = thread::spawn(move || {
+        rec_clone.run();
+    });
+
+    thread::sleep(Duration::from_millis(100));
+
+    let mut client = TcpStream::connect("127.0.0.1:39102").expect("Must connect to receiver");
+    client.set_nodelay(true).unwrap();
+    client.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+
+    let frame = Frame {
+        header: Header {
+            magic: MAGIC_TICK,
+            protocol_version: PROTOCOL_VERSION,
+            message_type: MSG_TYPE_TICK_BATCH,
+            header_length: HEADER_LENGTH,
+            header_flags: 0,
+            broker_id: 2,
+            session_id: 100,
+            sequence_start: 1,
+            tick_count: 1,
+            payload_length: 72,
+        },
+        payload: FramePayload::TickBatch(vec![TickRecord {
+            sequence: 1,
+            broker_time_msc: 1000,
+            ea_elapsed_us: 100,
+            bid: 155.123,
+            ask: 155.125,
+            last: 0.0,
+            volume: 1,
+            volume_real: 1.0,
+            flags: 0,
+            reserved: 0,
+        }]),
+    };
+
+    let bytes = encode_frame(&frame).unwrap();
+    client.write_all(&bytes).unwrap();
+    client.flush().unwrap();
+
+    // Verify NO ACK is received when ack_mode is "off"
+    let mut ack_buf = [0u8; 48];
+    let res = client.read_exact(&mut ack_buf);
+    assert!(res.is_err(), "Must NOT receive ACK when ack_mode is 'off'");
+
+    drop(client);
+    thread::sleep(Duration::from_millis(50));
+
+    receiver.stop();
+    let _ = thread_handle.join();
+}
+

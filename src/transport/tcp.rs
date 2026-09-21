@@ -14,6 +14,7 @@ use std::time::Duration;
 
 pub struct TransportReceiver {
     broker_config: BrokerConfig,
+    ack_mode: String,
     clock: Arc<dyn ClockPort>,
     ingress_sink: Arc<dyn RawIngressSink>,
     running: Arc<AtomicBool>,
@@ -22,11 +23,13 @@ pub struct TransportReceiver {
 impl TransportReceiver {
     pub fn new(
         broker_config: BrokerConfig,
+        ack_mode: String,
         clock: Arc<dyn ClockPort>,
         ingress_sink: Arc<dyn RawIngressSink>,
     ) -> Self {
         Self {
             broker_config,
+            ack_mode,
             clock,
             ingress_sink,
             running: Arc::new(AtomicBool::new(true)),
@@ -71,12 +74,12 @@ impl TransportReceiver {
                         connected_at_mono: connected_mono,
                     });
 
-                    self.handle_connection(stream, generation);
+                    let end_reason = self.handle_connection(stream, generation);
 
                     self.submit_ingress_item(IngressItem::End {
                         broker_id: self.broker_config.id,
                         generation,
-                        reason: "Connection closed".to_string(),
+                        reason: end_reason,
                     });
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -99,7 +102,7 @@ impl TransportReceiver {
         }
     }
 
-    fn handle_connection(&self, mut stream: TcpStream, generation: u64) {
+    fn handle_connection(&self, mut stream: TcpStream, generation: u64) -> String {
         let mut decoder = StreamingDecoder::new(1_048_576, 65_536);
         let mut read_buf = [0u8; 8192];
         let mut frame_index: u64 = 0;
@@ -108,8 +111,8 @@ impl TransportReceiver {
         while self.running.load(Ordering::SeqCst) {
             match stream.read(&mut read_buf) {
                 Ok(0) => {
-                    // Clean EOF
-                    break;
+                    // Clean EOF from client
+                    return "Client closed connection (clean EOF)".to_string();
                 }
                 Ok(n) => {
                     if let Err(e) = decoder.push(&read_buf[..n]) {
@@ -117,11 +120,11 @@ impl TransportReceiver {
                             "Decoder push error for broker {}: {}, terminating connection",
                             self.broker_config.id, e
                         );
-                        break;
+                        return format!("Decoder push error: {}", e);
                     }
 
                     // Decode all complete frames
-                    let mut read_error = false;
+                    let mut read_error = None;
                     loop {
                         match decoder.next_frame() {
                             Ok(Some(decoded)) => {
@@ -143,8 +146,8 @@ impl TransportReceiver {
 
                                 self.submit_ingress_item(IngressItem::Frame(rx_frame));
 
-                                // If batch ACK is enabled or requested
-                                if decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH {
+                                // If batch ACK is enabled
+                                if self.ack_mode != "off" && decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH {
                                     let seq_end = decoded.frame.header.sequence_start
                                         + decoded.frame.header.tick_count as u64
                                         - 1;
@@ -159,14 +162,14 @@ impl TransportReceiver {
                                     "Malformed frame from broker {}: {}, closing connection",
                                     self.broker_config.id, e
                                 );
-                                read_error = true;
+                                read_error = Some(format!("Malformed frame: {}", e));
                                 break;
                             }
                         }
                     }
 
-                    if read_error {
-                        break;
+                    if let Some(err_msg) = read_error {
+                        return err_msg;
                     }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -180,12 +183,14 @@ impl TransportReceiver {
                     }
                     thread::sleep(Duration::from_micros(200));
                 }
-                Err(_e) => {
+                Err(e) => {
                     // Socket error or disconnected
-                    break;
+                    return format!("Socket read error: {}", e);
                 }
             }
         }
+
+        "Server stopped".to_string()
     }
 
     fn submit_ingress_item(&self, mut item: IngressItem) {

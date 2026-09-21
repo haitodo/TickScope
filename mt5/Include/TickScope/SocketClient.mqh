@@ -58,17 +58,7 @@ public:
    
    bool IsConnected()
    {
-      if(!m_connected || m_socket == INVALID_HANDLE)
-      {
-         return false;
-      }
-      if(!SocketIsConnected(m_socket))
-      {
-         PrintFormat("[TickCollector] Connection to TickCompare lost. Auto-reconnecting...");
-         Disconnect();
-         return false;
-      }
-      return true;
+      return (m_connected && m_socket != INVALID_HANDLE);
    }
    
    bool Connect()
@@ -194,6 +184,7 @@ public:
          ArrayResize(chunk, to_send);
          ArrayCopy(chunk, m_send_buffer, 0, m_send_offset, to_send);
          
+         ResetLastError();
          int sent = SocketSend(m_socket, chunk, to_send);
          if(sent > 0)
          {
@@ -202,14 +193,18 @@ public:
          else
          {
             int err = GetLastError();
-            // In non-blocking socket, 0 or error might mean socket full or disconnected
-            if(err != 0 && err != 5273) // 5273 = ERR_NETSOCKET_WOULDBLOCK
+            // 0 = Would block / no bytes transferred yet
+            // 5273 = ERR_NETSOCKET_IO_ERROR (can happen on transient buffer congestion)
+            if(err == 0 || err == 5273)
+            {
+               break; // Socket full for now, will retry next call without disconnecting
+            }
+            else
             {
                PrintFormat("[TickCollector] SocketSend error: %d, disconnecting", err);
                Disconnect();
                return false;
             }
-            break; // Socket full for now, will retry next call
          }
       }
       
@@ -226,31 +221,45 @@ public:
    {
       if(!IsConnected()) return;
       
+      ResetLastError();
       uint readable = SocketIsReadable(m_socket);
-      if(readable > 0)
+      // MQL5 SocketIsReadable can speculatively return 1 when buffer is empty.
+      // BATCH_ACK is 48 bytes (Header 40 + SeqEnd 8).
+      // Only proceed if at least 48 bytes are ready.
+      if(readable < 48) return;
+      
+      uint to_read = (readable > (uint)ArraySize(m_recv_buffer)) ? (uint)ArraySize(m_recv_buffer) : readable;
+      
+      // Use 0 timeout because SocketIsReadable indicated data is already buffered.
+      int read = SocketRead(m_socket, m_recv_buffer, to_read, 0);
+      if(read > 0)
       {
-         int read = SocketRead(m_socket, m_recv_buffer, ArraySize(m_recv_buffer), m_timeout_ms);
-         if(read > 0)
+         int offset = 0;
+         while(offset + 48 <= read)
          {
-            // Parse BATCH_ACK (Header 40 bytes + 8 bytes seq_end = 48 bytes)
-            int offset = 0;
-            while(offset + 48 <= read)
+            ushort msg_type = (ushort)(m_recv_buffer[offset + 6] | (m_recv_buffer[offset + 7] << 8));
+            if(msg_type == MSG_TYPE_BATCH_ACK)
             {
-               ushort msg_type = (ushort)(m_recv_buffer[offset + 6] | (m_recv_buffer[offset + 7] << 8));
-               if(msg_type == MSG_TYPE_BATCH_ACK)
+               ulong seq_end = 0;
+               for(int i = 0; i < 8; i++)
                {
-                  ulong seq_end = 0;
-                  for(int i = 0; i < 8; i++)
-                  {
-                     seq_end |= ((ulong)m_recv_buffer[offset + 40 + i]) << (i * 8);
-                  }
-                  if(seq_end > last_acked_seq)
-                  {
-                     last_acked_seq = seq_end;
-                  }
+                  seq_end |= ((ulong)m_recv_buffer[offset + 40 + i]) << (i * 8);
                }
-               offset += 48;
+               if(seq_end > last_acked_seq)
+               {
+                  last_acked_seq = seq_end;
+               }
             }
+            offset += 48;
+         }
+      }
+      else if(read < 0)
+      {
+         int err = GetLastError();
+         if(err != 0 && err != 5273)
+         {
+            PrintFormat("[TickCollector] SocketRead fatal error: %d, disconnecting", err);
+            Disconnect();
          }
       }
    }
