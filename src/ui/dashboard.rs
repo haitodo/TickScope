@@ -162,6 +162,19 @@ impl DashboardApp {
                             }
 
                             ui.label(format!("{:.0} t/s", b.tick_rate_1s));
+
+                            let tz_str = if b.active_utc_offset_sec == 0 {
+                                "UTC".to_string()
+                            } else {
+                                let hours = b.active_utc_offset_sec as f64 / 3600.0;
+                                if hours.fract().abs() < 1e-3 {
+                                    format!("GMT{:+}", hours as i32)
+                                } else {
+                                    format!("GMT{:+.1}", hours)
+                                }
+                            };
+                            let mode_tag = if b.is_auto_offset { "Auto" } else { "Manual" };
+                            ui.colored_label(Color32::from_rgb(100, 180, 255), format!("[{} ({})]", tz_str, mode_tag));
                         });
                     });
                 }
@@ -180,12 +193,24 @@ impl DashboardApp {
                 egui::Vec2::new(available_rect.width(), chart_height),
             );
             let painter = ui.painter_at(candle_rect);
+            let candle_view = snapshot
+                .candle_views
+                .get(&self.selected_timeframe_ms)
+                .or(snapshot.active_candles.as_ref());
+            let fallback_price = snapshot
+                .broker_overviews
+                .iter()
+                .find(|b| b.broker_id == self.selected_broker_a || b.broker_id == self.selected_broker_b)
+                .and_then(|b| b.latest_quote.as_ref())
+                .map(|q| q.mid);
+
             draw_candlestick_chart(
                 &painter,
                 candle_rect,
-                snapshot.active_candles.as_ref(),
+                candle_view,
                 self.selected_broker_a,
                 self.selected_broker_b,
+                fallback_price,
                 &self.theme,
             );
 

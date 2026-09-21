@@ -39,6 +39,8 @@ fn test_ts02_ui_headless_render() {
                 max_spread: Some(0.005),
                 health: HealthState::default(),
                 tick_rate_1s: 10.0,
+                active_utc_offset_sec: 10800,
+                is_auto_offset: true,
             },
             BrokerOverview {
                 broker_id: 2,
@@ -59,6 +61,8 @@ fn test_ts02_ui_headless_render() {
                 max_spread: Some(0.004),
                 health: HealthState::default(),
                 tick_rate_1s: 12.0,
+                active_utc_offset_sec: 7200,
+                is_auto_offset: true,
             },
             BrokerOverview {
                 broker_id: 3,
@@ -69,6 +73,8 @@ fn test_ts02_ui_headless_render() {
                 max_spread: None,
                 health: HealthState::default(),
                 tick_rate_1s: 0.0,
+                active_utc_offset_sec: 0,
+                is_auto_offset: false,
             },
         ],
         active_pair_comparison: Some(PairComparison {
@@ -94,6 +100,7 @@ fn test_ts02_ui_headless_render() {
             slot_starts: vec![UtcMs(0), UtcMs(60000)],
             slots_by_broker: HashMap::new(),
         }),
+        candle_views: HashMap::new(),
         diagnostics: Vec::new(),
     });
 
@@ -110,4 +117,90 @@ fn test_ts02_ui_headless_render() {
     assert_eq!(app.selected_pair(), (1, 2));
     app.set_selected_pair(1, 3);
     assert_eq!(app.selected_pair(), (1, 3));
+}
+
+#[test]
+fn test_candlestick_chart_scaling_and_timeframe_selection() {
+    let run_id = RunId([2u8; 16]);
+    let mut candle_views = HashMap::new();
+
+    // S10 candle view with single price candle (high == low == 155.200)
+    let s10_view = CandleView {
+        period_ms: 10000,
+        slot_starts: vec![UtcMs(0)],
+        slots_by_broker: {
+            let mut m = HashMap::new();
+            m.insert(
+                1,
+                vec![CandleSlot {
+                    broker_id: 1,
+                    segment_id: 1,
+                    period_ms: 10000,
+                    start_utc_ms: UtcMs(0),
+                    state: SlotState::Active,
+                    ohlc: Some(Ohlc {
+                        open: 155.200,
+                        high: 155.200,
+                        low: 155.200,
+                        close: 155.200,
+                        open_key: (UtcMs(0), 1),
+                        close_key: (UtcMs(0), 1),
+                    }),
+                    tick_count: 1,
+                    revision: 1,
+                    coverage: SlotCoverage::Full,
+                }],
+            );
+            m
+        },
+    };
+    candle_views.insert(10000, s10_view);
+
+    let snap = Arc::new(UiSnapshot {
+        schema_revision: 1,
+        snapshot_revision: 1,
+        projection_revision: 1,
+        run_id,
+        built_mono_ns: MonoNs(100_000_000),
+        processed_watermark_ns: MonoNs(100_000_000),
+        display_now_utc: UtcMs(1000),
+        active_pair: (1, 2),
+        broker_overviews: vec![
+            BrokerOverview {
+                broker_id: 1,
+                name: "OANDA".to_string(),
+                symbol: "USDJPY".to_string(),
+                latest_quote: Some(Quote {
+                    tick_id: TickId { broker_id: 1, session_id: 1, sequence: 1 },
+                    bid: 155.200,
+                    ask: 155.203,
+                    mid: 155.2015,
+                    spread: 0.003,
+                    rx_mono_ns: MonoNs(100_000_000),
+                    utc_ms: Some(UtcMs(1000)),
+                    is_warmup: false,
+                    is_valid: true,
+                }),
+                min_spread: Some(0.002),
+                max_spread: Some(0.005),
+                health: HealthState::default(),
+                tick_rate_1s: 10.0,
+                active_utc_offset_sec: 10800,
+                is_auto_offset: true,
+            },
+        ],
+        active_pair_comparison: None,
+        active_candles: None,
+        candle_views,
+        diagnostics: Vec::new(),
+    });
+
+    let exchange = Arc::new(SnapshotExchange::new(snap));
+    let mut app = DashboardApp::new(exchange, (1, 2));
+
+    let ctx = egui::Context::default();
+    let raw_input = egui::RawInput::default();
+    let _ = ctx.run(raw_input, |ctx| {
+        app.render_ui(ctx);
+    });
 }

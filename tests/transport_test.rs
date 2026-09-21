@@ -30,6 +30,7 @@ fn test_transport_receiver_lifecycle_and_ack() {
         pip_size: 0.01,
         utc_offset_sec: 0,
         utc_verified: false,
+        auto_utc_offset: true,
     };
 
     let receiver = Arc::new(TransportReceiver::new(
@@ -122,6 +123,7 @@ fn test_transport_receiver_ack_mode_off() {
         pip_size: 0.01,
         utc_offset_sec: 0,
         utc_verified: false,
+        auto_utc_offset: true,
     };
 
     let receiver = Arc::new(TransportReceiver::new(

@@ -5,6 +5,7 @@ use crate::contracts::models::*;
 use crate::contracts::ports::SnapshotExchangePort;
 use crate::contracts::types::*;
 use arc_swap::ArcSwap;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -43,6 +44,7 @@ impl SnapshotBuilder {
             broker_overviews: projection.broker_overviews.clone(),
             active_pair_comparison: projection.active_pair_comparison.clone(),
             active_candles,
+            candle_views: projection.candle_views.clone(),
             diagnostics: projection.global_diagnostics.clone(),
         })
     }
@@ -72,6 +74,7 @@ impl SnapshotExchange {
             broker_overviews: Vec::new(),
             active_pair_comparison: None,
             active_candles: None,
+            candle_views: HashMap::new(),
             diagnostics: Vec::new(),
         });
         Self::new(initial)

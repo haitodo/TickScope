@@ -35,6 +35,7 @@ pub fn draw_candlestick_chart(
     candle_view: Option<&CandleView>,
     broker_a: BrokerId,
     broker_b: BrokerId,
+    fallback_price: Option<f64>,
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
@@ -71,15 +72,34 @@ pub fn draw_candlestick_chart(
         }
     }
 
-    if min_price >= max_price {
-        min_price = 100.0;
-        max_price = 100.1;
-    }
+    let has_ohlc = min_price <= max_price && min_price < f64::MAX;
 
-    // Add 10% padding
-    let price_padding = (max_price - min_price) * 0.1;
-    let chart_min = min_price - price_padding;
-    let chart_max = max_price + price_padding;
+    let (chart_min, chart_max) = if has_ohlc {
+        if (max_price - min_price).abs() < 1e-5 {
+            // Single price (High == Low): add a reasonable margin (e.g. ±0.025)
+            let margin = (min_price * 0.0005).max(0.025);
+            (min_price - margin, max_price + margin)
+        } else {
+            // Add 10% padding
+            let price_padding = (max_price - min_price) * 0.1;
+            (min_price - price_padding, max_price + price_padding)
+        }
+    } else if let Some(fb) = fallback_price {
+        // No candle data yet, but have current quote: center around quote
+        let margin = (fb * 0.0005).max(0.025);
+        (fb - margin, fb + margin)
+    } else {
+        // Neither candle data nor quote available
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Waiting for Tick Data...",
+            egui::FontId::proportional(14.0),
+            Color32::GRAY,
+        );
+        return;
+    };
+
     let price_range = (chart_max - chart_min).max(0.0001);
 
     let price_to_y = |p: f64| -> f32 {
@@ -99,6 +119,16 @@ pub fn draw_candlestick_chart(
             format!("{:.3}", p),
             egui::FontId::monospace(10.0),
             Color32::from_gray(120),
+        );
+    }
+
+    if !has_ohlc {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Waiting for Candle Data in current window...\n(Ensure broker UTC offset is verified)",
+            egui::FontId::proportional(13.0),
+            Color32::from_gray(140),
         );
     }
 

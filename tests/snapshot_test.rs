@@ -28,6 +28,8 @@ fn test_ts01_snapshot_builder_and_exchange() {
                 max_spread: Some(0.005),
                 health: HealthState::default(),
                 tick_rate_1s: 15.0,
+                active_utc_offset_sec: 10800,
+                is_auto_offset: true,
             },
             BrokerOverview {
                 broker_id: 2,
@@ -38,6 +40,8 @@ fn test_ts01_snapshot_builder_and_exchange() {
                 max_spread: Some(0.003),
                 health: HealthState::default(),
                 tick_rate_1s: 20.0,
+                active_utc_offset_sec: 7200,
+                is_auto_offset: true,
             },
         ],
         active_pair: (1, 2),

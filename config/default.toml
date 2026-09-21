@@ -3,6 +3,8 @@
 active_pair = [1, 2]
 
 # Broker 1: OANDA
+# Note: auto_utc_offset = true automatically detects broker timezone (e.g. GMT+2 / GMT+3 / GMT+9)
+# from MT5 heartbeat and tick timestamps, eliminating manual offset configuration.
 [[brokers]]
 id = 1
 name = "OANDA"
@@ -13,7 +15,8 @@ digits = 3
 point_size = 0.001
 pip_size = 0.01
 utc_offset_sec = 0
-utc_verified = false
+utc_verified = true
+auto_utc_offset = true
 
 # Broker 2: Axiory
 [[brokers]]
@@ -26,7 +29,8 @@ digits = 3
 point_size = 0.001
 pip_size = 0.01
 utc_offset_sec = 0
-utc_verified = false
+utc_verified = true
+auto_utc_offset = true
 
 [protocol]
 max_payload_length = 1048576

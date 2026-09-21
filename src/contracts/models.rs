@@ -112,6 +112,8 @@ pub struct BrokerOverview {
     pub max_spread: Option<f64>,
     pub health: HealthState,
     pub tick_rate_1s: f64,
+    pub active_utc_offset_sec: i32,
+    pub is_auto_offset: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -163,5 +165,6 @@ pub struct UiSnapshot {
     pub broker_overviews: Vec<BrokerOverview>,
     pub active_pair_comparison: Option<PairComparison>,
     pub active_candles: Option<CandleView>,
+    pub candle_views: HashMap<i64, CandleView>,
     pub diagnostics: Vec<Diagnostic>,
 }

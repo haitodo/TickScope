@@ -33,9 +33,35 @@ pub fn normalize_tick(
     })
 }
 
+/// Rounds raw seconds difference to the nearest hourly offset (multiple of 3600 seconds).
+/// This eliminates millisecond jitter, network delays, and minor clock drift, reliably
+/// identifying standard FX timezone offsets such as GMT+0, GMT+2 (7200), GMT+3 (10800), GMT+9 (32400).
+pub fn round_to_hourly_offset(raw_sec: f64) -> i32 {
+    let hours = (raw_sec / 3600.0).round() as i32;
+    hours * 3600
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_round_to_hourly_offset() {
+        assert_eq!(round_to_hourly_offset(0.0), 0);
+        assert_eq!(round_to_hourly_offset(5.4), 0);
+        assert_eq!(round_to_hourly_offset(-12.0), 0);
+
+        // Winter time GMT+2 (7200 sec) with jitter
+        assert_eq!(round_to_hourly_offset(7201.5), 7200);
+        assert_eq!(round_to_hourly_offset(7190.0), 7200);
+
+        // Summer time GMT+3 (10800 sec) with jitter
+        assert_eq!(round_to_hourly_offset(10798.2), 10800);
+        assert_eq!(round_to_hourly_offset(10815.0), 10800);
+
+        // JST GMT+9 (32400 sec)
+        assert_eq!(round_to_hourly_offset(32400.0), 32400);
+    }
 
     #[test]
     fn test_normalization_checked_math() {

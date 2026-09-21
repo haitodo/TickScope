@@ -10,7 +10,7 @@ use crate::metrics::price_diff::PairDifferenceTracker;
 use crate::metrics::spread::SpreadTracker;
 use crate::tick::candle::CandleBook;
 use crate::tick::matcher::OneToOneEventMatcher;
-use crate::tick::normalize::normalize_tick;
+use crate::tick::normalize::{normalize_tick, round_to_hourly_offset};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -22,6 +22,9 @@ struct BrokerChannelState {
     expected_sequence: Sequence,
     session_id: Option<SessionId>,
     seen_sequences: HashSet<Sequence>,
+    auto_utc_offset: bool,
+    active_utc_offset_sec: i32,
+    utc_verified: bool,
 }
 
 pub struct TickEngine {
@@ -62,6 +65,9 @@ impl TickEngine {
                     expected_sequence: 0,
                     session_id: None,
                     seen_sequences: HashSet::new(),
+                    auto_utc_offset: b.auto_utc_offset,
+                    active_utc_offset_sec: b.utc_offset_sec,
+                    utc_verified: b.utc_verified,
                 },
             );
 
@@ -251,12 +257,24 @@ impl TickEngine {
         // 1. Process payload according to message type
         match &rf.frame.payload {
             FramePayload::TickBatch(ticks) => {
-                let b_cfg = self.config.brokers.iter().find(|b| b.id == broker_id).cloned();
-                let utc_offset = b_cfg.as_ref().map(|b| b.utc_offset_sec).unwrap_or(0);
-                let utc_verified = b_cfg.as_ref().map(|b| b.utc_verified).unwrap_or(false);
-
                 let ch = self.channels.get_mut(&broker_id).unwrap();
                 ch.session_id = Some(rf.frame.header.session_id);
+
+                // Auto-detection of UTC offset from ticks if enabled
+                if ch.auto_utc_offset {
+                    if let Some(unix_ns) = rf.rx_unix_ns {
+                        if let Some(first_tick) = ticks.first() {
+                            let pc_sec = (unix_ns / 1_000_000_000) as f64;
+                            let broker_sec = (first_tick.broker_time_msc as f64) / 1000.0;
+                            let raw_diff = broker_sec - pc_sec;
+                            ch.active_utc_offset_sec = round_to_hourly_offset(raw_diff);
+                            ch.utc_verified = true;
+                        }
+                    }
+                }
+
+                let utc_offset = ch.active_utc_offset_sec;
+                let utc_verified = ch.utc_verified;
 
                 for tick in ticks {
                     // Sequence ledger
@@ -351,6 +369,15 @@ impl TickEngine {
                 }
                 let ch = self.channels.get_mut(&broker_id).unwrap();
                 ch.session_id = Some(hb.session_id);
+
+                // Auto-detection from Heartbeat offset sample if enabled
+                if ch.auto_utc_offset
+                    && (rf.frame.header.header_flags & HB_FLAG_HAS_OFFSET_SAMPLE != 0
+                        || hb.server_utc_offset_sec != 0)
+                {
+                    ch.active_utc_offset_sec = round_to_hourly_offset(hb.server_utc_offset_sec as f64);
+                    ch.utc_verified = true;
+                }
             }
             FramePayload::Status(st) => {
                 if let Some(h) = self.health_states.get_mut(&broker_id) {
@@ -394,6 +421,9 @@ impl TickEngine {
             let st = self.spread_trackers.get(&b.id);
             let latest_q = self.latest_quotes.get(&b.id).cloned();
             let health = self.health_states.get(&b.id).cloned().unwrap_or_default();
+            let ch = self.channels.get(&b.id);
+            let active_utc_offset_sec = ch.map(|c| c.active_utc_offset_sec).unwrap_or(b.utc_offset_sec);
+            let is_auto_offset = ch.map(|c| c.auto_utc_offset).unwrap_or(b.auto_utc_offset);
 
             broker_overviews.push(BrokerOverview {
                 broker_id: b.id,
@@ -404,6 +434,8 @@ impl TickEngine {
                 max_spread: st.and_then(|s| s.max_spread()),
                 health,
                 tick_rate_1s: st.map(|s| s.tick_rate_1s()).unwrap_or(0.0),
+                active_utc_offset_sec,
+                is_auto_offset,
             });
         }
 

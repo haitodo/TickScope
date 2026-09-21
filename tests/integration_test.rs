@@ -62,6 +62,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             pip_size: 0.01,
             utc_offset_sec: 0,
             utc_verified: true,
+            auto_utc_offset: true,
         },
         BrokerConfig {
             id: 2,
@@ -74,6 +75,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             pip_size: 0.01,
             utc_offset_sec: 0,
             utc_verified: true,
+            auto_utc_offset: true,
         },
         BrokerConfig {
             id: 3,
@@ -86,6 +88,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             pip_size: 0.01,
             utc_offset_sec: 0,
             utc_verified: true,
+            auto_utc_offset: true,
         },
     ];
     config.active_pair = (1, 2);

@@ -17,6 +17,12 @@ pub struct BrokerConfig {
     pub utc_offset_sec: i32,
     #[serde(default)]
     pub utc_verified: bool,
+    #[serde(default = "default_auto_utc_offset")]
+    pub auto_utc_offset: bool,
+}
+
+fn default_auto_utc_offset() -> bool {
+    true
 }
 
 impl Default for BrokerConfig {
@@ -32,6 +38,7 @@ impl Default for BrokerConfig {
             pip_size: 0.01,
             utc_offset_sec: 0,
             utc_verified: false,
+            auto_utc_offset: true,
         }
     }
 }
@@ -352,6 +359,7 @@ impl Default for AppConfig {
                     pip_size: 0.01,
                     utc_offset_sec: 0,
                     utc_verified: false,
+                    auto_utc_offset: true,
                 },
                 BrokerConfig {
                     id: 2,
@@ -364,6 +372,7 @@ impl Default for AppConfig {
                     pip_size: 0.01,
                     utc_offset_sec: 0,
                     utc_verified: false,
+                    auto_utc_offset: true,
                 },
             ],
             active_pair: (1, 2),
