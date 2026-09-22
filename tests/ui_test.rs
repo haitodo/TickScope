@@ -204,3 +204,250 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
         app.render_ui(ctx);
     });
 }
+
+#[test]
+fn test_bottom_metric_shortcuts_and_cycling() {
+    use tick_compare::ui::chart::BottomMetric;
+
+    // 1. Cycling tests
+    assert_eq!(BottomMetric::MidDiff.next(), BottomMetric::BidAskDiff);
+    assert_eq!(BottomMetric::BidAskDiff.next(), BottomMetric::SpreadDiff);
+    assert_eq!(BottomMetric::SpreadDiff.next(), BottomMetric::LeadLag);
+    assert_eq!(BottomMetric::LeadLag.next(), BottomMetric::MidDiff);
+
+    assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::LeadLag);
+    assert_eq!(BottomMetric::LeadLag.prev(), BottomMetric::SpreadDiff);
+    assert_eq!(BottomMetric::SpreadDiff.prev(), BottomMetric::BidAskDiff);
+    assert_eq!(BottomMetric::BidAskDiff.prev(), BottomMetric::MidDiff);
+
+    // 2. Key mapping tests
+    assert_eq!(BottomMetric::from_key_number(1), Some(BottomMetric::MidDiff));
+    assert_eq!(BottomMetric::from_key_number(2), Some(BottomMetric::BidAskDiff));
+    assert_eq!(BottomMetric::from_key_number(3), Some(BottomMetric::SpreadDiff));
+    assert_eq!(BottomMetric::from_key_number(4), Some(BottomMetric::LeadLag));
+    assert_eq!(BottomMetric::from_key_number(5), None);
+
+    // 3. UI Key input event simulation
+    let run_id = RunId([3u8; 16]);
+    let snap = Arc::new(UiSnapshot {
+        schema_revision: 1,
+        snapshot_revision: 1,
+        projection_revision: 1,
+        run_id,
+        built_mono_ns: MonoNs(100_000_000),
+        processed_watermark_ns: MonoNs(100_000_000),
+        display_now_utc: UtcMs(1000),
+        active_pair: (1, 2),
+        broker_overviews: vec![],
+        active_pair_comparison: None,
+        active_candles: None,
+        candle_views: HashMap::new(),
+        diagnostics: Vec::new(),
+    });
+
+    let exchange = Arc::new(SnapshotExchange::new(snap));
+    let mut app = DashboardApp::new(exchange, (1, 2));
+
+    assert_eq!(app.bottom_metric(), BottomMetric::MidDiff);
+
+    let ctx = egui::Context::default();
+
+    // Simulate pressing Key 2 (Num2)
+    let mut input2 = egui::RawInput::default();
+    input2.events.push(egui::Event::Key {
+        key: egui::Key::Num2,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input2, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::BidAskDiff);
+
+    // Simulate pressing Key 3 (Num3)
+    let mut input3 = egui::RawInput::default();
+    input3.events.push(egui::Event::Key {
+        key: egui::Key::Num3,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input3, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::SpreadDiff);
+
+    // Simulate pressing Key 4 (Num4)
+    let mut input4 = egui::RawInput::default();
+    input4.events.push(egui::Event::Key {
+        key: egui::Key::Num4,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input4, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
+
+    // Simulate pressing Tab -> should cycle to MidDiff
+    let mut input_tab = egui::RawInput::default();
+    input_tab.events.push(egui::Event::Key {
+        key: egui::Key::Tab,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input_tab, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::MidDiff);
+
+    // Simulate pressing Shift+Tab -> should cycle back to LeadLag
+    let mut input_shift_tab = egui::RawInput::default();
+    input_shift_tab.modifiers = egui::Modifiers::SHIFT;
+    input_shift_tab.events.push(egui::Event::Key {
+        key: egui::Key::Tab,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::SHIFT,
+    });
+    let _ = ctx.run(input_shift_tab, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
+}
+
+#[test]
+fn test_all_bottom_metrics_render_headless() {
+    use tick_compare::ui::chart::BottomMetric;
+
+    let run_id = RunId([4u8; 16]);
+    let snap = Arc::new(UiSnapshot {
+        schema_revision: 1,
+        snapshot_revision: 1,
+        projection_revision: 1,
+        run_id,
+        built_mono_ns: MonoNs(100_000_000),
+        processed_watermark_ns: MonoNs(100_000_000),
+        display_now_utc: UtcMs(1000),
+        active_pair: (1, 2),
+        broker_overviews: vec![
+            BrokerOverview {
+                broker_id: 1,
+                name: "Broker A".to_string(),
+                symbol: "USDJPY".to_string(),
+                latest_quote: None,
+                min_spread: None,
+                max_spread: None,
+                health: HealthState::default(),
+                tick_rate_1s: 5.0,
+                active_utc_offset_sec: 0,
+                is_auto_offset: false,
+            },
+            BrokerOverview {
+                broker_id: 2,
+                name: "Broker B".to_string(),
+                symbol: "USDJPY".to_string(),
+                latest_quote: None,
+                min_spread: None,
+                max_spread: None,
+                health: HealthState::default(),
+                tick_rate_1s: 5.0,
+                active_utc_offset_sec: 0,
+                is_auto_offset: false,
+            },
+        ],
+        active_pair_comparison: Some(PairComparison {
+            broker_a: 1,
+            broker_b: 2,
+            as_of_mono_ns: MonoNs(100_000_000),
+            bid_diff: Some(0.002),
+            ask_diff: Some(0.003),
+            mid_diff: Some(0.0025),
+            spread_diff: Some(0.001),
+            recent_diff_series: vec![
+                DiffPoint {
+                    mono_ns: MonoNs(90_000_000),
+                    bid_diff: 0.001,
+                    ask_diff: 0.002,
+                    mid_diff: 0.0015,
+                    spread_diff: 0.001,
+                },
+                DiffPoint {
+                    mono_ns: MonoNs(100_000_000),
+                    bid_diff: 0.002,
+                    ask_diff: 0.003,
+                    mid_diff: 0.0025,
+                    spread_diff: 0.001,
+                },
+            ],
+            latest_match: Some(LeadLagMatch {
+                match_id: 42,
+                leader: 1,
+                follower: 2,
+                leader_event: MoveEvent {
+                    segment_id: 1,
+                    broker_id: 1,
+                    trigger_sequence: 100,
+                    rx_mono_ns: MonoNs(95_000_000),
+                    direction: MoveDirection::Up,
+                    anchor_mid: 150.000,
+                    current_mid: 150.005,
+                    mid_delta_points: 5.0,
+                    bid_delta: 0.005,
+                    ask_delta: 0.005,
+                    mid_delta: 0.005,
+                    spread_delta: 0.0,
+                    quality: MoveQuality::BothSides,
+                },
+                follower_event: MoveEvent {
+                    segment_id: 1,
+                    broker_id: 2,
+                    trigger_sequence: 102,
+                    rx_mono_ns: MonoNs(98_000_000),
+                    direction: MoveDirection::Up,
+                    anchor_mid: 149.998,
+                    current_mid: 150.003,
+                    mid_delta_points: 5.0,
+                    bid_delta: 0.005,
+                    ask_delta: 0.005,
+                    mid_delta: 0.005,
+                    spread_delta: 0.0,
+                    quality: MoveQuality::BothSides,
+                },
+                t_leader: MonoNs(95_000_000),
+                t_follower: MonoNs(98_000_000),
+                signed_delta_ns: 3_000_000,
+                abs_delta_ns: 3_000_000,
+                raw_delta_ms: 3.0,
+                ema_delta_ms: Some(2.8),
+                segment_id: 1,
+            }),
+            ema_lead_lag_ms: Some(2.8),
+        }),
+        active_candles: None,
+        candle_views: HashMap::new(),
+        diagnostics: Vec::new(),
+    });
+
+    let exchange = Arc::new(SnapshotExchange::new(snap));
+    let mut app = DashboardApp::new(exchange, (1, 2));
+    let ctx = egui::Context::default();
+
+    // Verify all metrics render successfully without panicking
+    for &metric in &BottomMetric::ALL {
+        app.set_bottom_metric(metric);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_ui(ctx);
+        });
+        assert_eq!(app.bottom_metric(), metric);
+    }
+}
+

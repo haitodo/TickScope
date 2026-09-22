@@ -1,6 +1,9 @@
 use crate::contracts::ports::SnapshotExchangePort;
 use crate::contracts::types::*;
-use crate::ui::chart::{draw_candlestick_chart, draw_difference_chart, ChartTheme};
+use crate::ui::chart::{
+    draw_bid_ask_diff_chart, draw_candlestick_chart, draw_lead_lag_view, draw_mid_diff_chart,
+    draw_spread_diff_chart, BottomMetric, ChartTheme,
+};
 use eframe::egui;
 use egui::{Color32, RichText};
 use std::sync::Arc;
@@ -11,6 +14,7 @@ pub struct DashboardApp {
     selected_broker_b: BrokerId,
     selected_timeframe_ms: i64,
     show_debug_overlay: bool,
+    bottom_metric: BottomMetric,
     theme: ChartTheme,
 }
 
@@ -25,6 +29,7 @@ impl DashboardApp {
             selected_broker_b: initial_pair.1,
             selected_timeframe_ms: 60000,
             show_debug_overlay: false,
+            bottom_metric: BottomMetric::default(),
             theme: ChartTheme::default(),
         }
     }
@@ -36,6 +41,14 @@ impl DashboardApp {
     pub fn set_selected_pair(&mut self, a: BrokerId, b: BrokerId) {
         self.selected_broker_a = a;
         self.selected_broker_b = b;
+    }
+
+    pub fn bottom_metric(&self) -> BottomMetric {
+        self.bottom_metric
+    }
+
+    pub fn set_bottom_metric(&mut self, metric: BottomMetric) {
+        self.bottom_metric = metric;
     }
 
     pub fn render_ui(&mut self, ctx: &egui::Context) {
@@ -181,16 +194,37 @@ impl DashboardApp {
             });
         });
 
+        // Keyboard Shortcuts for Bottom Metric Switching: 1-4, Tab, Shift+Tab
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::Num1) {
+                self.bottom_metric = BottomMetric::MidDiff;
+            } else if i.key_pressed(egui::Key::Num2) {
+                self.bottom_metric = BottomMetric::BidAskDiff;
+            } else if i.key_pressed(egui::Key::Num3) {
+                self.bottom_metric = BottomMetric::SpreadDiff;
+            } else if i.key_pressed(egui::Key::Num4) {
+                self.bottom_metric = BottomMetric::LeadLag;
+            } else if i.key_pressed(egui::Key::Tab) {
+                if i.modifiers.shift {
+                    self.bottom_metric = self.bottom_metric.prev();
+                } else {
+                    self.bottom_metric = self.bottom_metric.next();
+                }
+            }
+        });
+
         // Main Charts Area
         egui::CentralPanel::default().show(ctx, |ui| {
             let available_rect = ui.available_rect_before_wrap();
-            let chart_height = available_rect.height() * 0.65;
-            let diff_height = available_rect.height() * 0.33;
+            let toolbar_height = 24.0;
+            let available_chart_space = (available_rect.height() - toolbar_height - 8.0).max(100.0);
+            let candle_height = available_chart_space * 0.65;
+            let metric_height = available_chart_space * 0.35;
 
             // 1. Candlestick Chart
             let candle_rect = egui::Rect::from_min_size(
                 available_rect.min,
-                egui::Vec2::new(available_rect.width(), chart_height),
+                egui::Vec2::new(available_rect.width(), candle_height),
             );
             let painter = ui.painter_at(candle_rect);
             let candle_view = snapshot
@@ -214,12 +248,45 @@ impl DashboardApp {
                 &self.theme,
             );
 
-            // 2. Price Diff Waveform Chart
-            let diff_rect = egui::Rect::from_min_size(
+            // 2. Bottom Metric Selector Toolbar
+            let toolbar_rect = egui::Rect::from_min_size(
                 egui::Pos2::new(available_rect.left(), candle_rect.bottom() + 4.0),
-                egui::Vec2::new(available_rect.width(), diff_height),
+                egui::Vec2::new(available_rect.width(), toolbar_height),
             );
-            let diff_painter = ui.painter_at(diff_rect);
+
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(toolbar_rect), |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Indicator:").color(Color32::from_rgb(180, 200, 220)).strong());
+
+                    for &m in &BottomMetric::ALL {
+                        let is_active = self.bottom_metric == m;
+                        let text = RichText::new(m.label());
+                        let rich = if is_active {
+                            text.strong().color(Color32::from_rgb(0, 220, 255))
+                        } else {
+                            text.color(Color32::from_gray(160))
+                        };
+                        if ui.selectable_label(is_active, rich).clicked() {
+                            self.bottom_metric = m;
+                        }
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new("Keys: [1-4] or [Tab] to switch")
+                                .color(Color32::from_gray(120))
+                                .small(),
+                        );
+                    });
+                });
+            });
+
+            // 3. Bottom Indicator Area
+            let bottom_rect = egui::Rect::from_min_size(
+                egui::Pos2::new(available_rect.left(), toolbar_rect.bottom() + 4.0),
+                egui::Vec2::new(available_rect.width(), metric_height),
+            );
+            let bottom_painter = ui.painter_at(bottom_rect);
             let empty_series = Vec::new();
             let series = snapshot
                 .active_pair_comparison
@@ -227,7 +294,26 @@ impl DashboardApp {
                 .map(|c| &c.recent_diff_series)
                 .unwrap_or(&empty_series);
 
-            draw_difference_chart(&diff_painter, diff_rect, series, &self.theme);
+            match self.bottom_metric {
+                BottomMetric::MidDiff => {
+                    draw_mid_diff_chart(&bottom_painter, bottom_rect, series, &self.theme);
+                }
+                BottomMetric::BidAskDiff => {
+                    draw_bid_ask_diff_chart(&bottom_painter, bottom_rect, series, &self.theme);
+                }
+                BottomMetric::SpreadDiff => {
+                    draw_spread_diff_chart(&bottom_painter, bottom_rect, series, &self.theme);
+                }
+                BottomMetric::LeadLag => {
+                    draw_lead_lag_view(
+                        &bottom_painter,
+                        bottom_rect,
+                        snapshot.active_pair_comparison.as_ref(),
+                        &snapshot.broker_overviews,
+                        &self.theme,
+                    );
+                }
+            }
 
             // Debug Overlay
             if self.show_debug_overlay {
