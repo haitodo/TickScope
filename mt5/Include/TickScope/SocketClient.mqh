@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                 SocketClient.mqh |
-//|                                  Copyright 2026, TickCompare Team|
+//|                                  Copyright 2026, TickScope Team  |
 //|                                            https://www.mql5.com |
 //+------------------------------------------------------------------+
-#property copyright "TickCompare Team"
+#property copyright "TickScope Team"
 #property link      "https://www.mql5.com"
 #property strict
 
@@ -71,6 +71,16 @@ public:
          return false; // reconnect cooldown 1000ms
       }
       m_last_connect_attempt_msc = now_msc;
+
+      // A failed SocketConnect can leave a native handle behind. Always
+      // close that handle before creating the next attempt so startup and
+      // reconnect retries do not inherit stale socket state.
+      if(m_socket != INVALID_HANDLE)
+      {
+         SocketClose(m_socket);
+         m_socket = INVALID_HANDLE;
+      }
+      m_connected = false;
       
       // Invariant: Do not carry over partial write buffer to a brand new connection
       ClearSendBuffer();
@@ -97,7 +107,7 @@ public:
          else if(err == 5272)
          {
             PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 5272 (Cannot connect). "
-                        "Check that TickCompare app is running and port %d is open.",
+                        "Check that TickScope app is running and port %d is open.",
                         m_host, m_port, m_port);
          }
          else if(err == 5273)
@@ -114,7 +124,7 @@ public:
       }
       
       m_connected = true;
-      PrintFormat("[TickCollector] Successfully CONNECTED to TickCompare at %s:%d", m_host, m_port);
+      PrintFormat("[TickCollector] Successfully CONNECTED to TickScope at %s:%d", m_host, m_port);
       return true;
    }
    

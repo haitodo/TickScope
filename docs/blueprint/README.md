@@ -1,4 +1,4 @@
-# TickCompare 並列実装Blueprint
+# TickScope 並列実装Blueprint
 
 基準: [唯一の主要仕様 `spec.md`](../spec.md)、Revision 1.3 / 2026-09-21。本文・Appendix Aを含む全3,280行を読了して分解した。原本SHA-256: `34292C14D28BB9F3E5F6AA895B4B5973F7667A8741F4C7BA8FE81D65A7BB90D0`。
 

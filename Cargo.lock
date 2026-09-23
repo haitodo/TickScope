@@ -2195,7 +2195,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tick-compare"
+name = "tick-scope"
 version = "0.1.0"
 dependencies = [
  "arc-swap",

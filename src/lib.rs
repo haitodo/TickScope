@@ -1,4 +1,4 @@
-//! TickCompare library root.
+//! TickScope library root.
 
 pub mod config;
 pub mod contracts;

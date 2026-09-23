@@ -1,20 +1,20 @@
 //+------------------------------------------------------------------+
 //|                                                TickCollector.mq5 |
-//|                                  Copyright 2026, TickCompare Team|
+//|                                  Copyright 2026, TickScope Team  |
 //|                                            https://www.mql5.com |
 //+------------------------------------------------------------------+
-#property copyright "TickCompare Team"
+#property copyright "TickScope Team"
 #property link      "https://www.mql5.com"
 #property version   "1.00"
-#property description "TickCompare Multi-Broker Real-time Tick Collector EA"
+#property description "TickScope Multi-Broker Real-time Tick Collector EA"
 
 #include <TickScope/Protocol.mqh>
 #include <TickScope/SocketClient.mqh>
 
 //--- Inputs
 input uint   InpBrokerID            = 1;              // Broker ID (1, 2, 3...)
-input string InpServerHost          = "127.0.0.1";    // TickCompare Server Host
-input uint   InpServerPort          = 39001;          // TickCompare Server Port
+input string InpServerHost          = "127.0.0.1";    // TickScope Server Host
+input uint   InpServerPort          = 39001;          // TickScope Server Port
 input uint   InpWarmupSeconds       = 60;             // Warmup history duration (seconds)
 input uint   InpBatchCount          = 256;            // CopyTicks batch size
 input uint   InpMaxSameMsScanTicks  = 65536;          // Max scan ticks in single millisecond
@@ -241,6 +241,7 @@ int OnInit()
    g_last_acked_sequence = 0;
    g_last_tick_time_msc = 0;
    g_last_heartbeat_us = 0;
+   g_warmup_done = false;
 
    g_socket.Init(InpServerHost, InpServerPort, InpSocketTimeoutMs);
 
@@ -254,7 +255,17 @@ int OnInit()
       PrintFormat("[TickCollector] Initial connection to %s:%d failed. Will automatically retry on timer.", InpServerHost, InpServerPort);
    }
 
-   EventSetMillisecondTimer(InpHeartbeatIntervalMs);
+   // The timer is also the connection supervisor. It keeps retrying when
+   // TickScope was not running yet, so launch order is irrelevant.
+   if(!EventSetMillisecondTimer(InpHeartbeatIntervalMs))
+   {
+      int timer_error = GetLastError();
+      PrintFormat("[TickCollector] Failed to start millisecond timer, error: %d. Falling back to 1-second timer.", timer_error);
+      if(!EventSetTimer(1))
+      {
+         PrintFormat("[TickCollector] Failed to start fallback reconnect timer, error: %d", GetLastError());
+      }
+   }
    return INIT_SUCCEEDED;
 }
 
@@ -264,7 +275,10 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
-   g_socket.Flush();
+   if(g_socket.IsConnected())
+   {
+      g_socket.Flush();
+   }
    g_socket.Disconnect();
    PrintFormat("[TickCollector] Deinitialized (reason %d)", reason);
 }

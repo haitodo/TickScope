@@ -1,4 +1,4 @@
-//! Configuration schema and validation for TickCompare.
+//! Configuration schema and validation for TickScope.
 //! Reference: docs/blueprint/interfaces.md and docs/blueprint/decisions.md
 
 use crate::contracts::types::*;

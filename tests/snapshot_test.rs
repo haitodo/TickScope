@@ -59,6 +59,7 @@ fn test_ts01_snapshot_builder_and_exchange() {
         }),
         candle_views: HashMap::new(),
         global_diagnostics: Vec::new(),
+        ..Default::default()
     };
 
     let snapshot = builder.build(&proj, UtcMs(5000), MonoNs(1_000_000_000), 60000);
@@ -90,6 +91,7 @@ fn test_ts03_concurrent_exchange_latest_wins() {
             active_pair_comparison: None,
             candle_views: HashMap::new(),
             global_diagnostics: Vec::new(),
+            ..Default::default()
         };
 
         for i in 1..=50 {

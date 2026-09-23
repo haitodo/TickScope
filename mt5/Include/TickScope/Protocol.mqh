@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|                                                     Protocol.mqh |
-//|                                  Copyright 2026, TickCompare Team|
+//|                                  Copyright 2026, TickScope Team  |
 //|                                            https://www.mql5.com |
 //+------------------------------------------------------------------+
-#property copyright "TickCompare Team"
+#property copyright "TickScope Team"
 #property link      "https://www.mql5.com"
 #property strict
 

@@ -5,7 +5,6 @@ use crate::contracts::models::*;
 use crate::contracts::ports::SnapshotExchangePort;
 use crate::contracts::types::*;
 use arc_swap::ArcSwap;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -46,6 +45,13 @@ impl SnapshotBuilder {
             active_candles,
             candle_views: projection.candle_views.clone(),
             diagnostics: projection.global_diagnostics.clone(),
+            consensus: projection.consensus.clone(),
+            active_clusters: projection.active_clusters.clone(),
+            current_breadth: projection.current_breadth.clone(),
+            fingerprints: projection.fingerprints.clone(),
+            hypotheses: projection.hypotheses.clone(),
+            latency_summary: projection.latency_summary.clone(),
+            realtime_quote_points: projection.realtime_quote_points.clone(),
         })
     }
 }
@@ -62,22 +68,9 @@ impl SnapshotExchange {
     }
 
     pub fn new_empty(run_id: RunId) -> Self {
-        let initial = Arc::new(UiSnapshot {
-            schema_revision: SCHEMA_REVISION,
-            snapshot_revision: 0,
-            projection_revision: 0,
-            run_id,
-            built_mono_ns: MonoNs::ZERO,
-            processed_watermark_ns: MonoNs::ZERO,
-            display_now_utc: UtcMs::ZERO,
-            active_pair: (1, 2),
-            broker_overviews: Vec::new(),
-            active_pair_comparison: None,
-            active_candles: None,
-            candle_views: HashMap::new(),
-            diagnostics: Vec::new(),
-        });
-        Self::new(initial)
+        let mut initial = UiSnapshot::default();
+        initial.run_id = run_id;
+        Self::new(Arc::new(initial))
     }
 }
 

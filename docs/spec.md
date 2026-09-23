@@ -8,7 +8,7 @@
 
 ### 1.1 仮称
 
-**TickCompare**
+**TickScope**
 
 本アプリは、2つのFX業者のMetaTrader 5（MT5）からリアルタイムのティックデータを取得し、同一PC上で比較・可視化するためのWindowsネイティブアプリケーションである。
 
@@ -643,7 +643,7 @@ MQL5のSocket機能では接続先アドレスの許可設定が必要であり�
 EA起動時に、
 
 ```text
-TickCompare requires local socket access.
+TickScope requires local socket access.
 
 Please allow:
 127.0.0.1
@@ -1378,7 +1378,7 @@ MVPでは以下を実装しない。
 
 ```text
 ┌──────────────────────────────────────────────┐
-│ TickCompare     USDJPY       ● LIVE         │
+│ TickScope       USDJPY       ● LIVE         │
 ├──────────────────────────────────────────────┤
 │                                              │
 │ OANDA                       Axiory           │

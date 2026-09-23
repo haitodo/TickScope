@@ -140,6 +140,13 @@ pub struct PairComparison {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RealtimeQuotePoint {
+    pub mono_ns: MonoNs,
+    pub broker_mids: HashMap<BrokerId, f64>,
+    pub consensus_mid: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EngineProjection {
     pub revision: u64,
     pub watermark_ns: MonoNs,
@@ -148,6 +155,34 @@ pub struct EngineProjection {
     pub active_pair_comparison: Option<PairComparison>,
     pub candle_views: HashMap<i64, CandleView>,
     pub global_diagnostics: Vec<Diagnostic>,
+    pub consensus: Option<crate::metrics::ObservedBrokerConsensus>,
+    pub active_clusters: Vec<crate::metrics::EventCluster>,
+    pub current_breadth: Option<crate::metrics::MoveBreadth>,
+    pub fingerprints: HashMap<BrokerId, crate::metrics::BrokerFingerprint>,
+    pub hypotheses: Vec<crate::metrics::Hypothesis>,
+    pub latency_summary: crate::metrics::StageLatencySummary,
+    pub realtime_quote_points: Vec<RealtimeQuotePoint>,
+}
+
+impl Default for EngineProjection {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            watermark_ns: MonoNs::ZERO,
+            broker_overviews: Vec::new(),
+            active_pair: (1, 2),
+            active_pair_comparison: None,
+            candle_views: HashMap::new(),
+            global_diagnostics: Vec::new(),
+            consensus: None,
+            active_clusters: Vec::new(),
+            current_breadth: None,
+            fingerprints: HashMap::new(),
+            hypotheses: Vec::new(),
+            latency_summary: crate::metrics::StageLatencySummary::default(),
+            realtime_quote_points: Vec::new(),
+        }
+    }
 }
 
 pub const SCHEMA_REVISION: u32 = 1;
@@ -167,4 +202,38 @@ pub struct UiSnapshot {
     pub active_candles: Option<CandleView>,
     pub candle_views: HashMap<i64, CandleView>,
     pub diagnostics: Vec<Diagnostic>,
+    pub consensus: Option<crate::metrics::ObservedBrokerConsensus>,
+    pub active_clusters: Vec<crate::metrics::EventCluster>,
+    pub current_breadth: Option<crate::metrics::MoveBreadth>,
+    pub fingerprints: HashMap<BrokerId, crate::metrics::BrokerFingerprint>,
+    pub hypotheses: Vec<crate::metrics::Hypothesis>,
+    pub latency_summary: crate::metrics::StageLatencySummary,
+    pub realtime_quote_points: Vec<RealtimeQuotePoint>,
+}
+
+impl Default for UiSnapshot {
+    fn default() -> Self {
+        Self {
+            schema_revision: SCHEMA_REVISION,
+            snapshot_revision: 0,
+            projection_revision: 0,
+            run_id: RunId([0u8; 16]),
+            built_mono_ns: MonoNs::ZERO,
+            processed_watermark_ns: MonoNs::ZERO,
+            display_now_utc: UtcMs::ZERO,
+            active_pair: (1, 2),
+            broker_overviews: Vec::new(),
+            active_pair_comparison: None,
+            active_candles: None,
+            candle_views: HashMap::new(),
+            diagnostics: Vec::new(),
+            consensus: None,
+            active_clusters: Vec::new(),
+            current_breadth: None,
+            fingerprints: HashMap::new(),
+            hypotheses: Vec::new(),
+            latency_summary: crate::metrics::StageLatencySummary::default(),
+            realtime_quote_points: Vec::new(),
+        }
+    }
 }

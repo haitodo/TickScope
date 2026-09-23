@@ -1,4 +1,4 @@
-//! Shared data types, newtypes, units, and invariants for TickCompare.
+//! Shared data types, newtypes, units, and invariants for TickScope.
 //! Reference: docs/blueprint/interfaces.md and docs/blueprint/invariants.md
 
 use serde::{Deserialize, Serialize};
@@ -417,4 +417,3 @@ pub enum LogRecord {
     Metadata(LogMetadata),
     Diagnostic(Diagnostic),
 }
-

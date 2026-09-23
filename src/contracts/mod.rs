@@ -1,4 +1,4 @@
-//! Core contracts for TickCompare: types, ports, models, and config.
+//! Core contracts for TickScope: types, ports, models, and config.
 
 pub mod config;
 pub mod crc32c;

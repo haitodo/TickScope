@@ -42,17 +42,24 @@ impl TransportReceiver {
 
     pub fn run(&self) {
         let addr = format!("{}:{}", self.broker_config.host, self.broker_config.port);
-        let listener = match TcpListener::bind(&addr) {
-            Ok(l) => {
-                l.set_nonblocking(true).ok();
-                l
-            }
-            Err(e) => {
-                eprintln!(
-                    "Failed to bind TCP listener on {} for broker {}: {}",
-                    addr, self.broker_config.id, e
-                );
+        // Keep the receiver alive while the port is temporarily unavailable.
+        // This covers app restarts and startup races with another receiver.
+        let listener = loop {
+            if !self.running.load(Ordering::SeqCst) {
                 return;
+            }
+            match TcpListener::bind(&addr) {
+                Ok(l) => {
+                    l.set_nonblocking(true).ok();
+                    break l;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Failed to bind TCP listener on {} for broker {}: {}. Retrying...",
+                        addr, self.broker_config.id, e
+                    );
+                    thread::sleep(Duration::from_millis(250));
+                }
             }
         };
 

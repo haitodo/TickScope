@@ -1,8 +1,9 @@
 use crate::contracts::ports::SnapshotExchangePort;
 use crate::contracts::types::*;
 use crate::ui::chart::{
-    draw_bid_ask_diff_chart, draw_candlestick_chart, draw_lead_lag_view, draw_mid_diff_chart,
-    draw_spread_diff_chart, BottomMetric, ChartTheme,
+    draw_bid_ask_diff_chart, draw_candlestick_chart_multi, draw_lead_lag_view, draw_mid_diff_chart,
+    draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
+    draw_spread_diff_chart, draw_realtime_quote_path_chart, draw_state_ribbon, BottomMetric, ChartTheme,
 };
 use eframe::egui;
 use egui::{Color32, RichText};
@@ -16,6 +17,9 @@ pub struct DashboardApp {
     show_debug_overlay: bool,
     bottom_metric: BottomMetric,
     theme: ChartTheme,
+    show_candle_context: bool,
+    chart_anchor: Option<f64>,
+    pip_size: f64,
 }
 
 impl DashboardApp {
@@ -31,7 +35,17 @@ impl DashboardApp {
             show_debug_overlay: false,
             bottom_metric: BottomMetric::default(),
             theme: ChartTheme::default(),
+            show_candle_context: false,
+            chart_anchor: None,
+            pip_size: 0.01,
         }
+    }
+
+    pub fn with_pip_size(mut self, pip_size: f64) -> Self {
+        if pip_size.is_finite() && pip_size > 0.0 {
+            self.pip_size = pip_size;
+        }
+        self
     }
 
     pub fn selected_pair(&self) -> (BrokerId, BrokerId) {
@@ -57,7 +71,7 @@ impl DashboardApp {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(RichText::new("TickCompare").strong().color(Color32::from_rgb(0, 200, 255)));
+                ui.heading(RichText::new("TickScope").strong().color(Color32::from_rgb(0, 200, 255)));
                 ui.separator();
 
                 // Multi-broker Pair Selector
@@ -115,6 +129,7 @@ impl DashboardApp {
                 ui.separator();
 
                 // Timeframe selector
+                ui.checkbox(&mut self.show_candle_context, "Candle context");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 60000, "M1");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 10000, "S10");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 5000, "S5");
@@ -194,7 +209,10 @@ impl DashboardApp {
             });
         });
 
-        // Keyboard Shortcuts for Bottom Metric Switching: 1-4, Tab, Shift+Tab
+        // Keyboard Shortcuts for Bottom Metric Switching: 1-7, Tab, Shift+Tab
+        egui::TopBottomPanel::bottom("state_ribbon").show(ctx, |ui| {
+            draw_state_ribbon(ui, &snapshot.consensus, &snapshot.active_clusters, &snapshot.current_breadth);
+        });
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Num1) {
                 self.bottom_metric = BottomMetric::MidDiff;
@@ -204,6 +222,12 @@ impl DashboardApp {
                 self.bottom_metric = BottomMetric::SpreadDiff;
             } else if i.key_pressed(egui::Key::Num4) {
                 self.bottom_metric = BottomMetric::LeadLag;
+            } else if i.key_pressed(egui::Key::Num5) {
+                self.bottom_metric = BottomMetric::MidDispersion;
+            } else if i.key_pressed(egui::Key::Num6) {
+                self.bottom_metric = BottomMetric::MoveBreadthView;
+            } else if i.key_pressed(egui::Key::Num7) {
+                self.bottom_metric = BottomMetric::QuotePersistence;
             } else if i.key_pressed(egui::Key::Tab) {
                 if i.modifiers.shift {
                     self.bottom_metric = self.bottom_metric.prev();
@@ -232,21 +256,32 @@ impl DashboardApp {
                 .get(&self.selected_timeframe_ms)
                 .or(snapshot.active_candles.as_ref());
             let fallback_price = snapshot
-                .broker_overviews
-                .iter()
-                .find(|b| b.broker_id == self.selected_broker_a || b.broker_id == self.selected_broker_b)
-                .and_then(|b| b.latest_quote.as_ref())
-                .map(|q| q.mid);
+                .consensus
+                .as_ref()
+                .and_then(|c| c.consensus_mid)
+                .or_else(|| {
+                    snapshot
+                        .broker_overviews
+                        .iter()
+                        .find_map(|b| b.latest_quote.as_ref().map(|q| q.mid))
+                });
 
-            draw_candlestick_chart(
+            if self.show_candle_context {
+                draw_candlestick_chart_multi(
                 &painter,
                 candle_rect,
                 candle_view,
-                self.selected_broker_a,
-                self.selected_broker_b,
+                &snapshot.broker_overviews,
                 fallback_price,
                 &self.theme,
             );
+            } else {
+                draw_realtime_quote_path_chart(
+                    &painter, candle_rect, &snapshot.realtime_quote_points,
+                    &snapshot.broker_overviews, self.pip_size, 5.0, 0.4,
+                    &mut self.chart_anchor, &self.theme,
+                );
+            }
 
             // 2. Bottom Metric Selector Toolbar
             let toolbar_rect = egui::Rect::from_min_size(
@@ -273,7 +308,7 @@ impl DashboardApp {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            RichText::new("Keys: [1-4] or [Tab] to switch")
+                            RichText::new("Keys: [1-7] or [Tab] to switch")
                                 .color(Color32::from_gray(120))
                                 .small(),
                         );
@@ -313,6 +348,33 @@ impl DashboardApp {
                         &self.theme,
                     );
                 }
+                BottomMetric::MidDispersion => {
+                    draw_mid_dispersion_view(
+                        &bottom_painter,
+                        bottom_rect,
+                        &snapshot.consensus,
+                        &snapshot.broker_overviews,
+                        &self.theme,
+                    );
+                }
+                BottomMetric::MoveBreadthView => {
+                    draw_move_breadth_view(
+                        &bottom_painter,
+                        bottom_rect,
+                        &snapshot.current_breadth,
+                        &snapshot.active_clusters,
+                        &snapshot.broker_overviews,
+                        &self.theme,
+                    );
+                }
+                BottomMetric::QuotePersistence => {
+                    draw_quote_persistence_view(
+                        &bottom_painter,
+                        bottom_rect,
+                        &snapshot.broker_overviews,
+                        &self.theme,
+                    );
+                }
             }
 
             // Debug Overlay
@@ -343,4 +405,3 @@ impl eframe::App for DashboardApp {
         self.render_ui(ctx);
     }
 }
-

@@ -16,6 +16,7 @@
 use crate::contracts::config::Mt5DeployConfig;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Embedded copies as reliable fallback when source repo is not on disk
 pub const EMBEDDED_TICK_COLLECTOR: &str = include_str!("../../mt5/TickCollector.mq5");
@@ -43,6 +44,15 @@ pub struct TerminalDeployReport {
     pub terminal_dir: PathBuf,
     pub mql5_dir: PathBuf,
     pub results: Vec<FileDeployResult>,
+    pub compile_status: Option<DeployCompileStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeployCompileStatus {
+    Compiled,
+    UpToDate,
+    MetaEditorNotFound,
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -305,6 +315,72 @@ pub fn deploy_to_terminal(terminal: &DiscoveredTerminal, sources: &SourceFiles) 
         terminal_dir: terminal.terminal_dir.clone(),
         mql5_dir: terminal.mql5_dir.clone(),
         results,
+        compile_status: None,
+    }
+}
+
+fn find_metaeditor_in(dir: &Path, depth: u8) -> Option<PathBuf> {
+    for name in ["MetaEditor64.exe", "MetaEditor.exe"] {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    let entries = fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        if entry.file_type().map(|file_type| file_type.is_dir()).unwrap_or(false) {
+            if let Some(found) = find_metaeditor_in(&entry.path(), depth - 1) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_metaeditor() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("TICKSCOPE_METAEDITOR_PATH") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(root) = std::env::var(variable) {
+            if let Some(found) = find_metaeditor_in(Path::new(&root), 2) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn compile_deployed_ea(terminal: &TerminalDeployReport) -> DeployCompileStatus {
+    let ea_path = terminal.mql5_dir.join("Experts").join("TickCollector.mq5");
+    let ex5_path = terminal.mql5_dir.join("Experts").join("TickCollector.ex5");
+    let source_changed = terminal.results.iter().any(|result| {
+        result.rel_name == "TickCollector.mq5"
+            && matches!(result.status, DeployFileStatus::Created | DeployFileStatus::Updated)
+    });
+    if !source_changed && ex5_path.is_file() {
+        return DeployCompileStatus::UpToDate;
+    }
+
+    let metaeditor = match find_metaeditor() {
+        Some(path) => path,
+        None => return DeployCompileStatus::MetaEditorNotFound,
+    };
+    match Command::new(metaeditor)
+        .arg(format!("/compile:{}", ea_path.display()))
+        .arg("/log")
+        .status()
+    {
+        Ok(status) if status.success() => DeployCompileStatus::Compiled,
+        Ok(status) => DeployCompileStatus::Failed(format!("MetaEditor exited with {}", status)),
+        Err(error) => DeployCompileStatus::Failed(error.to_string()),
     }
 }
 
@@ -323,7 +399,8 @@ pub fn deploy_mt5_files(config: &Mt5DeployConfig) -> DeployReport {
 
     let mut terminal_reports = Vec::new();
     for term in &terminals {
-        let rep = deploy_to_terminal(term, &sources);
+        let mut rep = deploy_to_terminal(term, &sources);
+        rep.compile_status = Some(compile_deployed_ea(&rep));
         terminal_reports.push(rep);
     }
 
@@ -366,6 +443,9 @@ pub fn print_deploy_report(report: &DeployReport) {
                     f.target_path.display().to_string()
                 };
                 println!("    - {}: {}", display_path, status_str);
+            }
+            if let Some(status) = &term.compile_status {
+                println!("    - TickCollector.ex5: {:?}", status);
             }
         }
     }

@@ -1,4 +1,4 @@
-//! TickCompare application main entry point.
+//! TickScope application main entry point.
 //! Multi-broker FX real-time tick comparison and candlestick chart visualization.
 
 use eframe::egui;
@@ -17,7 +17,7 @@ fn main() -> eframe::Result<()> {
         "config/default.toml".to_string()
     };
 
-    println!("TickCompare initializing...");
+    println!("TickScope initializing...");
     println!("Loading config from: {}", config_path);
 
     let config = match load_config_from_file(Path::new(&config_path)) {
@@ -35,6 +35,7 @@ fn main() -> eframe::Result<()> {
     }
 
     let initial_pair = config.active_pair;
+    let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
     let coordinator = match RuntimeCoordinator::new(config) {
         Ok(coord) => coord,
         Err(e) => {
@@ -44,19 +45,19 @@ fn main() -> eframe::Result<()> {
     };
 
     let exchange = coordinator.exchange.clone();
-    let app = DashboardApp::new(exchange, initial_pair);
+    let app = DashboardApp::new(exchange, initial_pair).with_pip_size(pip_size);
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("TickCompare - Multi-Broker Real-time FX Tick Scope")
+            .with_title("TickScope - Multi-Broker Real-time FX Tick Scope")
             .with_inner_size([1100.0, 750.0])
             .with_min_inner_size([800.0, 500.0]),
         ..Default::default()
     };
 
-    println!("TickCompare running. Starting egui GUI window...");
+    println!("TickScope running. Starting egui GUI window...");
     eframe::run_native(
-        "TickCompare",
+        "TickScope",
         native_options,
         Box::new(|_cc| Ok(Box::new(app))),
     )

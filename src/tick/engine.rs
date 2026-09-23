@@ -5,6 +5,11 @@ use crate::contracts::config::AppConfig;
 use crate::contracts::models::*;
 use crate::contracts::ports::LogSinkPort;
 use crate::contracts::types::*;
+use crate::metrics::burst::MultiBrokerBurstDetector;
+use crate::metrics::consensus::ConsensusCalculator;
+use crate::metrics::fingerprint::{BrokerFingerprintTracker, QuotePersistenceTracker, RepricingPersistenceTracker};
+use crate::metrics::hypothesis::HypothesisEngine;
+use crate::metrics::latency::LatencyMetrics;
 use crate::metrics::lead_lag::SignificantMidMoveDetector;
 use crate::metrics::price_diff::PairDifferenceTracker;
 use crate::metrics::spread::SpreadTracker;
@@ -42,6 +47,16 @@ pub struct TickEngine {
     projection_revision: u64,
     current_watermark: MonoNs,
     diagnostics: Vec<Diagnostic>,
+
+    // Multi-Broker, Microstructure & Hypothesis additions (RFC Beta 0.3)
+    pub consensus_calc: ConsensusCalculator,
+    pub burst_detector: MultiBrokerBurstDetector,
+    pub quote_persistence: HashMap<BrokerId, QuotePersistenceTracker>,
+    pub repricing_persistence: HashMap<BrokerId, RepricingPersistenceTracker>,
+    pub fingerprint_trackers: HashMap<BrokerId, BrokerFingerprintTracker>,
+    pub hypothesis_engine: HypothesisEngine,
+    pub latency_metrics: LatencyMetrics,
+    pub realtime_quote_history: VecDeque<RealtimeQuotePoint>,
 }
 
 impl TickEngine {
@@ -53,6 +68,10 @@ impl TickEngine {
 
         let periods = vec![1000, 5000, 10000, 60000];
         let candle_book = CandleBook::new(periods);
+
+        let mut quote_persistence = HashMap::new();
+        let mut repricing_persistence = HashMap::new();
+        let mut fingerprint_trackers = HashMap::new();
 
         for b in &config.brokers {
             channels.insert(
@@ -72,6 +91,9 @@ impl TickEngine {
             );
 
             spread_trackers.insert(b.id, SpreadTracker::new(b.id));
+            quote_persistence.insert(b.id, QuotePersistenceTracker::new(b.id));
+            repricing_persistence.insert(b.id, RepricingPersistenceTracker::new(b.id));
+            fingerprint_trackers.insert(b.id, BrokerFingerprintTracker::new(b.id));
 
             let h = HealthState {
                 broker_id: b.id,
@@ -111,6 +133,12 @@ impl TickEngine {
             1,
         );
 
+        let consensus_calc = ConsensusCalculator::new(config.health.stale_after_ms);
+        let burst_detector = MultiBrokerBurstDetector::new(config.matcher.matching_window_ms, 2);
+        let hypothesis_engine = HypothesisEngine::default();
+        let latency_metrics = LatencyMetrics::default();
+        let realtime_quote_history = VecDeque::with_capacity(1280);
+
         Self {
             config,
             channels,
@@ -126,6 +154,14 @@ impl TickEngine {
             projection_revision: 0,
             current_watermark: MonoNs::ZERO,
             diagnostics: Vec::new(),
+            consensus_calc,
+            burst_detector,
+            quote_persistence,
+            repricing_persistence,
+            fingerprint_trackers,
+            hypothesis_engine,
+            latency_metrics,
+            realtime_quote_history,
         }
     }
 
@@ -334,21 +370,74 @@ impl TickEngine {
                             self.candle_book.on_tick(&norm, PriceMode::Bid, norm.utc_ms);
                         }
 
+                        // Update quote persistence tracker
+                        if let Some(qp) = self.quote_persistence.get_mut(&broker_id) {
+                            qp.on_quote(&quote);
+                        }
+
+                        // Update fingerprint tracker tick count
+                        if let Some(ft) = self.fingerprint_trackers.get_mut(&broker_id) {
+                            ft.record_tick(false, false, !is_warmup, rf.rx_mono_ns);
+                        }
+
                         // Store latest quote
                         self.latest_quotes.insert(broker_id, quote.clone());
 
-                        // If broker is part of active pair, update price diff & lead/lag
+                        // Evaluate move detectors for ALL brokers to drive multi-broker bursts and fingerprints
+                        if let Some(md) = self.move_detectors.get_mut(&broker_id) {
+                            if let Some(move_ev) = md.on_quote(&quote) {
+                                let total_b = self.config.brokers.len();
+                                let fresh_c = self.latest_quotes.values().filter(|q| {
+                                    rf.rx_mono_ns.saturating_sub(q.rx_mono_ns).as_millis() <= self.config.health.stale_after_ms as f64
+                                }).count();
+
+                                let cluster_opt = self.burst_detector.on_event(move_ev.clone(), total_b, fresh_c);
+                                if let Some(cluster) = cluster_opt {
+                                    if let Some(ft) = self.fingerprint_trackers.get_mut(&cluster.first_observed) {
+                                        ft.record_lead();
+                                    }
+                                    for &b in &cluster.participating_brokers {
+                                        if b != cluster.first_observed {
+                                            if let Some(ft) = self.fingerprint_trackers.get_mut(&b) {
+                                                ft.record_follow(cluster.observed_span_ms);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let (a, b) = self.active_pair;
+                                if broker_id == a || broker_id == b {
+                                    self.matcher.on_event(move_ev);
+                                }
+                            }
+                        }
+
+                        // If broker is part of active pair, update price diff series
                         let (a, b) = self.active_pair;
                         if broker_id == a || broker_id == b {
                             let q_a = self.latest_quotes.get(&a);
                             let q_b = self.latest_quotes.get(&b);
                             self.pair_tracker.compute_and_record(q_a, q_b, rf.rx_mono_ns);
+                        }
 
-                            if let Some(md) = self.move_detectors.get_mut(&broker_id) {
-                                if let Some(move_ev) = md.on_quote(&quote) {
-                                    self.matcher.on_event(move_ev);
-                                }
+                        // Append point to Realtime Quote Path history for all active brokers
+                        let mut mids = HashMap::new();
+                        for (&bid, q) in &self.latest_quotes {
+                            if q.is_valid && !q.is_warmup && q.mid.is_finite()
+                                && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                    <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
+                            {
+                                mids.insert(bid, q.mid);
                             }
+                        }
+                        let consensus = self.consensus_calc.compute(self.latest_quotes.values(), rf.rx_mono_ns);
+                        self.realtime_quote_history.push_back(RealtimeQuotePoint {
+                            mono_ns: rf.rx_mono_ns,
+                            broker_mids: mids,
+                            consensus_mid: consensus.consensus_mid,
+                        });
+                        while self.realtime_quote_history.len() > 1200 {
+                            self.realtime_quote_history.pop_front();
                         }
 
                         // Update health
@@ -479,6 +568,53 @@ impl TickEngine {
             candle_views.insert(period, cv);
         }
 
+        // 1. Observed Broker Consensus & Dispersion
+        let stale_brokers: Vec<BrokerId> = self.config.brokers.iter().filter(|b| {
+            !self.channels.get(&b.id).is_some_and(|ch| ch.is_connected)
+                || !self.latest_quotes.get(&b.id).is_some_and(|q| {
+                    q.is_valid && !q.is_warmup && q.mid.is_finite()
+                        && self.current_watermark.0.saturating_sub(q.rx_mono_ns.0)
+                            <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
+                })
+        }).map(|b| b.id).collect();
+        let mut consensus = self.consensus_calc.compute(
+            self.latest_quotes.values().filter(|q| !stale_brokers.contains(&q.tick_id.broker_id)),
+            self.current_watermark,
+        );
+        consensus.total_count = self.config.brokers.len();
+
+        // 2. Breadth & Active Burst Clusters
+        let current_breadth = Some(self.burst_detector.compute_breadth_with_stale_brokers(
+            self.config.brokers.len(), &stale_brokers, self.current_watermark,
+        ));
+        let mut active_clusters = Vec::new();
+        if let Some(c_up) = self.burst_detector.detect_cluster_at(MoveDirection::Up, self.config.brokers.len(), consensus.fresh_count, self.current_watermark, &stale_brokers) {
+            active_clusters.push(c_up);
+        }
+        if let Some(c_down) = self.burst_detector.detect_cluster_at(MoveDirection::Down, self.config.brokers.len(), consensus.fresh_count, self.current_watermark, &stale_brokers) {
+            active_clusters.push(c_down);
+        }
+
+        // 3. Broker Fingerprints & Hypotheses
+        let mut fingerprints = HashMap::new();
+        for (&bid, ft) in &self.fingerprint_trackers {
+            fingerprints.insert(bid, ft.compile());
+        }
+
+        let mut hypotheses = Vec::new();
+        for (&bid, fp) in &fingerprints {
+            let repricing = self.repricing_persistence.get(&bid);
+            let persistence = self.quote_persistence.get(&bid);
+            let broker_hypotheses = self.hypothesis_engine.evaluate(fp, repricing, persistence);
+            hypotheses.extend(broker_hypotheses);
+        }
+
+        // 4. Latency Summary
+        let latency_summary = self.latency_metrics.compute_summary();
+
+        // 5. Realtime Quote History
+        let realtime_quote_points: Vec<RealtimeQuotePoint> = self.realtime_quote_history.iter().cloned().collect();
+
         EngineProjection {
             revision: self.projection_revision,
             watermark_ns: self.current_watermark,
@@ -487,6 +623,13 @@ impl TickEngine {
             active_pair_comparison,
             candle_views,
             global_diagnostics: self.diagnostics.clone(),
+            consensus: Some(consensus),
+            active_clusters,
+            current_breadth,
+            fingerprints,
+            hypotheses,
+            latency_summary,
+            realtime_quote_points,
         }
     }
 }

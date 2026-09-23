@@ -1,9 +1,10 @@
 [package]
-name = "tick-compare"
+name = "tick-scope"
 version = "0.1.0"
 edition = "2021"
-authors = ["TickCompare Team"]
-description = "FX multi-broker real-time tick comparison and visualization application"
+default-run = "tick-scope"
+authors = ["TickScope Team"]
+description = "TickScope FX multi-broker real-time tick comparison and visualization application"
 
 [dependencies]
 crossbeam-channel = "0.5"
@@ -21,7 +22,7 @@ parking_lot = "0.12"
 tempfile = "3.14"
 
 [[bin]]
-name = "tick-compare"
+name = "tick-scope"
 path = "src/main.rs"
 
 [lib]

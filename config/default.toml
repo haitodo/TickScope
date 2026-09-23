@@ -1,4 +1,4 @@
-# TickCompare Default Configuration (Multi-Broker Setup)
+# TickScope Default Configuration (Multi-Broker Setup)
 
 active_pair = [1, 2]
 
@@ -25,6 +25,20 @@ name = "Axiory"
 host = "127.0.0.1"
 port = 39002
 symbol = "USDJPY"
+digits = 3
+point_size = 0.001
+pip_size = 0.01
+utc_offset_sec = 0
+utc_verified = true
+auto_utc_offset = true
+
+# Broker 3: JFX
+[[brokers]]
+id = 3
+name = "JFX"
+host = "127.0.0.1"
+port = 39003
+symbol = "USDJPY_MT"
 digits = 3
 point_size = 0.001
 pip_size = 0.01
@@ -81,4 +95,3 @@ retentions = [
 [mt5]
 auto_deploy = true
 custom_data_dirs = []
-

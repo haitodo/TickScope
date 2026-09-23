@@ -102,6 +102,7 @@ fn test_ts02_ui_headless_render() {
         }),
         candle_views: HashMap::new(),
         diagnostics: Vec::new(),
+        ..Default::default()
     });
 
     let exchange = Arc::new(SnapshotExchange::new(initial_snap));
@@ -193,6 +194,7 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
         active_candles: None,
         candle_views,
         diagnostics: Vec::new(),
+        ..Default::default()
     });
 
     let exchange = Arc::new(SnapshotExchange::new(snap));
@@ -213,9 +215,15 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     assert_eq!(BottomMetric::MidDiff.next(), BottomMetric::BidAskDiff);
     assert_eq!(BottomMetric::BidAskDiff.next(), BottomMetric::SpreadDiff);
     assert_eq!(BottomMetric::SpreadDiff.next(), BottomMetric::LeadLag);
-    assert_eq!(BottomMetric::LeadLag.next(), BottomMetric::MidDiff);
+    assert_eq!(BottomMetric::LeadLag.next(), BottomMetric::MidDispersion);
+    assert_eq!(BottomMetric::MidDispersion.next(), BottomMetric::MoveBreadthView);
+    assert_eq!(BottomMetric::MoveBreadthView.next(), BottomMetric::QuotePersistence);
+    assert_eq!(BottomMetric::QuotePersistence.next(), BottomMetric::MidDiff);
 
-    assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::LeadLag);
+    assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::QuotePersistence);
+    assert_eq!(BottomMetric::QuotePersistence.prev(), BottomMetric::MoveBreadthView);
+    assert_eq!(BottomMetric::MoveBreadthView.prev(), BottomMetric::MidDispersion);
+    assert_eq!(BottomMetric::MidDispersion.prev(), BottomMetric::LeadLag);
     assert_eq!(BottomMetric::LeadLag.prev(), BottomMetric::SpreadDiff);
     assert_eq!(BottomMetric::SpreadDiff.prev(), BottomMetric::BidAskDiff);
     assert_eq!(BottomMetric::BidAskDiff.prev(), BottomMetric::MidDiff);
@@ -225,7 +233,9 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     assert_eq!(BottomMetric::from_key_number(2), Some(BottomMetric::BidAskDiff));
     assert_eq!(BottomMetric::from_key_number(3), Some(BottomMetric::SpreadDiff));
     assert_eq!(BottomMetric::from_key_number(4), Some(BottomMetric::LeadLag));
-    assert_eq!(BottomMetric::from_key_number(5), None);
+    assert_eq!(BottomMetric::from_key_number(5), Some(BottomMetric::MidDispersion));
+    assert_eq!(BottomMetric::from_key_number(6), Some(BottomMetric::MoveBreadthView));
+    assert_eq!(BottomMetric::from_key_number(7), Some(BottomMetric::QuotePersistence));
 
     // 3. UI Key input event simulation
     let run_id = RunId([3u8; 16]);
@@ -243,6 +253,7 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         active_candles: None,
         candle_views: HashMap::new(),
         diagnostics: Vec::new(),
+        ..Default::default()
     });
 
     let exchange = Arc::new(SnapshotExchange::new(snap));
@@ -294,7 +305,7 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     });
     assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
 
-    // Simulate pressing Tab -> should cycle to MidDiff
+    // Simulate pressing Tab -> should cycle to Mid Dispersion
     let mut input_tab = egui::RawInput::default();
     input_tab.events.push(egui::Event::Key {
         key: egui::Key::Tab,
@@ -306,7 +317,7 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     let _ = ctx.run(input_tab, |ctx| {
         app.render_ui(ctx);
     });
-    assert_eq!(app.bottom_metric(), BottomMetric::MidDiff);
+    assert_eq!(app.bottom_metric(), BottomMetric::MidDispersion);
 
     // Simulate pressing Shift+Tab -> should cycle back to LeadLag
     let mut input_shift_tab = egui::RawInput::default();
@@ -435,6 +446,7 @@ fn test_all_bottom_metrics_render_headless() {
         active_candles: None,
         candle_views: HashMap::new(),
         diagnostics: Vec::new(),
+        ..Default::default()
     });
 
     let exchange = Arc::new(SnapshotExchange::new(snap));
@@ -450,4 +462,3 @@ fn test_all_bottom_metrics_render_headless() {
         assert_eq!(app.bottom_metric(), metric);
     }
 }
-
