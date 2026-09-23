@@ -64,4 +64,9 @@ impl SpreadTracker {
     pub fn tick_rate_1s(&self) -> f64 {
         self.recent_ticks.len() as f64
     }
+
+    pub fn tick_rate_1s_at(&self, now_mono: MonoNs) -> f64 {
+        let cutoff = now_mono.0.saturating_sub(1_000_000_000);
+        self.recent_ticks.iter().filter(|tick| tick.0 >= cutoff).count() as f64
+    }
 }

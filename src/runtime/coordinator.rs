@@ -149,7 +149,7 @@ impl RuntimeCoordinator {
 
                 let proj = {
                     let eng = eng_pub.lock();
-                    eng.make_projection(now_utc)
+                    eng.make_projection_at(now_utc, clk_sample.mono_ns)
                 };
 
                 let snap = builder.build(&proj, now_utc, clk_sample.mono_ns, timeframe_ms);
@@ -192,6 +192,11 @@ impl RuntimeCoordinator {
 
     pub fn set_active_pair(&self, pair: (BrokerId, BrokerId)) {
         self.engine.lock().set_active_pair(pair);
+    }
+
+    pub fn pair_selection_handler(&self) -> Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync> {
+        let engine = self.engine.clone();
+        Arc::new(move |pair| engine.lock().set_active_pair(pair))
     }
 
     pub fn stop(&mut self) {

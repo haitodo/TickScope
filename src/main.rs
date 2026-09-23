@@ -5,7 +5,6 @@ use eframe::egui;
 use std::env;
 use std::path::Path;
 use tick_compare::config::load_config_from_file;
-use tick_compare::contracts::config::AppConfig;
 use tick_compare::runtime::coordinator::RuntimeCoordinator;
 use tick_compare::ui::dashboard::DashboardApp;
 
@@ -23,8 +22,8 @@ fn main() -> eframe::Result<()> {
     let config = match load_config_from_file(Path::new(&config_path)) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("Warning: Failed to load '{}': {}. Falling back to default configuration.", config_path, e);
-            AppConfig::default()
+            eprintln!("Failed to load '{}': {}", config_path, e);
+            std::process::exit(1);
         }
     };
 
@@ -36,7 +35,7 @@ fn main() -> eframe::Result<()> {
 
     let initial_pair = config.active_pair;
     let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
-    let coordinator = match RuntimeCoordinator::new(config) {
+    let mut coordinator = match RuntimeCoordinator::new(config) {
         Ok(coord) => coord,
         Err(e) => {
             eprintln!("Fatal error starting RuntimeCoordinator: {}", e);
@@ -45,7 +44,9 @@ fn main() -> eframe::Result<()> {
     };
 
     let exchange = coordinator.exchange.clone();
-    let app = DashboardApp::new(exchange, initial_pair).with_pip_size(pip_size);
+    let app = DashboardApp::new(exchange, initial_pair)
+        .with_pip_size(pip_size)
+        .with_pair_selection_handler(coordinator.pair_selection_handler());
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -56,9 +57,12 @@ fn main() -> eframe::Result<()> {
     };
 
     println!("TickScope running. Starting egui GUI window...");
-    eframe::run_native(
+    let result = eframe::run_native(
         "TickScope",
         native_options,
         Box::new(|_cc| Ok(Box::new(app))),
-    )
+    );
+    coordinator.stop();
+    coordinator.wait_for_shutdown();
+    result
 }

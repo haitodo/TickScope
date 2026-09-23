@@ -20,6 +20,7 @@ pub struct DashboardApp {
     show_candle_context: bool,
     chart_anchor: Option<f64>,
     pip_size: f64,
+    pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
 }
 
 impl DashboardApp {
@@ -38,6 +39,7 @@ impl DashboardApp {
             show_candle_context: false,
             chart_anchor: None,
             pip_size: 0.01,
+            pair_selection_handler: None,
         }
     }
 
@@ -48,13 +50,27 @@ impl DashboardApp {
         self
     }
 
+    pub fn with_pair_selection_handler(
+        mut self,
+        handler: Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>,
+    ) -> Self {
+        self.pair_selection_handler = Some(handler);
+        self
+    }
+
     pub fn selected_pair(&self) -> (BrokerId, BrokerId) {
         (self.selected_broker_a, self.selected_broker_b)
     }
 
     pub fn set_selected_pair(&mut self, a: BrokerId, b: BrokerId) {
+        if a == b || (a, b) == self.selected_pair() {
+            return;
+        }
         self.selected_broker_a = a;
         self.selected_broker_b = b;
+        if let Some(handler) = &self.pair_selection_handler {
+            handler((a, b));
+        }
     }
 
     pub fn bottom_metric(&self) -> BottomMetric {
@@ -75,7 +91,8 @@ impl DashboardApp {
                 ui.separator();
 
                 // Multi-broker Pair Selector
-                ui.label("Compare:");
+                ui.label("Focus Pair:");
+                let previous_pair = self.selected_pair();
                 let broker_ids: Vec<BrokerId> = snapshot.broker_overviews.iter().map(|b| b.broker_id).collect();
 
                 egui::ComboBox::from_id_salt("broker_a_select")
@@ -126,6 +143,12 @@ impl DashboardApp {
                         }
                     });
 
+                if self.selected_pair() != previous_pair {
+                    if let Some(handler) = &self.pair_selection_handler {
+                        handler(self.selected_pair());
+                    }
+                }
+
                 ui.separator();
 
                 // Timeframe selector
@@ -151,8 +174,8 @@ impl DashboardApp {
                             .map(|e| format!(" (EMA: {:+.1} ms)", e))
                             .unwrap_or_default();
                         let badge = format!(
-                            "Observed Lead: {} {:+.1} ms{}",
-                            leader_name, m.raw_delta_ms, ema_text
+                            "First observed on this PC: {} ({:.1} ms){}",
+                            leader_name, m.raw_delta_ms.abs(), ema_text
                         );
                         ui.label(RichText::new(badge).strong().color(Color32::from_rgb(255, 215, 0)));
                     } else {
@@ -168,50 +191,45 @@ impl DashboardApp {
 
         // Overview panel of ALL configured brokers
         egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for b in &snapshot.broker_overviews {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.strong(&b.name);
-                            ui.label(format!("({})", b.symbol));
-
-                            let (status_text, status_color) = match b.health.connection {
-                                ConnectionState::Connected => ("Connected", Color32::GREEN),
-                                ConnectionState::Connecting => ("Connecting", Color32::YELLOW),
-                                ConnectionState::Disconnected => ("Disconnected", Color32::RED),
-                            };
-                            ui.colored_label(status_color, status_text);
-
-                            if let Some(q) = &b.latest_quote {
-                                ui.label(format!("Bid: {:.3} | Ask: {:.3}", q.bid, q.ask));
-                                ui.label(format!("Spread: {:.3}", q.spread));
-                            } else {
-                                ui.label("No Quote");
-                            }
-
-                            ui.label(format!("{:.0} t/s", b.tick_rate_1s));
-
-                            let tz_str = if b.active_utc_offset_sec == 0 {
-                                "UTC".to_string()
-                            } else {
-                                let hours = b.active_utc_offset_sec as f64 / 3600.0;
-                                if hours.fract().abs() < 1e-3 {
-                                    format!("GMT{:+}", hours as i32)
-                                } else {
-                                    format!("GMT{:+.1}", hours)
-                                }
-                            };
-                            let mode_tag = if b.is_auto_offset { "Auto" } else { "Manual" };
-                            ui.colored_label(Color32::from_rgb(100, 180, 255), format!("[{} ({})]", tz_str, mode_tag));
-                        });
-                    });
-                }
+            ui.strong("Broker Overview");
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                egui::Grid::new("broker_overview_grid").striped(true).show(ui, |ui| {
+                    for header in ["Broker", "Symbol", "Bid", "Ask", "Spread", "Quote age", "Feed", "Ticks/s"] {
+                        ui.strong(header);
+                    }
+                    ui.end_row();
+                    for b in &snapshot.broker_overviews {
+                        ui.strong(&b.name);
+                        ui.label(&b.symbol);
+                        if let Some(q) = &b.latest_quote {
+                            ui.monospace(format!("{:.3}", q.bid));
+                            ui.monospace(format!("{:.3}", q.ask));
+                            ui.monospace(format!("{:.3}", q.spread));
+                            let age_ms = snapshot.built_mono_ns.0.saturating_sub(q.rx_mono_ns.0) / 1_000_000;
+                            ui.monospace(format!("{} ms", age_ms));
+                        } else {
+                            for _ in 0..4 { ui.label("—"); }
+                        }
+                        let (status, color) = match b.health.connection {
+                            ConnectionState::Disconnected => ("DISCONNECTED", Color32::RED),
+                            ConnectionState::Connecting => ("CONNECTING", Color32::YELLOW),
+                            ConnectionState::Connected => match b.health.data_freshness {
+                                FreshnessState::Live => ("LIVE", Color32::GREEN),
+                                FreshnessState::Stale => ("STALE", Color32::YELLOW),
+                                FreshnessState::Unknown => ("WARMING", Color32::GRAY),
+                            },
+                        };
+                        ui.colored_label(color, status);
+                        ui.monospace(format!("{:.0}", b.tick_rate_1s));
+                        ui.end_row();
+                    }
+                });
             });
         });
 
         // Keyboard Shortcuts for Bottom Metric Switching: 1-7, Tab, Shift+Tab
         egui::TopBottomPanel::bottom("state_ribbon").show(ctx, |ui| {
-            draw_state_ribbon(ui, &snapshot.consensus, &snapshot.active_clusters, &snapshot.current_breadth);
+            draw_state_ribbon(ui, &snapshot.broker_overviews, &snapshot.consensus, &snapshot.active_clusters, &snapshot.current_breadth);
         });
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Num1) {

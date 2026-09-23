@@ -43,6 +43,7 @@ pub struct TickEngine {
     pair_tracker: PairDifferenceTracker,
     move_detectors: HashMap<BrokerId, SignificantMidMoveDetector>,
     matcher: OneToOneEventMatcher,
+    latest_pair_match: Option<LeadLagMatch>,
     active_pair: (BrokerId, BrokerId),
     projection_revision: u64,
     current_watermark: MonoNs,
@@ -150,6 +151,7 @@ impl TickEngine {
             pair_tracker,
             move_detectors,
             matcher,
+            latest_pair_match: None,
             active_pair,
             projection_revision: 0,
             current_watermark: MonoNs::ZERO,
@@ -166,8 +168,10 @@ impl TickEngine {
     }
 
     pub fn set_active_pair(&mut self, pair: (BrokerId, BrokerId)) {
-        if self.channels.contains_key(&pair.0) && self.channels.contains_key(&pair.1) {
+        if pair.0 != pair.1 && pair != self.active_pair
+            && self.channels.contains_key(&pair.0) && self.channels.contains_key(&pair.1) {
             self.active_pair = pair;
+            self.latest_pair_match = None;
             self.pair_tracker = PairDifferenceTracker::new(
                 pair.0,
                 pair.1,
@@ -181,6 +185,7 @@ impl TickEngine {
                 self.config.matcher.pending_event_capacity,
                 1,
             );
+            self.projection_revision += 1;
         }
     }
 
@@ -195,8 +200,13 @@ impl TickEngine {
             IngressItem::Connected { generation, .. } => {
                 ch.is_connected = true;
                 ch.generation = generation;
+                self.latest_quotes.remove(&broker_id);
                 if let Some(h) = self.health_states.get_mut(&broker_id) {
                     h.connection = ConnectionState::Connected;
+                    h.data_freshness = FreshnessState::Unknown;
+                    h.last_live_tick_rx_mono = None;
+                    h.last_heartbeat_rx_mono = None;
+                    h.heartbeat = HeartbeatState::Unknown;
                 }
             }
             IngressItem::Progress { watermark_ns, .. } => {
@@ -213,6 +223,7 @@ impl TickEngine {
             IngressItem::End { generation, reason, .. } => {
                 if ch.generation == generation {
                     ch.is_connected = false;
+                    self.latest_quotes.remove(&broker_id);
                     if let Some(h) = self.health_states.get_mut(&broker_id) {
                         h.connection = ConnectionState::Disconnected;
                     }
@@ -232,6 +243,9 @@ impl TickEngine {
         }
 
         self.drain_and_process_merge();
+        if self.channels.get(&broker_id).is_some_and(|ch| !ch.is_connected) {
+            self.latest_quotes.remove(&broker_id);
+        }
     }
 
     fn calculate_global_watermark(&self) -> MonoNs {
@@ -294,6 +308,10 @@ impl TickEngine {
         match &rf.frame.payload {
             FramePayload::TickBatch(ticks) => {
                 let ch = self.channels.get_mut(&broker_id).unwrap();
+                if ch.session_id != Some(rf.frame.header.session_id) {
+                    ch.expected_sequence = 0;
+                    ch.seen_sequences.clear();
+                }
                 ch.session_id = Some(rf.frame.header.session_id);
 
                 // Auto-detection of UTC offset from ticks if enabled
@@ -357,17 +375,22 @@ impl TickEngine {
                             rx_mono_ns: rf.rx_mono_ns,
                             utc_ms: Some(UtcMs(tick.broker_time_msc)),
                             is_warmup,
-                            is_valid: tick.bid > 0.0 && tick.ask > 0.0 && tick.ask >= tick.bid,
+                            is_valid: tick.bid.is_finite() && tick.ask.is_finite()
+                                && tick.bid > 0.0 && tick.ask > 0.0 && tick.ask >= tick.bid,
                         };
 
                         // Update spread tracker
-                        if let Some(st) = self.spread_trackers.get_mut(&broker_id) {
-                            st.on_quote(quote.spread, rf.rx_mono_ns);
+                        if quote.is_valid {
+                            if let Some(st) = self.spread_trackers.get_mut(&broker_id) {
+                                st.on_quote(quote.spread, rf.rx_mono_ns);
+                            }
                         }
 
                         // Feed CandleBook if valid
-                        if let Ok(norm) = normalize_tick(&obs, utc_offset, utc_verified, 1) {
-                            self.candle_book.on_tick(&norm, PriceMode::Bid, norm.utc_ms);
+                        if quote.is_valid {
+                            if let Ok(norm) = normalize_tick(&obs, utc_offset, utc_verified, 1) {
+                                self.candle_book.on_tick(&norm, PriceMode::Bid, norm.utc_ms);
+                            }
                         }
 
                         // Update quote persistence tracker
@@ -377,18 +400,24 @@ impl TickEngine {
 
                         // Update fingerprint tracker tick count
                         if let Some(ft) = self.fingerprint_trackers.get_mut(&broker_id) {
-                            ft.record_tick(false, false, !is_warmup, rf.rx_mono_ns);
+                            ft.record_tick(false, false, !is_warmup && quote.is_valid, rf.rx_mono_ns);
                         }
 
                         // Store latest quote
-                        self.latest_quotes.insert(broker_id, quote.clone());
+                        if quote.is_valid {
+                            self.latest_quotes.insert(broker_id, quote.clone());
+                        }
 
                         // Evaluate move detectors for ALL brokers to drive multi-broker bursts and fingerprints
-                        if let Some(md) = self.move_detectors.get_mut(&broker_id) {
-                            if let Some(move_ev) = md.on_quote(&quote) {
+                        if quote.is_valid && !quote.is_warmup {
+                            let move_event = self.move_detectors.get_mut(&broker_id)
+                                .and_then(|md| md.on_quote(&quote));
+                            if let Some(move_ev) = move_event {
                                 let total_b = self.config.brokers.len();
                                 let fresh_c = self.latest_quotes.values().filter(|q| {
-                                    rf.rx_mono_ns.saturating_sub(q.rx_mono_ns).as_millis() <= self.config.health.stale_after_ms as f64
+                                    q.is_valid && !q.is_warmup && q.mid.is_finite()
+                                        && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                            <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
                                 }).count();
 
                                 let cluster_opt = self.burst_detector.on_event(move_ev.clone(), total_b, fresh_c);
@@ -407,16 +436,23 @@ impl TickEngine {
 
                                 let (a, b) = self.active_pair;
                                 if broker_id == a || broker_id == b {
-                                    self.matcher.on_event(move_ev);
+                                    if let Some(pair_match) = self.matcher.on_event(move_ev) {
+                                        self.latest_pair_match = Some(pair_match);
+                                    }
                                 }
                             }
                         }
 
                         // If broker is part of active pair, update price diff series
                         let (a, b) = self.active_pair;
-                        if broker_id == a || broker_id == b {
-                            let q_a = self.latest_quotes.get(&a);
-                            let q_b = self.latest_quotes.get(&b);
+                        if (broker_id == a || broker_id == b) && quote.is_valid && !quote.is_warmup {
+                            let fresh = |id| self.latest_quotes.get(&id).filter(|q| {
+                                q.is_valid && !q.is_warmup
+                                    && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                        <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
+                            });
+                            let q_a = fresh(a);
+                            let q_b = fresh(b);
                             self.pair_tracker.compute_and_record(q_a, q_b, rf.rx_mono_ns);
                         }
 
@@ -443,7 +479,7 @@ impl TickEngine {
                         // Update health
                         if let Some(h) = self.health_states.get_mut(&broker_id) {
                             h.total_ticks_received += 1;
-                            if !is_warmup {
+                            if !is_warmup && quote.is_valid {
                                 h.last_live_tick_rx_mono = Some(rf.rx_mono_ns);
                                 h.data_freshness = FreshnessState::Live;
                             }
@@ -452,12 +488,16 @@ impl TickEngine {
                 }
             }
             FramePayload::Heartbeat(hb) => {
+                let ch = self.channels.get_mut(&broker_id).unwrap();
+                if ch.session_id != Some(hb.session_id) {
+                    ch.expected_sequence = 0;
+                    ch.seen_sequences.clear();
+                }
+                ch.session_id = Some(hb.session_id);
                 if let Some(h) = self.health_states.get_mut(&broker_id) {
                     h.last_heartbeat_rx_mono = Some(rf.rx_mono_ns);
                     h.heartbeat = HeartbeatState::Ok;
                 }
-                let ch = self.channels.get_mut(&broker_id).unwrap();
-                ch.session_id = Some(hb.session_id);
 
                 // Auto-detection from Heartbeat offset sample if enabled
                 if ch.auto_utc_offset
@@ -504,12 +544,24 @@ impl TickEngine {
     }
 
     pub fn make_projection(&self, current_utc_now: UtcMs) -> EngineProjection {
+        self.make_projection_at(current_utc_now, self.current_watermark)
+    }
+
+    pub fn make_projection_at(&self, current_utc_now: UtcMs, now_mono: MonoNs) -> EngineProjection {
         let mut broker_overviews = Vec::new();
 
         for b in &self.config.brokers {
             let st = self.spread_trackers.get(&b.id);
             let latest_q = self.latest_quotes.get(&b.id).cloned();
-            let health = self.health_states.get(&b.id).cloned().unwrap_or_default();
+            let mut health = self.health_states.get(&b.id).cloned().unwrap_or_default();
+            if health.connection == ConnectionState::Connected {
+                health.data_freshness = match health.last_live_tick_rx_mono {
+                    Some(last) if now_mono.0.saturating_sub(last.0)
+                        <= self.config.health.stale_after_ms.saturating_mul(1_000_000) => FreshnessState::Live,
+                    Some(_) => FreshnessState::Stale,
+                    None => FreshnessState::Unknown,
+                };
+            }
             let ch = self.channels.get(&b.id);
             let active_utc_offset_sec = ch.map(|c| c.active_utc_offset_sec).unwrap_or(b.utc_offset_sec);
             let is_auto_offset = ch.map(|c| c.auto_utc_offset).unwrap_or(b.auto_utc_offset);
@@ -522,20 +574,28 @@ impl TickEngine {
                 min_spread: st.and_then(|s| s.min_spread()),
                 max_spread: st.and_then(|s| s.max_spread()),
                 health,
-                tick_rate_1s: st.map(|s| s.tick_rate_1s()).unwrap_or(0.0),
+                tick_rate_1s: st.map(|s| s.tick_rate_1s_at(now_mono)).unwrap_or(0.0),
                 active_utc_offset_sec,
                 is_auto_offset,
             });
         }
 
         let (a, b) = self.active_pair;
-        let q_a = self.latest_quotes.get(&a);
-        let q_b = self.latest_quotes.get(&b);
+        let fresh_quote = |broker_id: BrokerId| {
+            self.latest_quotes.get(&broker_id).filter(|q| {
+                self.channels.get(&broker_id).is_some_and(|ch| ch.is_connected)
+                    && q.is_valid && !q.is_warmup && q.mid.is_finite()
+                    && now_mono.0.saturating_sub(q.rx_mono_ns.0)
+                        <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
+            })
+        };
+        let q_a = fresh_quote(a);
+        let q_b = fresh_quote(b);
 
         let active_pair_comparison = Some(PairComparison {
             broker_a: a,
             broker_b: b,
-            as_of_mono_ns: self.current_watermark,
+            as_of_mono_ns: now_mono,
             bid_diff: if let (Some(qa), Some(qb)) = (q_a, q_b) {
                 Some(qa.bid - qb.bid)
             } else {
@@ -557,7 +617,10 @@ impl TickEngine {
                 None
             },
             recent_diff_series: self.pair_tracker.series(),
-            latest_match: None,
+            latest_match: self.latest_pair_match.as_ref().filter(|m| {
+                q_a.is_some() && q_b.is_some()
+                    && now_mono.0.saturating_sub(m.t_follower.0) <= 5_000_000_000
+            }).cloned(),
             ema_lead_lag_ms: self.matcher.current_ema_ms,
         });
 
@@ -573,25 +636,25 @@ impl TickEngine {
             !self.channels.get(&b.id).is_some_and(|ch| ch.is_connected)
                 || !self.latest_quotes.get(&b.id).is_some_and(|q| {
                     q.is_valid && !q.is_warmup && q.mid.is_finite()
-                        && self.current_watermark.0.saturating_sub(q.rx_mono_ns.0)
+                        && now_mono.0.saturating_sub(q.rx_mono_ns.0)
                             <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
                 })
         }).map(|b| b.id).collect();
         let mut consensus = self.consensus_calc.compute(
             self.latest_quotes.values().filter(|q| !stale_brokers.contains(&q.tick_id.broker_id)),
-            self.current_watermark,
+            now_mono,
         );
         consensus.total_count = self.config.brokers.len();
 
         // 2. Breadth & Active Burst Clusters
         let current_breadth = Some(self.burst_detector.compute_breadth_with_stale_brokers(
-            self.config.brokers.len(), &stale_brokers, self.current_watermark,
+            self.config.brokers.len(), &stale_brokers, now_mono,
         ));
         let mut active_clusters = Vec::new();
-        if let Some(c_up) = self.burst_detector.detect_cluster_at(MoveDirection::Up, self.config.brokers.len(), consensus.fresh_count, self.current_watermark, &stale_brokers) {
+        if let Some(c_up) = self.burst_detector.detect_cluster_at(MoveDirection::Up, self.config.brokers.len(), consensus.fresh_count, now_mono, &stale_brokers) {
             active_clusters.push(c_up);
         }
-        if let Some(c_down) = self.burst_detector.detect_cluster_at(MoveDirection::Down, self.config.brokers.len(), consensus.fresh_count, self.current_watermark, &stale_brokers) {
+        if let Some(c_down) = self.burst_detector.detect_cluster_at(MoveDirection::Down, self.config.brokers.len(), consensus.fresh_count, now_mono, &stale_brokers) {
             active_clusters.push(c_down);
         }
 

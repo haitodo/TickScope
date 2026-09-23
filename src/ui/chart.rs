@@ -2,7 +2,7 @@ use crate::contracts::models::{
     BrokerOverview, CandleView, DiffPoint, MoveDirection, MoveQuality, Ohlc, PairComparison,
     RealtimeQuotePoint, SlotState,
 };
-use crate::contracts::types::BrokerId;
+use crate::contracts::types::{BrokerId, ConnectionState, FreshnessState};
 use crate::metrics::{
     EventCluster, MoveBreadth, ObservedBrokerConsensus, StageLatencySummary,
 };
@@ -737,8 +737,8 @@ pub fn draw_lead_lag_view(
             .unwrap_or_default();
 
         let header_text = format!(
-            "Observed Leader: {} (leads by {:.1} ms{})",
-            leader_name, m.raw_delta_ms, ema_text
+            "First observed on this PC: {} ({:.1} ms{})",
+            leader_name, m.raw_delta_ms.abs(), ema_text
         );
 
         painter.text(
@@ -798,7 +798,7 @@ pub fn draw_lead_lag_view(
         );
 
         // Bar indicator
-        let bar_len = ((m.raw_delta_ms / 100.0) as f32 * max_bar_half_width).clamp(8.0, max_bar_half_width);
+        let bar_len = ((m.raw_delta_ms.abs() / 100.0) as f32 * max_bar_half_width).clamp(8.0, max_bar_half_width);
         let (bar_rect, bar_color) = if m.leader == comp.broker_a {
             (
                 Rect::from_min_max(
@@ -832,7 +832,7 @@ pub fn draw_lead_lag_view(
 
         let details = format!(
             "Match #{}: {} followed {} | Delta: {:.1} ms | Dir: {} | Quality: {} | ΔMid: {:.1} pts",
-            m.match_id, follower_name, leader_name, m.raw_delta_ms, dir_str, quality_str, m.leader_event.mid_delta_points
+            m.match_id, follower_name, leader_name, m.raw_delta_ms.abs(), dir_str, quality_str, m.leader_event.mid_delta_points
         );
 
         painter.text(
@@ -1007,7 +1007,11 @@ pub fn draw_realtime_quote_path_chart(
     for b in broker_overviews {
         if let Some(&idx) = broker_index.get(&b.broker_id) {
             let color = broker_color_for(theme, idx);
-            let label = if let Some(q) = &b.latest_quote {
+            let label = if b.health.connection != ConnectionState::Connected {
+                format!("{}: disconnected", b.name)
+            } else if b.health.data_freshness != FreshnessState::Live {
+                format!("{}: stale / warming", b.name)
+            } else if let Some(q) = &b.latest_quote {
                 format!("{}: {:.3}", b.name, q.mid)
             } else {
                 format!("{}: --", b.name)
@@ -1025,7 +1029,7 @@ pub fn draw_realtime_quote_path_chart(
     painter.text(
         Pos2::new(legend_x, legend_y),
         egui::Align2::RIGHT_TOP,
-        format!("Median: {:.3}", center_price),
+        format!("Observed Broker Median: {:.3}", center_price),
         egui::FontId::monospace(10.0),
         theme.median_line,
     );
@@ -1034,11 +1038,31 @@ pub fn draw_realtime_quote_path_chart(
 /// One-Line State Ribbon (RFC §57)
 pub fn draw_state_ribbon(
     ui: &mut egui::Ui,
+    brokers: &[BrokerOverview],
     consensus: &Option<ObservedBrokerConsensus>,
     clusters: &[EventCluster],
     breadth: &Option<MoveBreadth>,
 ) {
     ui.horizontal(|ui| {
+        let live_count = brokers.iter().filter(|b| {
+            b.health.connection == ConnectionState::Connected
+                && b.health.data_freshness == FreshnessState::Live
+        }).count();
+        let overloaded = brokers.iter().any(|b| {
+            let flags = b.health.overload;
+            flags.receiver || flags.engine || flags.logger || flags.analysis
+        });
+        let (global_status, global_color) = if overloaded {
+            ("OVERLOAD", Color32::RED)
+        } else if !brokers.is_empty() && live_count == brokers.len() {
+            ("SYSTEM_OK", Color32::GREEN)
+        } else if live_count > 0 {
+            ("PARTIAL", Color32::YELLOW)
+        } else {
+            ("DEGRADED", Color32::RED)
+        };
+        ui.colored_label(global_color, global_status);
+        ui.separator();
         if let Some(c) = consensus {
             let fresh_color = if c.fresh_count == c.total_count {
                 Color32::from_rgb(0, 200, 160)
@@ -1047,8 +1071,12 @@ pub fn draw_state_ribbon(
             };
             ui.colored_label(fresh_color, format!("Fresh {}/{}", c.fresh_count, c.total_count));
             ui.separator();
+            if let Some(median) = c.consensus_mid {
+                ui.label(format!("Observed Broker Median {:.3}", median));
+                ui.separator();
+            }
             if let Some(range) = c.mid_range {
-                ui.label(format!("Range {:.1}pt", range * 1000.0));
+                ui.label(format!("Range {:.3}", range));
             }
             ui.separator();
         }
@@ -1100,7 +1128,9 @@ pub fn draw_mid_dispersion_view(
     let row_h = (bar_height / n as f32).min(22.0);
     let cx = rect.center().x;
     let max_half = rect.width() * 0.35;
-    let max_dev = broker_overviews.iter().filter_map(|b| b.latest_quote.as_ref().map(|q| (q.mid - median).abs())).fold(0.001_f64, f64::max);
+    let max_dev = broker_overviews.iter().filter(|b| {
+        b.health.connection == ConnectionState::Connected && b.health.data_freshness == FreshnessState::Live
+    }).filter_map(|b| b.latest_quote.as_ref().map(|q| (q.mid - median).abs())).fold(0.001_f64, f64::max);
 
     painter.line_segment([Pos2::new(cx, bar_top), Pos2::new(cx, bar_top + bar_height)], Stroke::new(1.0_f32, theme.zero_line));
 
@@ -1109,6 +1139,12 @@ pub fn draw_mid_dispersion_view(
         let color = broker_color_for(theme, i);
         painter.text(Pos2::new(rect.left() + 8.0, y), egui::Align2::LEFT_CENTER, &b.name, egui::FontId::monospace(11.0), color);
 
+        if b.health.connection != ConnectionState::Connected || b.health.data_freshness != FreshnessState::Live {
+            painter.text(Pos2::new(rect.right() - 8.0, y), egui::Align2::RIGHT_CENTER,
+                if b.health.connection == ConnectionState::Disconnected { "DISCONNECTED" } else { "STALE / WARMING" },
+                egui::FontId::monospace(10.0), Color32::GRAY);
+            continue;
+        }
         if let Some(q) = &b.latest_quote {
             let dev = q.mid - median;
             let bar_len = ((dev.abs() / max_dev) as f32 * max_half).clamp(2.0, max_half);
