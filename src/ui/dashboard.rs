@@ -469,9 +469,8 @@ impl DashboardApp {
             );
             let bottom_painter = ui.painter_at(bottom_rect);
             let empty_series = Vec::new();
-            let series = snapshot
-                .active_pair_comparison
-                .as_ref()
+            let comparison = snapshot.active_pair_comparison.as_ref();
+            let series = comparison
                 .map(|c| &c.recent_diff_series)
                 .unwrap_or(&empty_series);
 
@@ -481,6 +480,7 @@ impl DashboardApp {
                         &bottom_painter,
                         bottom_rect,
                         series,
+                        comparison,
                         self.x_axis_mode,
                         snapshot.built_mono_ns,
                         self.visible_seconds,
@@ -493,6 +493,7 @@ impl DashboardApp {
                         &bottom_painter,
                         bottom_rect,
                         series,
+                        comparison,
                         self.x_axis_mode,
                         snapshot.built_mono_ns,
                         self.visible_seconds,
@@ -505,6 +506,7 @@ impl DashboardApp {
                         &bottom_painter,
                         bottom_rect,
                         series,
+                        comparison,
                         self.x_axis_mode,
                         snapshot.built_mono_ns,
                         self.visible_seconds,

@@ -495,6 +495,7 @@ pub fn draw_difference_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    comparison: Option<&PairComparison>,
     x_axis_mode: ChartXAxisMode,
     now_mono: MonoNs,
     visible_seconds: u64,
@@ -505,11 +506,83 @@ pub fn draw_difference_chart(
         painter,
         rect,
         series,
+        comparison,
         x_axis_mode,
         now_mono,
         visible_seconds,
         visible_ticks,
         theme,
+    );
+}
+
+struct DifferenceHeader {
+    text: String,
+    is_current: bool,
+}
+
+/// Builds the value label for a difference chart without treating the last
+/// retained history point as a live value. A missing current value means that
+/// the selected pair cannot presently be compared (for example, one quote is
+/// stale), even when the chart still has valid historical points to show.
+fn difference_header<FCurrent, FLast>(
+    comparison: Option<&PairComparison>,
+    series: &[DiffPoint],
+    now_mono: MonoNs,
+    current_label: FCurrent,
+    last_valid_label: FLast,
+) -> DifferenceHeader
+where
+    FCurrent: Fn(&PairComparison) -> Option<String>,
+    FLast: Fn(&DiffPoint) -> String,
+{
+    if let Some(text) = comparison.and_then(current_label) {
+        return DifferenceHeader {
+            text: format!("LIVE · {text}"),
+            is_current: true,
+        };
+    }
+
+    if let Some(last) = series.last() {
+        let age_ms = now_mono.0.saturating_sub(last.mono_ns.0) / 1_000_000;
+        let age = if age_ms < 1_000 {
+            format!("{age_ms} ms ago")
+        } else if age_ms < 60_000 {
+            format!("{:.1} s ago", age_ms as f64 / 1_000.0)
+        } else {
+            format!("{} min ago", age_ms / 60_000)
+        };
+        return DifferenceHeader {
+            text: format!(
+                "Comparison unavailable · Last valid {} ({age})",
+                last_valid_label(last)
+            ),
+            is_current: false,
+        };
+    }
+
+    DifferenceHeader {
+        text: "Comparison unavailable · No valid comparison yet".to_owned(),
+        is_current: false,
+    }
+}
+
+fn draw_difference_header(
+    painter: &egui::Painter,
+    plot_rect: Rect,
+    rect: Rect,
+    header: &DifferenceHeader,
+    current_color: Color32,
+) {
+    painter.text(
+        Pos2::new(plot_rect.right() - 4.0, rect.top() + 6.0),
+        egui::Align2::RIGHT_TOP,
+        &header.text,
+        egui::FontId::monospace(if header.is_current { 12.0 } else { 11.0 }),
+        if header.is_current {
+            current_color
+        } else {
+            Color32::from_rgb(255, 190, 80)
+        },
     );
 }
 
@@ -587,6 +660,7 @@ pub fn draw_mid_diff_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    comparison: Option<&PairComparison>,
     x_axis_mode: ChartXAxisMode,
     now_mono: MonoNs,
     visible_seconds: u64,
@@ -595,13 +669,25 @@ pub fn draw_mid_diff_chart(
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
 
+    let header = difference_header(
+        comparison,
+        series,
+        now_mono,
+        |comparison| {
+            comparison
+                .mid_diff
+                .map(|value| format!("Mid A - B: {} price", format_price_delta(value)))
+        },
+        |point| format!("Mid A - B: {} price", format_price_delta(point.mid_diff)),
+    );
+
     if series.is_empty() {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "No difference data yet",
+            &header.text,
             egui::FontId::proportional(13.0),
-            Color32::GRAY,
+            Color32::from_rgb(255, 190, 80),
         );
         return;
     }
@@ -627,17 +713,7 @@ pub fn draw_mid_diff_chart(
     };
     draw_diff_scale(painter, rect, plot_rect, extreme, theme);
 
-    // Latest badge
-    if let Some(last) = series.last() {
-        let label = format!("Mid A - B: {} price", format_price_delta(last.mid_diff));
-        painter.text(
-            Pos2::new(plot_rect.right() - 4.0, rect.top() + 6.0),
-            egui::Align2::RIGHT_TOP,
-            label,
-            egui::FontId::monospace(12.0),
-            theme.diff_line,
-        );
-    }
+    draw_difference_header(painter, plot_rect, rect, &header, theme.diff_line);
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
     let mut previous = None;
@@ -665,6 +741,7 @@ pub fn draw_bid_ask_diff_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    comparison: Option<&PairComparison>,
     x_axis_mode: ChartXAxisMode,
     now_mono: MonoNs,
     visible_seconds: u64,
@@ -673,13 +750,34 @@ pub fn draw_bid_ask_diff_chart(
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
 
+    let header = difference_header(
+        comparison,
+        series,
+        now_mono,
+        |comparison| match (comparison.bid_diff, comparison.ask_diff) {
+            (Some(bid), Some(ask)) => Some(format!(
+                "Bid A - B: {}  Ask A - B: {} price",
+                format_price_delta(bid),
+                format_price_delta(ask)
+            )),
+            _ => None,
+        },
+        |point| {
+            format!(
+                "Bid A - B: {}  Ask A - B: {} price",
+                format_price_delta(point.bid_diff),
+                format_price_delta(point.ask_diff)
+            )
+        },
+    );
+
     if series.is_empty() {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "No difference data yet",
+            &header.text,
             egui::FontId::proportional(13.0),
-            Color32::GRAY,
+            Color32::from_rgb(255, 190, 80),
         );
         return;
     }
@@ -705,21 +803,7 @@ pub fn draw_bid_ask_diff_chart(
     };
     draw_diff_scale(painter, rect, plot_rect, extreme, theme);
 
-    // Legend & latest values
-    if let Some(last) = series.last() {
-        let text = format!(
-            "Bid A - B: {}  Ask A - B: {} price",
-            format_price_delta(last.bid_diff),
-            format_price_delta(last.ask_diff)
-        );
-        painter.text(
-            Pos2::new(plot_rect.right() - 4.0, rect.top() + 6.0),
-            egui::Align2::RIGHT_TOP,
-            text,
-            egui::FontId::monospace(12.0),
-            Color32::WHITE,
-        );
-    }
+    draw_difference_header(painter, plot_rect, rect, &header, Color32::WHITE);
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
     let mut previous_bid = None;
@@ -770,6 +854,7 @@ pub fn draw_spread_diff_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    comparison: Option<&PairComparison>,
     x_axis_mode: ChartXAxisMode,
     now_mono: MonoNs,
     visible_seconds: u64,
@@ -778,13 +863,44 @@ pub fn draw_spread_diff_chart(
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
 
+    let spread_status = |value: f64, tense: &str| {
+        if value > 0.0001 {
+            format!("(A {tense} wider)")
+        } else if value < -0.0001 {
+            format!("(B {tense} wider)")
+        } else {
+            "(Equal)".to_owned()
+        }
+    };
+    let header = difference_header(
+        comparison,
+        series,
+        now_mono,
+        |comparison| {
+            comparison.spread_diff.map(|value| {
+                format!(
+                    "Spread A - B: {} price {}",
+                    format_price_delta(value),
+                    spread_status(value, "is")
+                )
+            })
+        },
+        |point| {
+            format!(
+                "Spread A - B: {} price {}",
+                format_price_delta(point.spread_diff),
+                spread_status(point.spread_diff, "was")
+            )
+        },
+    );
+
     if series.is_empty() {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "No spread difference data yet",
+            &header.text,
             egui::FontId::proportional(13.0),
-            Color32::GRAY,
+            Color32::from_rgb(255, 190, 80),
         );
         return;
     }
@@ -810,28 +926,7 @@ pub fn draw_spread_diff_chart(
     };
     draw_diff_scale(painter, rect, plot_rect, extreme, theme);
 
-    // Latest badge
-    if let Some(last) = series.last() {
-        let status = if last.spread_diff > 0.0001 {
-            "(A is wider)"
-        } else if last.spread_diff < -0.0001 {
-            "(B is wider)"
-        } else {
-            "(Equal)"
-        };
-        let label = format!(
-            "Spread A - B: {} price {}",
-            format_price_delta(last.spread_diff),
-            status
-        );
-        painter.text(
-            Pos2::new(plot_rect.right() - 4.0, rect.top() + 6.0),
-            egui::Align2::RIGHT_TOP,
-            label,
-            egui::FontId::monospace(12.0),
-            theme.spread_diff_line,
-        );
-    }
+    draw_difference_header(painter, plot_rect, rect, &header, theme.spread_diff_line);
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
     let mut previous = None;
@@ -1848,5 +1943,84 @@ mod tests {
         );
 
         assert_eq!(extreme, 0.01);
+    }
+
+    #[test]
+    fn difference_header_marks_retained_values_as_last_valid_when_live_diff_is_missing() {
+        let comparison = PairComparison {
+            broker_a: 1,
+            broker_b: 2,
+            as_of_mono_ns: MonoNs(3_500_000_000),
+            bid_diff: None,
+            ask_diff: None,
+            mid_diff: None,
+            spread_diff: None,
+            recent_diff_series: Vec::new(),
+            latest_match: None,
+            ema_lead_lag_ms: None,
+        };
+        let series = [DiffPoint {
+            mono_ns: MonoNs(2_000_000_000),
+            bid_diff: 0.002,
+            ask_diff: 0.002,
+            mid_diff: 0.002,
+            spread_diff: 0.0,
+        }];
+
+        let header = difference_header(
+            Some(&comparison),
+            &series,
+            MonoNs(3_500_000_000),
+            |comparison| {
+                comparison
+                    .mid_diff
+                    .map(|value| format!("Mid A - B: {} price", format_price_delta(value)))
+            },
+            |point| format!("Mid A - B: {} price", format_price_delta(point.mid_diff)),
+        );
+
+        assert!(!header.is_current);
+        assert_eq!(
+            header.text,
+            "Comparison unavailable · Last valid Mid A - B: +0.00200 price (1.5 s ago)"
+        );
+    }
+
+    #[test]
+    fn difference_header_uses_live_pair_value_instead_of_history() {
+        let comparison = PairComparison {
+            broker_a: 1,
+            broker_b: 2,
+            as_of_mono_ns: MonoNs(3_500_000_000),
+            bid_diff: Some(0.004),
+            ask_diff: Some(0.004),
+            mid_diff: Some(0.004),
+            spread_diff: Some(0.0),
+            recent_diff_series: Vec::new(),
+            latest_match: None,
+            ema_lead_lag_ms: None,
+        };
+        let series = [DiffPoint {
+            mono_ns: MonoNs(2_000_000_000),
+            bid_diff: 0.002,
+            ask_diff: 0.002,
+            mid_diff: 0.002,
+            spread_diff: 0.0,
+        }];
+
+        let header = difference_header(
+            Some(&comparison),
+            &series,
+            MonoNs(3_500_000_000),
+            |comparison| {
+                comparison
+                    .mid_diff
+                    .map(|value| format!("Mid A - B: {} price", format_price_delta(value)))
+            },
+            |point| format!("Mid A - B: {} price", format_price_delta(point.mid_diff)),
+        );
+
+        assert!(header.is_current);
+        assert_eq!(header.text, "LIVE · Mid A - B: +0.00400 price");
     }
 }
