@@ -3,8 +3,8 @@ use crate::contracts::types::*;
 use crate::ui::chart::{
     draw_bid_ask_diff_chart, draw_candlestick_chart_multi, draw_lead_lag_view, draw_mid_diff_chart,
     draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
-    draw_spread_diff_chart, draw_realtime_quote_path_chart, draw_state_ribbon, BottomMetric, ChartTheme,
-    ChartXAxisMode,
+    draw_realtime_quote_path_chart, draw_spread_diff_chart, draw_state_ribbon, BottomMetric,
+    ChartTheme, ChartXAxisMode,
 };
 use eframe::egui;
 use egui::{Color32, RichText};
@@ -101,16 +101,23 @@ impl DashboardApp {
     pub fn render_ui(&mut self, ctx: &egui::Context) {
         let snapshot = self.exchange.load_latest();
 
-
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(RichText::new("TickScope").strong().color(Color32::from_rgb(0, 200, 255)));
+                ui.heading(
+                    RichText::new("TickScope")
+                        .strong()
+                        .color(Color32::from_rgb(0, 200, 255)),
+                );
                 ui.separator();
 
                 // Multi-broker Pair Selector
                 ui.label("Focus Pair:");
                 let previous_pair = self.selected_pair();
-                let broker_ids: Vec<BrokerId> = snapshot.broker_overviews.iter().map(|b| b.broker_id).collect();
+                let broker_ids: Vec<BrokerId> = snapshot
+                    .broker_overviews
+                    .iter()
+                    .map(|b| b.broker_id)
+                    .collect();
 
                 egui::ComboBox::from_id_salt("broker_a_select")
                     .selected_text(
@@ -181,8 +188,16 @@ impl DashboardApp {
                 egui::ComboBox::from_id_salt("chart_x_axis_mode")
                     .selected_text(self.x_axis_mode.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.x_axis_mode, ChartXAxisMode::ReceiveTime, ChartXAxisMode::ReceiveTime.label());
-                        ui.selectable_value(&mut self.x_axis_mode, ChartXAxisMode::TickCount, ChartXAxisMode::TickCount.label());
+                        ui.selectable_value(
+                            &mut self.x_axis_mode,
+                            ChartXAxisMode::ReceiveTime,
+                            ChartXAxisMode::ReceiveTime.label(),
+                        );
+                        ui.selectable_value(
+                            &mut self.x_axis_mode,
+                            ChartXAxisMode::TickCount,
+                            ChartXAxisMode::TickCount.label(),
+                        );
                     });
 
                 ui.separator();
@@ -202,9 +217,15 @@ impl DashboardApp {
                             .unwrap_or_default();
                         let badge = format!(
                             "First observed on this PC: {} ({:.1} ms){}",
-                            leader_name, m.raw_delta_ms.abs(), ema_text
+                            leader_name,
+                            m.raw_delta_ms.abs(),
+                            ema_text
                         );
-                        ui.label(RichText::new(badge).strong().color(Color32::from_rgb(255, 215, 0)));
+                        ui.label(
+                            RichText::new(badge)
+                                .strong()
+                                .color(Color32::from_rgb(255, 215, 0)),
+                        );
                     } else {
                         ui.label(RichText::new("Observed Lead: None").color(Color32::GRAY));
                     }
@@ -219,44 +240,109 @@ impl DashboardApp {
         // Overview panel of ALL configured brokers
         egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
             ui.strong("Broker Overview");
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                egui::Grid::new("broker_overview_grid").striped(true).show(ui, |ui| {
-                    for header in ["Broker", "Symbol", "Bid", "Ask", "Spread", "Quote age", "Feed", "Ticks/s"] {
-                        ui.strong(header);
-                    }
-                    ui.end_row();
-                    for b in &snapshot.broker_overviews {
-                        ui.strong(&b.name);
-                        ui.label(&b.symbol);
-                        if let Some(q) = &b.latest_quote {
-                            ui.monospace(format!("{:.3}", q.bid));
-                            ui.monospace(format!("{:.3}", q.ask));
-                            ui.monospace(format!("{:.3}", q.spread));
-                            let age_ms = snapshot.built_mono_ns.0.saturating_sub(q.rx_mono_ns.0) / 1_000_000;
-                            ui.monospace(format!("{} ms", age_ms));
-                        } else {
-                            for _ in 0..4 { ui.label("—"); }
-                        }
-                        let (status, color) = match b.health.connection {
-                            ConnectionState::Disconnected => ("DISCONNECTED", Color32::RED),
-                            ConnectionState::Connecting => ("CONNECTING", Color32::YELLOW),
-                            ConnectionState::Connected => match b.health.data_freshness {
-                                FreshnessState::Live => ("LIVE", Color32::GREEN),
-                                FreshnessState::Stale => ("STALE", Color32::YELLOW),
-                                FreshnessState::Unknown => ("WARMING", Color32::GRAY),
-                            },
-                        };
-                        ui.colored_label(color, status);
-                        ui.monospace(format!("{:.0}", b.tick_rate_1s));
-                        ui.end_row();
-                    }
+            egui::ScrollArea::vertical()
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("broker_overview_grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for header in [
+                                "Broker",
+                                "Symbol",
+                                "Bid",
+                                "Ask",
+                                "Spread",
+                                "Quote age",
+                                "Feed",
+                                "Ticks/s",
+                            ] {
+                                ui.strong(header);
+                            }
+                            ui.end_row();
+                            for b in &snapshot.broker_overviews {
+                                let (status, status_color) = match b.health.connection {
+                                    ConnectionState::Disconnected => ("DISCONNECTED", Color32::RED),
+                                    ConnectionState::Connecting => ("CONNECTING", Color32::YELLOW),
+                                    ConnectionState::Connected => match b.health.data_freshness {
+                                        FreshnessState::Live => ("LIVE", Color32::GREEN),
+                                        FreshnessState::Stale => ("STALE", Color32::YELLOW),
+                                        FreshnessState::Unknown => ("WARMING", Color32::GRAY),
+                                    },
+                                };
+                                let quote_is_live = b.health.connection
+                                    == ConnectionState::Connected
+                                    && b.health.data_freshness == FreshnessState::Live;
+                                let quote_color = if quote_is_live {
+                                    Color32::WHITE
+                                } else if b.health.connection == ConnectionState::Disconnected {
+                                    Color32::from_gray(90)
+                                } else {
+                                    Color32::from_gray(145)
+                                };
+
+                                ui.label(RichText::new(&b.name).strong().color(if quote_is_live {
+                                    Color32::WHITE
+                                } else {
+                                    status_color
+                                }));
+                                ui.label(RichText::new(&b.symbol).color(quote_color));
+                                if let Some(q) = &b.latest_quote {
+                                    ui.label(
+                                        RichText::new(format!("{:.3}", q.bid))
+                                            .monospace()
+                                            .color(quote_color),
+                                    );
+                                    ui.label(
+                                        RichText::new(format!("{:.3}", q.ask))
+                                            .monospace()
+                                            .color(quote_color),
+                                    );
+                                    ui.label(
+                                        RichText::new(format!("{:.3}", q.spread))
+                                            .monospace()
+                                            .color(quote_color),
+                                    );
+                                    let age_ms =
+                                        snapshot.built_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                            / 1_000_000;
+                                    let age_label = if quote_is_live {
+                                        format!("{} ms", age_ms)
+                                    } else {
+                                        format!("{} · {} ms", status, age_ms)
+                                    };
+                                    ui.label(RichText::new(age_label).monospace().color(
+                                        if quote_is_live {
+                                            Color32::from_gray(210)
+                                        } else {
+                                            status_color
+                                        },
+                                    ));
+                                } else {
+                                    for _ in 0..4 {
+                                        ui.label(RichText::new("—").color(quote_color));
+                                    }
+                                }
+                                ui.colored_label(status_color, status);
+                                ui.label(
+                                    RichText::new(format!("{:.0}", b.tick_rate_1s))
+                                        .monospace()
+                                        .color(quote_color),
+                                );
+                                ui.end_row();
+                            }
+                        });
                 });
-            });
         });
 
         // Keyboard Shortcuts for Bottom Metric Switching: 1-7, Tab, Shift+Tab
         egui::TopBottomPanel::bottom("state_ribbon").show(ctx, |ui| {
-            draw_state_ribbon(ui, &snapshot.broker_overviews, &snapshot.consensus, &snapshot.active_clusters, &snapshot.current_breadth);
+            draw_state_ribbon(
+                ui,
+                &snapshot.broker_overviews,
+                &snapshot.consensus,
+                &snapshot.active_clusters,
+                &snapshot.current_breadth,
+            );
         });
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Num1) {
@@ -313,19 +399,29 @@ impl DashboardApp {
 
             if self.show_candle_context {
                 draw_candlestick_chart_multi(
-                &painter,
-                candle_rect,
-                candle_view,
-                &snapshot.broker_overviews,
-                fallback_price,
-                &self.theme,
-            );
+                    &painter,
+                    candle_rect,
+                    candle_view,
+                    &snapshot.broker_overviews,
+                    fallback_price,
+                    &self.theme,
+                );
             } else {
                 draw_realtime_quote_path_chart(
-                    &painter, candle_rect, &snapshot.realtime_quote_points,
-                    &snapshot.broker_overviews, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks,
-                    self.pip_size, 5.0, 0.4,
-                    &mut self.chart_anchor, &self.theme,
+                    &painter,
+                    candle_rect,
+                    &snapshot.realtime_quote_points,
+                    &snapshot.broker_overviews,
+                    self.selected_pair(),
+                    self.x_axis_mode,
+                    snapshot.built_mono_ns,
+                    self.visible_seconds,
+                    self.visible_ticks,
+                    self.pip_size,
+                    5.0,
+                    0.4,
+                    &mut self.chart_anchor,
+                    &self.theme,
                 );
             }
 
@@ -337,7 +433,11 @@ impl DashboardApp {
 
             ui.allocate_new_ui(egui::UiBuilder::new().max_rect(toolbar_rect), |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Indicator:").color(Color32::from_rgb(180, 200, 220)).strong());
+                    ui.label(
+                        RichText::new("Indicator:")
+                            .color(Color32::from_rgb(180, 200, 220))
+                            .strong(),
+                    );
 
                     for &m in &BottomMetric::ALL {
                         let is_active = self.bottom_metric == m;
@@ -377,13 +477,40 @@ impl DashboardApp {
 
             match self.bottom_metric {
                 BottomMetric::MidDiff => {
-                    draw_mid_diff_chart(&bottom_painter, bottom_rect, series, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks, &self.theme);
+                    draw_mid_diff_chart(
+                        &bottom_painter,
+                        bottom_rect,
+                        series,
+                        self.x_axis_mode,
+                        snapshot.built_mono_ns,
+                        self.visible_seconds,
+                        self.visible_ticks,
+                        &self.theme,
+                    );
                 }
                 BottomMetric::BidAskDiff => {
-                    draw_bid_ask_diff_chart(&bottom_painter, bottom_rect, series, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks, &self.theme);
+                    draw_bid_ask_diff_chart(
+                        &bottom_painter,
+                        bottom_rect,
+                        series,
+                        self.x_axis_mode,
+                        snapshot.built_mono_ns,
+                        self.visible_seconds,
+                        self.visible_ticks,
+                        &self.theme,
+                    );
                 }
                 BottomMetric::SpreadDiff => {
-                    draw_spread_diff_chart(&bottom_painter, bottom_rect, series, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks, &self.theme);
+                    draw_spread_diff_chart(
+                        &bottom_painter,
+                        bottom_rect,
+                        series,
+                        self.x_axis_mode,
+                        snapshot.built_mono_ns,
+                        self.visible_seconds,
+                        self.visible_ticks,
+                        &self.theme,
+                    );
                 }
                 BottomMetric::LeadLag => {
                     draw_lead_lag_view(
@@ -430,7 +557,10 @@ impl DashboardApp {
                     .show(ctx, |ui| {
                         ui.label(format!("Snapshot Rev: {}", snapshot.snapshot_revision));
                         ui.label(format!("Projection Rev: {}", snapshot.projection_revision));
-                        ui.label(format!("Watermark ns: {}", snapshot.processed_watermark_ns.0));
+                        ui.label(format!(
+                            "Watermark ns: {}",
+                            snapshot.processed_watermark_ns.0
+                        ));
                         ui.label(format!("Display UTC: {}", snapshot.display_now_utc.0));
                         ui.separator();
                         ui.label("Recent Diagnostics:");

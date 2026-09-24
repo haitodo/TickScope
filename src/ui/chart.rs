@@ -3,11 +3,8 @@ use crate::contracts::models::{
     RealtimeQuotePoint, SlotState,
 };
 use crate::contracts::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
-use crate::metrics::{
-    EventCluster, MoveBreadth, ObservedBrokerConsensus, StageLatencySummary,
-};
+use crate::metrics::{EventCluster, MoveBreadth, ObservedBrokerConsensus, StageLatencySummary};
 use egui::{Color32, Pos2, Rect, Stroke};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BottomMetric {
@@ -128,27 +125,27 @@ impl Default for ChartTheme {
     fn default() -> Self {
         Self {
             bg_color: Color32::from_rgb(20, 24, 30),
-            grid_color: Color32::from_rgba_unmultiplied(255, 255, 255, 15),
+            grid_color: Color32::from_rgba_unmultiplied(255, 255, 255, 28),
             // Neutral broker-identity colors (RFC §87: no green=buy/red=sell semantics)
-            candle_up_a: Color32::from_rgb(80, 180, 220),     // Light cyan for A (bright)
-            candle_down_a: Color32::from_rgb(40, 100, 140),    // Dark cyan for A (dim)
-            candle_up_b: Color32::from_rgb(255, 165, 80),     // Light orange for B (bright)
-            candle_down_b: Color32::from_rgb(160, 100, 40),   // Dark orange for B (dim)
-            diff_line: Color32::from_rgb(255, 215, 0),       // Gold for mid diff
-            bid_diff_line: Color32::from_rgb(0, 191, 255),   // Deep Sky Blue for bid diff
-            ask_diff_line: Color32::from_rgb(255, 105, 180),  // Hot Pink for ask diff
+            candle_up_a: Color32::from_rgb(80, 180, 220), // Light cyan for A (bright)
+            candle_down_a: Color32::from_rgb(40, 100, 140), // Dark cyan for A (dim)
+            candle_up_b: Color32::from_rgb(255, 165, 80), // Light orange for B (bright)
+            candle_down_b: Color32::from_rgb(160, 100, 40), // Dark orange for B (dim)
+            diff_line: Color32::from_rgb(255, 215, 0),    // Gold for mid diff
+            bid_diff_line: Color32::from_rgb(0, 191, 255), // Deep Sky Blue for bid diff
+            ask_diff_line: Color32::from_rgb(255, 105, 180), // Hot Pink for ask diff
             spread_diff_line: Color32::from_rgb(175, 125, 255), // Light Purple for spread diff
-            zero_line: Color32::from_rgba_unmultiplied(255, 255, 255, 40),
+            zero_line: Color32::from_rgba_unmultiplied(255, 255, 255, 72),
             // Per-broker identity colors for Realtime Quote Path
             broker_colors: [
                 Color32::from_rgb(0, 200, 255),   // Cyan
                 Color32::from_rgb(255, 165, 0),   // Orange
-                Color32::from_rgb(180, 120, 255),  // Purple
+                Color32::from_rgb(180, 120, 255), // Purple
                 Color32::from_rgb(0, 200, 160),   // Teal
-                Color32::from_rgb(255, 130, 170),  // Pink
+                Color32::from_rgb(255, 130, 170), // Pink
                 Color32::from_rgb(255, 220, 80),  // Gold
-                Color32::from_rgb(120, 200, 120),  // Soft green (not buy-signal)
-                Color32::from_rgb(200, 200, 200),  // Silver
+                Color32::from_rgb(120, 200, 120), // Soft green (not buy-signal)
+                Color32::from_rgb(200, 200, 200), // Silver
             ],
             median_line: Color32::from_rgba_unmultiplied(255, 255, 255, 180),
         }
@@ -174,6 +171,31 @@ pub fn draw_candlestick_chart(
         fallback_price,
         theme,
     );
+}
+
+const CHART_HEADER_HEIGHT: f32 = 40.0;
+const CHART_FOOTER_HEIGHT: f32 = 18.0;
+const PRICE_AXIS_WIDTH: f32 = 88.0;
+
+fn chart_plot_rect(rect: Rect, header_height: f32) -> Rect {
+    let left = rect.left() + 2.0;
+    let right = (rect.right() - PRICE_AXIS_WIDTH).max(left + 1.0);
+    let top = (rect.top() + header_height).min(rect.bottom() - 1.0);
+    let bottom = (rect.bottom() - CHART_FOOTER_HEIGHT).max(top + 1.0);
+    Rect::from_min_max(Pos2::new(left, top), Pos2::new(right, bottom))
+}
+
+fn dim_color(color: Color32, alpha: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
+}
+
+fn is_live(broker: &BrokerOverview) -> bool {
+    broker.health.connection == ConnectionState::Connected
+        && broker.health.data_freshness == FreshnessState::Live
+}
+
+fn format_price_delta(value: f64) -> String {
+    format!("{value:+.5}")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -225,6 +247,7 @@ fn draw_candlestick_chart_for_brokers(
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
+    let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
 
     let view = match candle_view {
         Some(v) if !v.slot_starts.is_empty() => v,
@@ -257,7 +280,7 @@ fn draw_candlestick_chart_for_brokers(
     }
 
     let num_slots = view.slot_starts.len();
-    let slot_width = rect.width() / (num_slots as f32).max(1.0);
+    let slot_width = plot_rect.width() / (num_slots as f32).max(1.0);
 
     // Find global min and max prices across broker A and B
     let mut min_price = f64::MAX;
@@ -306,7 +329,7 @@ fn draw_candlestick_chart_for_brokers(
 
     let price_to_y = |p: f64| -> f32 {
         let normalized = (chart_max - p) / price_range;
-        rect.top() + (normalized as f32) * rect.height()
+        plot_rect.top() + (normalized as f32) * plot_rect.height()
     };
 
     // Draw horizontal price grid lines
@@ -314,13 +337,19 @@ fn draw_candlestick_chart_for_brokers(
     for i in 0..=grid_steps {
         let p = chart_min + (price_range / grid_steps as f64) * i as f64;
         let y = price_to_y(p);
-        painter.line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)], Stroke::new(1.0_f32, theme.grid_color));
+        painter.line_segment(
+            [
+                Pos2::new(plot_rect.left(), y),
+                Pos2::new(plot_rect.right(), y),
+            ],
+            Stroke::new(1.0_f32, theme.grid_color),
+        );
         painter.text(
             Pos2::new(rect.right() - 4.0, y - 2.0),
             egui::Align2::RIGHT_BOTTOM,
             format!("{:.3}", p),
-            egui::FontId::monospace(10.0),
-            Color32::from_gray(120),
+            egui::FontId::monospace(11.0),
+            Color32::from_gray(180),
         );
     }
 
@@ -343,7 +372,7 @@ fn draw_candlestick_chart_for_brokers(
     let candle_group_width = bar_width * broker_count + total_gap;
 
     for (i, _) in view.slot_starts.iter().enumerate() {
-        let slot_center_x = rect.left() + (i as f32 + 0.5) * slot_width;
+        let slot_center_x = plot_rect.left() + (i as f32 + 0.5) * slot_width;
 
         for (broker_index, broker_id) in broker_ids.iter().enumerate() {
             if let Some(s) = view
@@ -377,6 +406,7 @@ fn draw_candlestick_chart_for_brokers(
     // price. The legend uses broker identity colors only.
     let mut legend_x = rect.left() + 8.0;
     let mut legend_y = rect.top() + 6.0;
+    let mut hidden_legends = 0;
     for (broker_index, broker_id) in broker_ids.iter().enumerate() {
         let color = broker_color_for(theme, broker_index);
         let name = broker_overviews
@@ -390,8 +420,15 @@ fn draw_candlestick_chart_for_brokers(
             legend_x = rect.left() + 8.0;
             legend_y += 14.0;
         }
+        if legend_y + 12.0 > plot_rect.top() {
+            hidden_legends += 1;
+            continue;
+        }
         painter.rect_filled(
-            Rect::from_min_size(Pos2::new(legend_x, legend_y + 2.0), egui::Vec2::new(7.0, 7.0)),
+            Rect::from_min_size(
+                Pos2::new(legend_x, legend_y + 2.0),
+                egui::Vec2::new(7.0, 7.0),
+            ),
             1.0,
             color,
         );
@@ -403,6 +440,15 @@ fn draw_candlestick_chart_for_brokers(
             color,
         );
         legend_x += width;
+    }
+    if hidden_legends > 0 {
+        painter.text(
+            Pos2::new(rect.right() - PRICE_AXIS_WIDTH - 6.0, rect.top() + 20.0),
+            egui::Align2::RIGHT_TOP,
+            format!("+{} brokers", hidden_legends),
+            egui::FontId::monospace(11.0),
+            Color32::from_gray(180),
+        );
     }
 }
 
@@ -430,7 +476,10 @@ fn draw_single_candle<F>(
     let color = if is_up { up_color } else { down_color };
 
     // Wick
-    painter.line_segment([Pos2::new(cx, y_high), Pos2::new(cx, y_low)], Stroke::new(1.0_f32, color));
+    painter.line_segment(
+        [Pos2::new(cx, y_high), Pos2::new(cx, y_low)],
+        Stroke::new(1.0_f32, color),
+    );
 
     // Body
     let top_body = y_open.min(y_close);
@@ -452,7 +501,86 @@ pub fn draw_difference_chart(
     visible_ticks: usize,
     theme: &ChartTheme,
 ) {
-    draw_mid_diff_chart(painter, rect, series, x_axis_mode, now_mono, visible_seconds, visible_ticks, theme);
+    draw_mid_diff_chart(
+        painter,
+        rect,
+        series,
+        x_axis_mode,
+        now_mono,
+        visible_seconds,
+        visible_ticks,
+        theme,
+    );
+}
+
+fn visible_diff_extreme<F>(
+    series: &[DiffPoint],
+    x_axis_mode: ChartXAxisMode,
+    plot_rect: Rect,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
+    minimum: f64,
+    value: F,
+) -> f64
+where
+    F: Fn(&DiffPoint) -> f64,
+{
+    series
+        .iter()
+        .enumerate()
+        .filter(|(index, point)| {
+            x_axis_coordinate(
+                x_axis_mode,
+                plot_rect,
+                *index,
+                series.len(),
+                point.mono_ns,
+                now_mono,
+                visible_seconds,
+                visible_ticks,
+            )
+            .is_some()
+        })
+        .map(|(_, point)| value(point).abs())
+        .filter(|value| value.is_finite())
+        .fold(minimum, f64::max)
+}
+
+fn draw_diff_scale(
+    painter: &egui::Painter,
+    rect: Rect,
+    plot_rect: Rect,
+    extreme: f64,
+    theme: &ChartTheme,
+) {
+    for value in [extreme, 0.0, -extreme] {
+        let y = plot_rect.top() + ((extreme - value) / (2.0 * extreme)) as f32 * plot_rect.height();
+        let stroke = if value == 0.0 {
+            Stroke::new(1.0_f32, theme.zero_line)
+        } else {
+            Stroke::new(1.0_f32, theme.grid_color)
+        };
+        painter.line_segment(
+            [
+                Pos2::new(plot_rect.left(), y),
+                Pos2::new(plot_rect.right(), y),
+            ],
+            stroke,
+        );
+        let label = if value == 0.0 {
+            "0.00000 price".to_owned()
+        } else {
+            format!("{} price", format_price_delta(value))
+        };
+        painter.text(
+            Pos2::new(rect.right() - 4.0, y),
+            egui::Align2::RIGHT_CENTER,
+            label,
+            egui::FontId::monospace(11.0),
+            Color32::from_gray(185),
+        );
+    }
 }
 
 pub fn draw_mid_diff_chart(
@@ -478,46 +606,35 @@ pub fn draw_mid_diff_chart(
         return;
     }
 
-    // Min / max diff
-    let mut min_diff = f64::MAX;
-    let mut max_diff = f64::MIN;
-    for pt in series {
-        min_diff = min_diff.min(pt.mid_diff);
-        max_diff = max_diff.max(pt.mid_diff);
-    }
-
-    let extreme = min_diff.abs().max(max_diff.abs()).max(0.005);
+    let plot_rect = chart_plot_rect(rect, 26.0);
+    let extreme = visible_diff_extreme(
+        series,
+        x_axis_mode,
+        plot_rect,
+        now_mono,
+        visible_seconds,
+        visible_ticks,
+        0.005,
+        |point| point.mid_diff,
+    );
     let chart_min = -extreme;
     let chart_max = extreme;
     let range = chart_max - chart_min;
 
     let diff_to_y = |d: f64| -> f32 {
         let norm = (chart_max - d) / range;
-        rect.top() + (norm as f32) * rect.height()
+        plot_rect.top() + (norm as f32) * plot_rect.height()
     };
-
-    // Zero line
-    let y_zero = diff_to_y(0.0);
-    painter.line_segment(
-        [Pos2::new(rect.left(), y_zero), Pos2::new(rect.right(), y_zero)],
-        Stroke::new(1.0_f32, theme.zero_line),
-    );
-    painter.text(
-        Pos2::new(rect.left() + 4.0, y_zero - 2.0),
-        egui::Align2::LEFT_BOTTOM,
-        "0.000",
-        egui::FontId::monospace(10.0),
-        Color32::from_gray(100),
-    );
+    draw_diff_scale(painter, rect, plot_rect, extreme, theme);
 
     // Latest badge
     if let Some(last) = series.last() {
-        let label = format!("Latest Mid Diff: {:+.4}", last.mid_diff);
+        let label = format!("Mid A - B: {} price", format_price_delta(last.mid_diff));
         painter.text(
-            Pos2::new(rect.right() - 8.0, rect.top() + 6.0),
+            Pos2::new(plot_rect.right() - 4.0, rect.top() + 6.0),
             egui::Align2::RIGHT_TOP,
             label,
-            egui::FontId::monospace(11.0),
+            egui::FontId::monospace(12.0),
             theme.diff_line,
         );
     }
@@ -525,7 +642,16 @@ pub fn draw_mid_diff_chart(
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
     let mut previous = None;
     for (index, pt) in series.iter().enumerate() {
-        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+        if let Some(x) = x_axis_coordinate(
+            x_axis_mode,
+            plot_rect,
+            index,
+            series.len(),
+            pt.mono_ns,
+            now_mono,
+            visible_seconds,
+            visible_ticks,
+        ) {
             let position = Pos2::new(x, diff_to_y(pt.mid_diff));
             if let Some(previous) = previous {
                 painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.diff_line));
@@ -558,48 +684,39 @@ pub fn draw_bid_ask_diff_chart(
         return;
     }
 
-    let mut min_diff = f64::MAX;
-    let mut max_diff = f64::MIN;
-    for pt in series {
-        min_diff = min_diff.min(pt.bid_diff.min(pt.ask_diff));
-        max_diff = max_diff.max(pt.bid_diff.max(pt.ask_diff));
-    }
-
-    let extreme = min_diff.abs().max(max_diff.abs()).max(0.005);
+    let plot_rect = chart_plot_rect(rect, 26.0);
+    let extreme = visible_diff_extreme(
+        series,
+        x_axis_mode,
+        plot_rect,
+        now_mono,
+        visible_seconds,
+        visible_ticks,
+        0.005,
+        |point| point.bid_diff.abs().max(point.ask_diff.abs()),
+    );
     let chart_min = -extreme;
     let chart_max = extreme;
     let range = chart_max - chart_min;
 
     let diff_to_y = |d: f64| -> f32 {
         let norm = (chart_max - d) / range;
-        rect.top() + (norm as f32) * rect.height()
+        plot_rect.top() + (norm as f32) * plot_rect.height()
     };
-
-    // Zero line
-    let y_zero = diff_to_y(0.0);
-    painter.line_segment(
-        [Pos2::new(rect.left(), y_zero), Pos2::new(rect.right(), y_zero)],
-        Stroke::new(1.0_f32, theme.zero_line),
-    );
-    painter.text(
-        Pos2::new(rect.left() + 4.0, y_zero - 2.0),
-        egui::Align2::LEFT_BOTTOM,
-        "0.000",
-        egui::FontId::monospace(10.0),
-        Color32::from_gray(100),
-    );
+    draw_diff_scale(painter, rect, plot_rect, extreme, theme);
 
     // Legend & latest values
     if let Some(last) = series.last() {
         let text = format!(
-            "Bid Diff: {:+.4}  |  Ask Diff: {:+.4}",
-            last.bid_diff, last.ask_diff
+            "Bid A - B: {}  Ask A - B: {} price",
+            format_price_delta(last.bid_diff),
+            format_price_delta(last.ask_diff)
         );
         painter.text(
-            Pos2::new(rect.right() - 8.0, rect.top() + 6.0),
+            Pos2::new(plot_rect.right() - 4.0, rect.top() + 6.0),
             egui::Align2::RIGHT_TOP,
             text,
-            egui::FontId::monospace(11.0),
+            egui::FontId::monospace(12.0),
             Color32::WHITE,
         );
     }
@@ -608,17 +725,41 @@ pub fn draw_bid_ask_diff_chart(
     let mut previous_bid = None;
     let mut previous_ask = None;
     for (index, pt) in series.iter().enumerate() {
-        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+        if let Some(x) = x_axis_coordinate(
+            x_axis_mode,
+            plot_rect,
+            index,
+            series.len(),
+            pt.mono_ns,
+            now_mono,
+            visible_seconds,
+            visible_ticks,
+        ) {
             let position = Pos2::new(x, diff_to_y(pt.bid_diff));
             if let Some(previous) = previous_bid {
-                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.bid_diff_line));
+                painter.line_segment(
+                    [previous, position],
+                    Stroke::new(1.5_f32, theme.bid_diff_line),
+                );
             }
             previous_bid = Some(position);
         }
-        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+        if let Some(x) = x_axis_coordinate(
+            x_axis_mode,
+            plot_rect,
+            index,
+            series.len(),
+            pt.mono_ns,
+            now_mono,
+            visible_seconds,
+            visible_ticks,
+        ) {
             let position = Pos2::new(x, diff_to_y(pt.ask_diff));
             if let Some(previous) = previous_ask {
-                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.ask_diff_line));
+                painter.line_segment(
+                    [previous, position],
+                    Stroke::new(1.5_f32, theme.ask_diff_line),
+                );
             }
             previous_ask = Some(position);
         }
@@ -648,36 +789,26 @@ pub fn draw_spread_diff_chart(
         return;
     }
 
-    let mut min_diff = f64::MAX;
-    let mut max_diff = f64::MIN;
-    for pt in series {
-        min_diff = min_diff.min(pt.spread_diff);
-        max_diff = max_diff.max(pt.spread_diff);
-    }
-
-    let extreme = min_diff.abs().max(max_diff.abs()).max(0.002);
+    let plot_rect = chart_plot_rect(rect, 26.0);
+    let extreme = visible_diff_extreme(
+        series,
+        x_axis_mode,
+        plot_rect,
+        now_mono,
+        visible_seconds,
+        visible_ticks,
+        0.002,
+        |point| point.spread_diff,
+    );
     let chart_min = -extreme;
     let chart_max = extreme;
     let range = chart_max - chart_min;
 
     let diff_to_y = |d: f64| -> f32 {
         let norm = (chart_max - d) / range;
-        rect.top() + (norm as f32) * rect.height()
+        plot_rect.top() + (norm as f32) * plot_rect.height()
     };
-
-    // Zero line
-    let y_zero = diff_to_y(0.0);
-    painter.line_segment(
-        [Pos2::new(rect.left(), y_zero), Pos2::new(rect.right(), y_zero)],
-        Stroke::new(1.0_f32, theme.zero_line),
-    );
-    painter.text(
-        Pos2::new(rect.left() + 4.0, y_zero - 2.0),
-        egui::Align2::LEFT_BOTTOM,
-        "0.000 (Equal Spread)",
-        egui::FontId::monospace(10.0),
-        Color32::from_gray(100),
-    );
+    draw_diff_scale(painter, rect, plot_rect, extreme, theme);
 
     // Latest badge
     if let Some(last) = series.last() {
@@ -688,12 +819,16 @@ pub fn draw_spread_diff_chart(
         } else {
             "(Equal)"
         };
-        let label = format!("Spread Diff (A - B): {:+.4} {}", last.spread_diff, status);
+        let label = format!(
+            "Spread A - B: {} price {}",
+            format_price_delta(last.spread_diff),
+            status
+        );
         painter.text(
-            Pos2::new(rect.right() - 8.0, rect.top() + 6.0),
+            Pos2::new(plot_rect.right() - 4.0, rect.top() + 6.0),
             egui::Align2::RIGHT_TOP,
             label,
-            egui::FontId::monospace(11.0),
+            egui::FontId::monospace(12.0),
             theme.spread_diff_line,
         );
     }
@@ -701,10 +836,22 @@ pub fn draw_spread_diff_chart(
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
     let mut previous = None;
     for (index, pt) in series.iter().enumerate() {
-        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+        if let Some(x) = x_axis_coordinate(
+            x_axis_mode,
+            plot_rect,
+            index,
+            series.len(),
+            pt.mono_ns,
+            now_mono,
+            visible_seconds,
+            visible_ticks,
+        ) {
             let position = Pos2::new(x, diff_to_y(pt.spread_diff));
             if let Some(previous) = previous {
-                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.spread_diff_line));
+                painter.line_segment(
+                    [previous, position],
+                    Stroke::new(1.5_f32, theme.spread_diff_line),
+                );
             }
             previous = Some(position);
         }
@@ -733,8 +880,11 @@ fn x_axis_coordinate(
                 return None;
             }
             let span_ns = end_ns.saturating_sub(start_ns).max(1);
-            Some(rect.left()
-                + (mono_ns.0.saturating_sub(start_ns) as f64 / span_ns as f64) as f32 * rect.width())
+            Some(
+                rect.left()
+                    + (mono_ns.0.saturating_sub(start_ns) as f64 / span_ns as f64) as f32
+                        * rect.width(),
+            )
         }
         ChartXAxisMode::TickCount => {
             let slots = visible_ticks.max(1);
@@ -760,15 +910,17 @@ fn draw_x_axis_caption(
     visible_ticks: usize,
 ) {
     let caption = match mode {
-        ChartXAxisMode::ReceiveTime => format!("Receive time · fixed {} s window", visible_seconds.max(1)),
+        ChartXAxisMode::ReceiveTime => {
+            format!("Receive time · fixed {} s window", visible_seconds.max(1))
+        }
         ChartXAxisMode::TickCount => format!("Tick count · fixed {} updates", visible_ticks.max(1)),
     };
     painter.text(
-        Pos2::new(rect.left() + 6.0, rect.top() + 18.0),
-        egui::Align2::LEFT_TOP,
+        Pos2::new(rect.left() + 6.0, rect.bottom() - 3.0),
+        egui::Align2::LEFT_BOTTOM,
         caption,
-        egui::FontId::monospace(10.0),
-        Color32::from_gray(130),
+        egui::FontId::monospace(11.0),
+        Color32::from_gray(170),
     );
 }
 
@@ -817,7 +969,9 @@ pub fn draw_lead_lag_view(
 
         let header_text = format!(
             "First observed on this PC: {} ({:.1} ms{})",
-            leader_name, m.raw_delta_ms.abs(), ema_text
+            leader_name,
+            m.raw_delta_ms.abs(),
+            ema_text
         );
 
         painter.text(
@@ -877,7 +1031,8 @@ pub fn draw_lead_lag_view(
         );
 
         // Bar indicator
-        let bar_len = ((m.raw_delta_ms.abs() / 100.0) as f32 * max_bar_half_width).clamp(8.0, max_bar_half_width);
+        let bar_len = ((m.raw_delta_ms.abs() / 100.0) as f32 * max_bar_half_width)
+            .clamp(8.0, max_bar_half_width);
         let (bar_rect, bar_color) = if m.leader == comp.broker_a {
             (
                 Rect::from_min_max(
@@ -911,7 +1066,13 @@ pub fn draw_lead_lag_view(
 
         let details = format!(
             "Match #{}: {} followed {} | Delta: {:.1} ms | Dir: {} | Quality: {} | ΔMid: {:.1} pts",
-            m.match_id, follower_name, leader_name, m.raw_delta_ms.abs(), dir_str, quality_str, m.leader_event.mid_delta_points
+            m.match_id,
+            follower_name,
+            leader_name,
+            m.raw_delta_ms.abs(),
+            dir_str,
+            quality_str,
+            m.leader_event.mid_delta_points
         );
 
         painter.text(
@@ -947,12 +1108,44 @@ pub fn broker_color_for(theme: &ChartTheme, index: usize) -> Color32 {
     theme.broker_colors[index % theme.broker_colors.len()]
 }
 
+fn advance_chart_anchor(
+    chart_anchor: &mut Option<f64>,
+    center_price: f64,
+    half_span: f64,
+    deadzone_pct: f64,
+) -> f64 {
+    match chart_anchor {
+        Some(anchor) => {
+            let delta = center_price - *anchor;
+            let deadzone_half = half_span * (1.0 - deadzone_pct.clamp(0.0, 0.95));
+            let required_shift = (delta.abs() - deadzone_half).max(0.0) * delta.signum();
+            // Move at most 12% of the visible range per repaint. This keeps a
+            // large price move visible without replacing the whole chart at once.
+            let max_step = half_span * 0.12;
+            *anchor += required_shift.clamp(-max_step, max_step);
+            *anchor
+        }
+        None => {
+            *chart_anchor = Some(center_price);
+            center_price
+        }
+    }
+}
+
+fn price_decimals_for_pip(pip_size: f64) -> usize {
+    if !pip_size.is_finite() || pip_size <= 0.0 {
+        return 3;
+    }
+    ((-pip_size.log10()).round() as i32 + 1).clamp(3, 6) as usize
+}
+
 /// Realtime Quote Path Chart (RFC §23, §24, §60)
 pub fn draw_realtime_quote_path_chart(
     painter: &egui::Painter,
     rect: Rect,
     quote_points: &[RealtimeQuotePoint],
     broker_overviews: &[BrokerOverview],
+    selected_pair: (BrokerId, BrokerId),
     x_axis_mode: ChartXAxisMode,
     now_mono: MonoNs,
     visible_seconds: u64,
@@ -977,8 +1170,11 @@ pub fn draw_realtime_quote_path_chart(
     }
 
     let latest_mid = quote_points.last().and_then(|p| {
-        p.consensus_mid
-            .or_else(|| broker_overviews.iter().find_map(|b| p.broker_mids.get(&b.broker_id).copied()))
+        p.consensus_mid.or_else(|| {
+            broker_overviews
+                .iter()
+                .find_map(|b| p.broker_mids.get(&b.broker_id).copied())
+        })
     });
 
     let center_price = match latest_mid {
@@ -986,31 +1182,19 @@ pub fn draw_realtime_quote_path_chart(
         None => return,
     };
 
-    // Fixed Follow Scale with Dead Zone Hysteresis (RFC §28, §29)
-    let half_span = fixed_follow_span_pips * pip_size / 2.0;
-    let anchor = match chart_anchor {
-        Some(existing) => {
-            let dz_half = half_span * (1.0 - deadzone_pct);
-            if (center_price - *existing).abs() > dz_half {
-                *existing = center_price;
-                center_price
-            } else {
-                *existing
-            }
-        }
-        None => {
-            *chart_anchor = Some(center_price);
-            center_price
-        }
-    };
+    let pip_size = pip_size.max(f64::EPSILON);
+    let half_span = (fixed_follow_span_pips * pip_size / 2.0).max(f64::EPSILON);
+    let anchor = advance_chart_anchor(chart_anchor, center_price, half_span, deadzone_pct);
 
     let chart_min = anchor - half_span;
     let chart_max = anchor + half_span;
     let price_range = chart_max - chart_min;
+    let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
+    let price_decimals = price_decimals_for_pip(pip_size);
 
     let price_to_y = |p: f64| -> f32 {
         let normalized = (chart_max - p) / price_range;
-        rect.top() + (normalized as f32) * rect.height()
+        plot_rect.top() + (normalized as f32) * plot_rect.height()
     };
 
     // Grid lines
@@ -1019,47 +1203,154 @@ pub fn draw_realtime_quote_path_chart(
         let p = chart_min + (price_range / grid_steps as f64) * i as f64;
         let y = price_to_y(p);
         painter.line_segment(
-            [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+            [
+                Pos2::new(plot_rect.left(), y),
+                Pos2::new(plot_rect.right(), y),
+            ],
             Stroke::new(1.0_f32, theme.grid_color),
         );
         painter.text(
             Pos2::new(rect.right() - 4.0, y - 2.0),
             egui::Align2::RIGHT_BOTTOM,
-            format!("{:.3}", p),
-            egui::FontId::monospace(10.0),
-            Color32::from_gray(100),
+            format!("{:.*}", price_decimals, p),
+            egui::FontId::monospace(11.0),
+            Color32::from_gray(185),
         );
     }
 
-    // Scale indicator (RFC §32)
+    // Header and plot have separate rectangles, so neither the legend nor the
+    // price axis obscures the latest part of the line.
     painter.text(
         Pos2::new(rect.left() + 6.0, rect.top() + 4.0),
         egui::Align2::LEFT_TOP,
-        format!("Y-Span: {:.1} pip | Grid: {:.1} pip", price_range / pip_size, price_range / pip_size / grid_steps as f64),
-        egui::FontId::monospace(10.0),
-        Color32::from_gray(140),
+        format!("Follow: ±{:.1} pip", price_range / pip_size / 2.0),
+        egui::FontId::monospace(11.0),
+        Color32::from_gray(190),
     );
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
 
-    let broker_index: HashMap<BrokerId, usize> = broker_overviews
-        .iter()
-        .enumerate()
-        .map(|(i, b)| (b.broker_id, i))
-        .collect();
+    let mut ordered_brokers: Vec<(usize, &BrokerOverview)> =
+        broker_overviews.iter().enumerate().collect();
+    ordered_brokers.sort_by_key(|(_, broker)| {
+        if broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1 {
+            1
+        } else {
+            0
+        }
+    });
 
-    // Draw broker mid lines
-    for (&bid, &idx) in &broker_index {
-        let color = broker_color_for(theme, idx);
+    let mut legend_x = rect.left() + 172.0;
+    let mut legend_y = rect.top() + 5.0;
+    let mut hidden_legends = 0;
+    for (index, broker) in &ordered_brokers {
+        let selected = broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1;
+        let role = if broker.broker_id == selected_pair.0 {
+            "A"
+        } else if broker.broker_id == selected_pair.1 {
+            "B"
+        } else {
+            "·"
+        };
+        let quote = broker
+            .latest_quote
+            .as_ref()
+            .map(|quote| format!("{:.*}", price_decimals, quote.mid))
+            .unwrap_or_else(|| "--".to_owned());
+        let availability = match broker.health.connection {
+            ConnectionState::Disconnected => " DISCONNECTED",
+            ConnectionState::Connecting => " CONNECTING",
+            ConnectionState::Connected => match broker.health.data_freshness {
+                FreshnessState::Live => "",
+                FreshnessState::Stale => " STALE",
+                FreshnessState::Unknown => " WARMING",
+            },
+        };
+        let label = format!("{} {} {}{}", role, broker.name, quote, availability);
+        let width = 10.0 + label.chars().count() as f32 * 7.0;
+        if legend_x + width > plot_rect.right() - 4.0 {
+            legend_x = rect.left() + 172.0;
+            legend_y += 15.0;
+        }
+        if legend_y + 12.0 > plot_rect.top() {
+            hidden_legends += 1;
+            continue;
+        }
+        let base_color = broker_color_for(theme, *index);
+        painter.line_segment(
+            [
+                Pos2::new(legend_x, legend_y + 6.0),
+                Pos2::new(legend_x + 8.0, legend_y + 6.0),
+            ],
+            Stroke::new(
+                if selected { 2.5_f32 } else { 1.0_f32 },
+                if selected {
+                    base_color
+                } else {
+                    dim_color(base_color, 130)
+                },
+            ),
+        );
+        painter.text(
+            Pos2::new(legend_x + 11.0, legend_y),
+            egui::Align2::LEFT_TOP,
+            label,
+            egui::FontId::monospace(if selected { 11.0 } else { 10.0 }),
+            if selected {
+                base_color
+            } else {
+                dim_color(base_color, 150)
+            },
+        );
+        legend_x += width;
+    }
+    if hidden_legends > 0 {
+        painter.text(
+            Pos2::new(plot_rect.right() - 4.0, rect.top() + 21.0),
+            egui::Align2::RIGHT_TOP,
+            format!("+{} brokers", hidden_legends),
+            egui::FontId::monospace(11.0),
+            Color32::from_gray(180),
+        );
+    }
+
+    // Draw background brokers first. The selected pair is drawn last with a
+    // stronger stroke, so it remains readable where prices overlap.
+    for (index, broker) in &ordered_brokers {
+        let selected = broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1;
+        let color = broker_color_for(theme, *index);
+        let line_color = if selected {
+            color
+        } else {
+            dim_color(color, if is_live(broker) { 105 } else { 55 })
+        };
+        let stroke_width = if selected { 2.5_f32 } else { 1.0_f32 };
         let mut previous = None;
-        for (index, pt) in quote_points.iter().enumerate() {
-            let current = pt.broker_mids.get(&bid).filter(|m| m.is_finite())
-                .and_then(|&mid| x_axis_coordinate(x_axis_mode, rect, index, quote_points.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks)
-                    .map(|x| Pos2::new(x, price_to_y(mid))));
+        for (sample_index, pt) in quote_points.iter().enumerate() {
+            let current = pt
+                .broker_mids
+                .get(&broker.broker_id)
+                .filter(|m| m.is_finite())
+                .and_then(|&mid| {
+                    x_axis_coordinate(
+                        x_axis_mode,
+                        plot_rect,
+                        sample_index,
+                        quote_points.len(),
+                        pt.mono_ns,
+                        now_mono,
+                        visible_seconds,
+                        visible_ticks,
+                    )
+                    .map(|x| Pos2::new(x, price_to_y(mid)))
+                });
             if let (Some(a), Some(b)) = (previous, current) {
-                painter.line_segment([a, b], Stroke::new(1.5_f32, color));
+                painter.line_segment([a, b], Stroke::new(stroke_width, line_color));
             }
             previous = current;
+        }
+        if let Some(point) = previous {
+            painter.circle_filled(point, if selected { 3.5 } else { 2.0 }, line_color);
         }
     }
 
@@ -1072,48 +1363,28 @@ pub fn draw_realtime_quote_path_chart(
     {
         let mut previous = None;
         for (index, pt) in quote_points.iter().enumerate() {
-            let current = pt.consensus_mid.filter(|m| m.is_finite())
-                .and_then(|mid| x_axis_coordinate(x_axis_mode, rect, index, quote_points.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks)
-                    .map(|x| Pos2::new(x, price_to_y(mid))));
+            let current = pt.consensus_mid.filter(|m| m.is_finite()).and_then(|mid| {
+                x_axis_coordinate(
+                    x_axis_mode,
+                    plot_rect,
+                    index,
+                    quote_points.len(),
+                    pt.mono_ns,
+                    now_mono,
+                    visible_seconds,
+                    visible_ticks,
+                )
+                .map(|x| Pos2::new(x, price_to_y(mid)))
+            });
             if let (Some(a), Some(b)) = (previous, current) {
-                painter.line_segment([a, b], Stroke::new(2.0_f32, theme.median_line));
+                painter.line_segment(
+                    [a, b],
+                    Stroke::new(1.5_f32, dim_color(theme.median_line, 145)),
+                );
             }
             previous = current;
         }
     }
-
-    // Legend in top-right
-    let legend_x = rect.right() - 8.0;
-    let mut legend_y = rect.top() + 6.0;
-    for b in broker_overviews {
-        if let Some(&idx) = broker_index.get(&b.broker_id) {
-            let color = broker_color_for(theme, idx);
-            let label = if b.health.connection != ConnectionState::Connected {
-                format!("{}: disconnected", b.name)
-            } else if b.health.data_freshness != FreshnessState::Live {
-                format!("{}: stale / warming", b.name)
-            } else if let Some(q) = &b.latest_quote {
-                format!("{}: {:.3}", b.name, q.mid)
-            } else {
-                format!("{}: --", b.name)
-            };
-            painter.text(
-                Pos2::new(legend_x, legend_y),
-                egui::Align2::RIGHT_TOP,
-                label,
-                egui::FontId::monospace(10.0),
-                color,
-            );
-            legend_y += 14.0;
-        }
-    }
-    painter.text(
-        Pos2::new(legend_x, legend_y),
-        egui::Align2::RIGHT_TOP,
-        format!("Observed Broker Median: {:.3}", center_price),
-        egui::FontId::monospace(10.0),
-        theme.median_line,
-    );
 }
 
 /// One-Line State Ribbon (RFC §57)
@@ -1125,10 +1396,13 @@ pub fn draw_state_ribbon(
     breadth: &Option<MoveBreadth>,
 ) {
     ui.horizontal(|ui| {
-        let live_count = brokers.iter().filter(|b| {
-            b.health.connection == ConnectionState::Connected
-                && b.health.data_freshness == FreshnessState::Live
-        }).count();
+        let live_count = brokers
+            .iter()
+            .filter(|b| {
+                b.health.connection == ConnectionState::Connected
+                    && b.health.data_freshness == FreshnessState::Live
+            })
+            .count();
         let overloaded = brokers.iter().any(|b| {
             let flags = b.health.overload;
             flags.receiver || flags.engine || flags.logger || flags.analysis
@@ -1150,7 +1424,10 @@ pub fn draw_state_ribbon(
             } else {
                 Color32::from_rgb(255, 200, 80)
             };
-            ui.colored_label(fresh_color, format!("Fresh {}/{}", c.fresh_count, c.total_count));
+            ui.colored_label(
+                fresh_color,
+                format!("Fresh {}/{}", c.fresh_count, c.total_count),
+            );
             ui.separator();
             if let Some(median) = c.consensus_mid {
                 ui.label(format!("Observed Broker Median {:.3}", median));
@@ -1162,13 +1439,26 @@ pub fn draw_state_ribbon(
             ui.separator();
         }
         if let Some(cluster) = clusters.last() {
-            let dir = match cluster.direction { MoveDirection::Up => "UP", MoveDirection::Down => "DOWN" };
-            ui.label(format!("{} Cluster {}/{} {:.0}ms", dir, cluster.participating_brokers.len(), cluster.total_brokers, cluster.observed_span_ms));
+            let dir = match cluster.direction {
+                MoveDirection::Up => "UP",
+                MoveDirection::Down => "DOWN",
+            };
+            ui.label(format!(
+                "{} Cluster {}/{} {:.0}ms",
+                dir,
+                cluster.participating_brokers.len(),
+                cluster.total_brokers,
+                cluster.observed_span_ms
+            ));
             ui.separator();
         }
         if let Some(b) = breadth {
             if b.up_count > 0 || b.down_count > 0 {
-                ui.label(format!("Breadth UP {} DN {}", b.up_ratio_str(), b.down_ratio_str()));
+                ui.label(format!(
+                    "Breadth UP {} DN {}",
+                    b.up_ratio_str(),
+                    b.down_ratio_str()
+                ));
             } else {
                 ui.label("Breadth: Quiet");
             }
@@ -1187,20 +1477,53 @@ pub fn draw_mid_dispersion_view(
     painter.rect_filled(rect, 4.0, theme.bg_color);
     let cons = match consensus {
         Some(c) => c,
-        None => { painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No consensus data yet", egui::FontId::proportional(13.0), Color32::GRAY); return; }
+        None => {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "No consensus data yet",
+                egui::FontId::proportional(13.0),
+                Color32::GRAY,
+            );
+            return;
+        }
     };
     let median = match cons.consensus_mid {
         Some(m) => m,
-        None => { painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Insufficient fresh brokers", egui::FontId::proportional(13.0), Color32::GRAY); return; }
+        None => {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Insufficient fresh brokers",
+                egui::FontId::proportional(13.0),
+                Color32::GRAY,
+            );
+            return;
+        }
     };
 
-    painter.text(Pos2::new(rect.left() + 8.0, rect.top() + 6.0), egui::Align2::LEFT_TOP,
-        format!("Observed Broker Median: {:.3}  |  Fresh: {}/{}  |  Range: {:.1}pt", median, cons.fresh_count, cons.total_count, cons.mid_range.unwrap_or(0.0) * 1000.0),
-        egui::FontId::monospace(11.0), Color32::WHITE);
+    painter.text(
+        Pos2::new(rect.left() + 8.0, rect.top() + 6.0),
+        egui::Align2::LEFT_TOP,
+        format!(
+            "Observed Broker Median: {:.3}  |  Fresh: {}/{}  |  Range: {:.1}pt",
+            median,
+            cons.fresh_count,
+            cons.total_count,
+            cons.mid_range.unwrap_or(0.0) * 1000.0
+        ),
+        egui::FontId::monospace(11.0),
+        Color32::WHITE,
+    );
 
     if let Some(mad) = cons.median_abs_deviation {
-        painter.text(Pos2::new(rect.right() - 8.0, rect.top() + 6.0), egui::Align2::RIGHT_TOP,
-            format!("MAD: {:.2}pt", mad * 1000.0), egui::FontId::monospace(11.0), Color32::from_rgb(200, 180, 255));
+        painter.text(
+            Pos2::new(rect.right() - 8.0, rect.top() + 6.0),
+            egui::Align2::RIGHT_TOP,
+            format!("MAD: {:.2}pt", mad * 1000.0),
+            egui::FontId::monospace(11.0),
+            Color32::from_rgb(200, 180, 255),
+        );
     }
 
     let bar_top = rect.top() + 26.0;
@@ -1209,34 +1532,85 @@ pub fn draw_mid_dispersion_view(
     let row_h = (bar_height / n as f32).min(22.0);
     let cx = rect.center().x;
     let max_half = rect.width() * 0.35;
-    let max_dev = broker_overviews.iter().filter(|b| {
-        b.health.connection == ConnectionState::Connected && b.health.data_freshness == FreshnessState::Live
-    }).filter_map(|b| b.latest_quote.as_ref().map(|q| (q.mid - median).abs())).fold(0.001_f64, f64::max);
+    let max_dev = broker_overviews
+        .iter()
+        .filter(|b| {
+            b.health.connection == ConnectionState::Connected
+                && b.health.data_freshness == FreshnessState::Live
+        })
+        .filter_map(|b| b.latest_quote.as_ref().map(|q| (q.mid - median).abs()))
+        .fold(0.001_f64, f64::max);
 
-    painter.line_segment([Pos2::new(cx, bar_top), Pos2::new(cx, bar_top + bar_height)], Stroke::new(1.0_f32, theme.zero_line));
+    painter.line_segment(
+        [Pos2::new(cx, bar_top), Pos2::new(cx, bar_top + bar_height)],
+        Stroke::new(1.0_f32, theme.zero_line),
+    );
 
     for (i, b) in broker_overviews.iter().enumerate() {
         let y = bar_top + (i as f32) * row_h + row_h * 0.5;
         let color = broker_color_for(theme, i);
-        painter.text(Pos2::new(rect.left() + 8.0, y), egui::Align2::LEFT_CENTER, &b.name, egui::FontId::monospace(11.0), color);
+        painter.text(
+            Pos2::new(rect.left() + 8.0, y),
+            egui::Align2::LEFT_CENTER,
+            &b.name,
+            egui::FontId::monospace(11.0),
+            color,
+        );
 
-        if b.health.connection != ConnectionState::Connected || b.health.data_freshness != FreshnessState::Live {
-            painter.text(Pos2::new(rect.right() - 8.0, y), egui::Align2::RIGHT_CENTER,
-                if b.health.connection == ConnectionState::Disconnected { "DISCONNECTED" } else { "STALE / WARMING" },
-                egui::FontId::monospace(10.0), Color32::GRAY);
+        if b.health.connection != ConnectionState::Connected
+            || b.health.data_freshness != FreshnessState::Live
+        {
+            painter.text(
+                Pos2::new(rect.right() - 8.0, y),
+                egui::Align2::RIGHT_CENTER,
+                if b.health.connection == ConnectionState::Disconnected {
+                    "DISCONNECTED"
+                } else {
+                    "STALE / WARMING"
+                },
+                egui::FontId::monospace(10.0),
+                Color32::GRAY,
+            );
             continue;
         }
         if let Some(q) = &b.latest_quote {
             let dev = q.mid - median;
             let bar_len = ((dev.abs() / max_dev) as f32 * max_half).clamp(2.0, max_half);
-            let br = if dev >= 0.0 { Rect::from_min_max(Pos2::new(cx, y - 4.0), Pos2::new(cx + bar_len, y + 4.0)) }
-                     else { Rect::from_min_max(Pos2::new(cx - bar_len, y - 4.0), Pos2::new(cx, y + 4.0)) };
+            let br = if dev >= 0.0 {
+                Rect::from_min_max(Pos2::new(cx, y - 4.0), Pos2::new(cx + bar_len, y + 4.0))
+            } else {
+                Rect::from_min_max(Pos2::new(cx - bar_len, y - 4.0), Pos2::new(cx, y + 4.0))
+            };
             let is_outlier = cons.outliers.iter().any(|o| o.broker_id == b.broker_id);
-            painter.rect_filled(br, 2.0, if is_outlier { Color32::from_rgb(255, 100, 100) } else { color });
-            let (lx, al) = if dev >= 0.0 { (br.right() + 4.0, egui::Align2::LEFT_CENTER) } else { (br.left() - 4.0, egui::Align2::RIGHT_CENTER) };
-            painter.text(Pos2::new(lx, y), al, format!("{:+.1}pt", dev * 1000.0), egui::FontId::monospace(10.0), Color32::from_gray(180));
+            painter.rect_filled(
+                br,
+                2.0,
+                if is_outlier {
+                    Color32::from_rgb(255, 100, 100)
+                } else {
+                    color
+                },
+            );
+            let (lx, al) = if dev >= 0.0 {
+                (br.right() + 4.0, egui::Align2::LEFT_CENTER)
+            } else {
+                (br.left() - 4.0, egui::Align2::RIGHT_CENTER)
+            };
+            painter.text(
+                Pos2::new(lx, y),
+                al,
+                format!("{:+.1}pt", dev * 1000.0),
+                egui::FontId::monospace(10.0),
+                Color32::from_gray(180),
+            );
             if is_outlier {
-                painter.text(Pos2::new(rect.right() - 8.0, y), egui::Align2::RIGHT_CENTER, "Large Deviation", egui::FontId::monospace(9.0), Color32::from_rgb(255, 140, 100));
+                painter.text(
+                    Pos2::new(rect.right() - 8.0, y),
+                    egui::Align2::RIGHT_CENTER,
+                    "Large Deviation",
+                    egui::FontId::monospace(9.0),
+                    Color32::from_rgb(255, 140, 100),
+                );
             }
         }
     }
@@ -1252,7 +1626,13 @@ pub fn draw_move_breadth_view(
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
-    painter.text(Pos2::new(rect.left() + 8.0, rect.top() + 6.0), egui::Align2::LEFT_TOP, "Directional Move Breadth", egui::FontId::monospace(12.0), Color32::WHITE);
+    painter.text(
+        Pos2::new(rect.left() + 8.0, rect.top() + 6.0),
+        egui::Align2::LEFT_TOP,
+        "Directional Move Breadth",
+        egui::FontId::monospace(12.0),
+        Color32::WHITE,
+    );
 
     let y0 = rect.top() + 28.0;
     if let Some(b) = breadth {
@@ -1261,26 +1641,79 @@ pub fn draw_move_breadth_view(
         let bl = rect.left() + rect.width() * 0.25;
 
         let up_f = b.up_count as f32 / total as f32;
-        painter.text(Pos2::new(bl - 8.0, y0 + 4.0), egui::Align2::RIGHT_CENTER, format!("UP {}", b.up_ratio_str()), egui::FontId::monospace(11.0), Color32::from_rgb(80, 200, 220));
-        painter.rect_filled(Rect::from_min_size(Pos2::new(bl, y0), egui::Vec2::new(bw * up_f, 12.0)), 2.0, Color32::from_rgb(80, 200, 220));
+        painter.text(
+            Pos2::new(bl - 8.0, y0 + 4.0),
+            egui::Align2::RIGHT_CENTER,
+            format!("UP {}", b.up_ratio_str()),
+            egui::FontId::monospace(11.0),
+            Color32::from_rgb(80, 200, 220),
+        );
+        painter.rect_filled(
+            Rect::from_min_size(Pos2::new(bl, y0), egui::Vec2::new(bw * up_f, 12.0)),
+            2.0,
+            Color32::from_rgb(80, 200, 220),
+        );
 
         let dn_f = b.down_count as f32 / total as f32;
         let dy = y0 + 20.0;
-        painter.text(Pos2::new(bl - 8.0, dy + 4.0), egui::Align2::RIGHT_CENTER, format!("DN {}", b.down_ratio_str()), egui::FontId::monospace(11.0), Color32::from_rgb(255, 160, 80));
-        painter.rect_filled(Rect::from_min_size(Pos2::new(bl, dy), egui::Vec2::new(bw * dn_f, 12.0)), 2.0, Color32::from_rgb(255, 160, 80));
+        painter.text(
+            Pos2::new(bl - 8.0, dy + 4.0),
+            egui::Align2::RIGHT_CENTER,
+            format!("DN {}", b.down_ratio_str()),
+            egui::FontId::monospace(11.0),
+            Color32::from_rgb(255, 160, 80),
+        );
+        painter.rect_filled(
+            Rect::from_min_size(Pos2::new(bl, dy), egui::Vec2::new(bw * dn_f, 12.0)),
+            2.0,
+            Color32::from_rgb(255, 160, 80),
+        );
     } else {
-        painter.text(Pos2::new(rect.center().x, y0 + 10.0), egui::Align2::CENTER_TOP, "No breadth data yet", egui::FontId::proportional(13.0), Color32::GRAY);
+        painter.text(
+            Pos2::new(rect.center().x, y0 + 10.0),
+            egui::Align2::CENTER_TOP,
+            "No breadth data yet",
+            egui::FontId::proportional(13.0),
+            Color32::GRAY,
+        );
     }
 
     let cy = y0 + 55.0;
     if !clusters.is_empty() {
-        painter.text(Pos2::new(rect.left() + 8.0, cy), egui::Align2::LEFT_TOP, "Recent Clusters:", egui::FontId::monospace(11.0), Color32::from_gray(160));
-        let name_of = |bid: BrokerId| -> String { broker_overviews.iter().find(|b| b.broker_id == bid).map(|b| b.name.clone()).unwrap_or_else(|| format!("#{}", bid)) };
+        painter.text(
+            Pos2::new(rect.left() + 8.0, cy),
+            egui::Align2::LEFT_TOP,
+            "Recent Clusters:",
+            egui::FontId::monospace(11.0),
+            Color32::from_gray(160),
+        );
+        let name_of = |bid: BrokerId| -> String {
+            broker_overviews
+                .iter()
+                .find(|b| b.broker_id == bid)
+                .map(|b| b.name.clone())
+                .unwrap_or_else(|| format!("#{}", bid))
+        };
         for (i, cl) in clusters.iter().rev().take(3).enumerate() {
-            let d = match cl.direction { MoveDirection::Up => "UP", MoveDirection::Down => "DN" };
-            painter.text(Pos2::new(rect.left() + 16.0, cy + 16.0 + (i as f32) * 14.0), egui::Align2::LEFT_TOP,
-                format!("{} {}/{} {:.0}ms First:{} Last:{}", d, cl.participating_brokers.len(), cl.total_brokers, cl.observed_span_ms, name_of(cl.first_observed), name_of(cl.last_observed)),
-                egui::FontId::monospace(10.0), Color32::from_gray(140));
+            let d = match cl.direction {
+                MoveDirection::Up => "UP",
+                MoveDirection::Down => "DN",
+            };
+            painter.text(
+                Pos2::new(rect.left() + 16.0, cy + 16.0 + (i as f32) * 14.0),
+                egui::Align2::LEFT_TOP,
+                format!(
+                    "{} {}/{} {:.0}ms First:{} Last:{}",
+                    d,
+                    cl.participating_brokers.len(),
+                    cl.total_brokers,
+                    cl.observed_span_ms,
+                    name_of(cl.first_observed),
+                    name_of(cl.last_observed)
+                ),
+                egui::FontId::monospace(10.0),
+                Color32::from_gray(140),
+            );
         }
     }
 }
@@ -1293,26 +1726,55 @@ pub fn draw_quote_persistence_view(
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
-    painter.text(Pos2::new(rect.left() + 8.0, rect.top() + 6.0), egui::Align2::LEFT_TOP, "Quote Freshness / Tick Rate per Broker", egui::FontId::monospace(12.0), Color32::WHITE);
+    painter.text(
+        Pos2::new(rect.left() + 8.0, rect.top() + 6.0),
+        egui::Align2::LEFT_TOP,
+        "Quote Freshness / Tick Rate per Broker",
+        egui::FontId::monospace(12.0),
+        Color32::WHITE,
+    );
 
-    if broker_overviews.is_empty() { return; }
+    if broker_overviews.is_empty() {
+        return;
+    }
 
     let y0 = rect.top() + 28.0;
     let rh = ((rect.height() - 36.0) / broker_overviews.len() as f32).min(24.0);
     let bl = rect.left() + rect.width() * 0.2;
     let bw = rect.width() * 0.55;
-    let max_rate = broker_overviews.iter().map(|b| b.tick_rate_1s).fold(1.0_f64, f64::max);
+    let max_rate = broker_overviews
+        .iter()
+        .map(|b| b.tick_rate_1s)
+        .fold(1.0_f64, f64::max);
 
     for (i, b) in broker_overviews.iter().enumerate() {
         let y = y0 + (i as f32) * rh + rh * 0.5;
         let color = broker_color_for(theme, i);
-        painter.text(Pos2::new(rect.left() + 8.0, y), egui::Align2::LEFT_CENTER, &b.name, egui::FontId::monospace(11.0), color);
+        painter.text(
+            Pos2::new(rect.left() + 8.0, y),
+            egui::Align2::LEFT_CENTER,
+            &b.name,
+            egui::FontId::monospace(11.0),
+            color,
+        );
         let frac = (b.tick_rate_1s / max_rate) as f32;
         let br = Rect::from_min_size(Pos2::new(bl, y - 5.0), egui::Vec2::new(bw * frac, 10.0));
         painter.rect_filled(br, 2.0, color);
-        painter.text(Pos2::new(br.right() + 6.0, y), egui::Align2::LEFT_CENTER, format!("{:.0} t/s", b.tick_rate_1s), egui::FontId::monospace(10.0), Color32::from_gray(180));
+        painter.text(
+            Pos2::new(br.right() + 6.0, y),
+            egui::Align2::LEFT_CENTER,
+            format!("{:.0} t/s", b.tick_rate_1s),
+            egui::FontId::monospace(10.0),
+            Color32::from_gray(180),
+        );
         if let Some(q) = &b.latest_quote {
-            painter.text(Pos2::new(rect.right() - 8.0, y), egui::Align2::RIGHT_CENTER, format!("Spread: {:.3}", q.spread), egui::FontId::monospace(10.0), Color32::from_gray(140));
+            painter.text(
+                Pos2::new(rect.right() - 8.0, y),
+                egui::Align2::RIGHT_CENTER,
+                format!("Spread: {:.3}", q.spread),
+                egui::FontId::monospace(10.0),
+                Color32::from_gray(140),
+            );
         }
     }
 }
@@ -1320,10 +1782,17 @@ pub fn draw_quote_persistence_view(
 /// Latency Dashboard for Debug overlay (RFC §66)
 pub fn draw_latency_dashboard(ui: &mut egui::Ui, summary: &StageLatencySummary) {
     ui.separator();
-    ui.label(egui::RichText::new("Pipeline Latency").strong().color(Color32::from_rgb(200, 180, 255)));
+    ui.label(
+        egui::RichText::new("Pipeline Latency")
+            .strong()
+            .color(Color32::from_rgb(200, 180, 255)),
+    );
     let draw_stage = |ui: &mut egui::Ui, name: &str, stats: &crate::metrics::PercentileStats| {
         if stats.sample_count > 0 {
-            ui.label(format!("  {} (n={}): p50 {:.0}µs  p95 {:.0}µs  p99 {:.0}µs  max {:.0}µs", name, stats.sample_count, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us));
+            ui.label(format!(
+                "  {} (n={}): p50 {:.0}µs  p95 {:.0}µs  p99 {:.0}µs  max {:.0}µs",
+                name, stats.sample_count, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us
+            ));
         } else {
             ui.label(format!("  {}: No samples", name));
         }
@@ -1335,3 +1804,49 @@ pub fn draw_latency_dashboard(ui: &mut egui::Ui, summary: &StageLatencySummary) 
     draw_stage(ui, "Total", &summary.total_pipeline);
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn follow_anchor_limits_a_large_recenter_to_one_small_step() {
+        let mut anchor = Some(100.0);
+        let next = advance_chart_anchor(&mut anchor, 120.0, 10.0, 0.4);
+
+        assert!((next - 101.2).abs() < f64::EPSILON);
+        assert_eq!(anchor, Some(next));
+    }
+
+    #[test]
+    fn visible_difference_scale_ignores_points_outside_the_time_window() {
+        let series = [
+            DiffPoint {
+                mono_ns: MonoNs(1),
+                bid_diff: 5.0,
+                ask_diff: 5.0,
+                mid_diff: 5.0,
+                spread_diff: 5.0,
+            },
+            DiffPoint {
+                mono_ns: MonoNs(60_000_000_000),
+                bid_diff: 0.01,
+                ask_diff: 0.01,
+                mid_diff: 0.01,
+                spread_diff: 0.01,
+            },
+        ];
+        let plot_rect = Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(400.0, 200.0));
+        let extreme = visible_diff_extreme(
+            &series,
+            ChartXAxisMode::ReceiveTime,
+            plot_rect,
+            MonoNs(60_000_000_000),
+            10,
+            100,
+            0.005,
+            |point| point.mid_diff,
+        );
+
+        assert_eq!(extreme, 0.01);
+    }
+}
