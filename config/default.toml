@@ -48,7 +48,7 @@ auto_utc_offset = true
 
 [protocol]
 max_payload_length = 1048576
-ack_mode = "off"
+ack_mode = "required"
 debug_resync_limit = 65536
 
 [ingress]
@@ -70,6 +70,7 @@ matching_window_ms = 100
 event_cooldown_ms = 20
 ema_alpha = 0.1
 pending_event_capacity = 8192
+max_quote_skew_ms = 100
 
 [health]
 stale_after_ms = 1000

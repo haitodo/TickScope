@@ -4,32 +4,26 @@
 use eframe::egui;
 use std::env;
 use std::path::Path;
-use tick_compare::config::load_config_from_file;
+use tick_compare::config::load_startup_config;
 use tick_compare::runtime::coordinator::RuntimeCoordinator;
 use tick_compare::ui::dashboard::DashboardApp;
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = env::args().collect();
-    let config_path = if args.len() > 1 {
-        args[1].clone()
-    } else {
-        "config/default.toml".to_string()
-    };
-
     println!("TickScope initializing...");
-    println!("Loading config from: {}", config_path);
-
-    let config = match load_config_from_file(Path::new(&config_path)) {
+    let exe = env::current_exe().expect("Cannot locate TickScope executable");
+    let cwd = env::current_dir().expect("Cannot locate working directory");
+    let config = match load_startup_config(args.get(1).map(Path::new), exe.parent().unwrap(), &cwd) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("Failed to load '{}': {}", config_path, e);
+            eprintln!("Failed to load configuration: {}", e);
             std::process::exit(1);
         }
     };
 
     // Auto-deploy MT5 EA and Include files to detected MT5 terminals
     if config.mt5.auto_deploy {
-        let deploy_report = tick_compare::runtime::deploy_mt5_files(&config.mt5);
+        let deploy_report = tick_compare::runtime::deploy_mt5_files_for_brokers(&config.mt5, &config.brokers);
         tick_compare::runtime::print_deploy_report(&deploy_report);
     }
 

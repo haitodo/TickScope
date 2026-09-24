@@ -12,9 +12,16 @@
 #include <TickScope/SocketClient.mqh>
 
 //--- Inputs
+#ifdef TICKSCOPE_BROKER_ID
+// Generated broker EAs get connection settings from TickScope configuration.
+const uint   InpBrokerID = TICKSCOPE_BROKER_ID;
+const string InpServerHost = TICKSCOPE_SERVER_HOST;
+const uint   InpServerPort = TICKSCOPE_SERVER_PORT;
+#else
 input uint   InpBrokerID            = 1;              // Broker ID (1, 2, 3...)
 input string InpServerHost          = "127.0.0.1";    // TickScope Server Host
 input uint   InpServerPort          = 39001;          // TickScope Server Port
+#endif
 input uint   InpWarmupSeconds       = 60;             // Warmup history duration (seconds)
 input uint   InpBatchCount          = 256;            // CopyTicks batch size
 input uint   InpMaxSameMsScanTicks  = 65536;          // Max scan ticks in single millisecond
@@ -26,6 +33,7 @@ CSocketClient g_socket;
 ulong         g_session_id             = 0;
 ulong         g_current_sequence       = 0;
 ulong         g_last_acked_sequence    = 0;
+bool          g_has_acked_sequence     = false;
 ushort        g_current_phase          = PHASE_WARMING;
 ulong         g_ea_start_microsecond   = 0;
 
@@ -35,10 +43,79 @@ uint          g_cursor_same_ms_count   = 0;
 long          g_last_tick_time_msc     = 0;
 ulong         g_last_heartbeat_us      = 0;
 bool          g_warmup_done            = false;
+bool          g_warmup_started         = false;
+
+// Exactly one complete tick batch may be outstanding.  This is deliberately a
+// stop-and-wait ledger: it keeps source memory bounded and makes the cursor
+// commit point unambiguous.  A TCP write is never treated as delivery; only a
+// validated ACK for this batch advances the cursor and sequence.
+bool          g_pending_batch          = false;
+bool          g_pending_queued         = false;
+ulong         g_pending_sequence_start = 0;
+ulong         g_pending_sequence_end   = 0;
+long          g_pending_cursor_time_msc = 0;
+uint          g_pending_cursor_same_ms  = 0;
+long          g_pending_last_tick_time_msc = 0;
+uchar         g_pending_packet[];
 
 // Reusable scratch buffers
 MqlTick       g_tick_buffer[];
 uchar         g_packet_buffer[];
+
+//+------------------------------------------------------------------+
+//| Queue/replay the one unacknowledged batch                        |
+//+------------------------------------------------------------------+
+bool QueuePendingBatch()
+{
+   if(!g_pending_batch) return true;
+   if(!g_socket.IsConnected()) return false;
+   if(g_pending_queued)
+   {
+      return g_socket.Flush();
+   }
+   if(!g_socket.QueueBytes(g_pending_packet, ArraySize(g_pending_packet)))
+   {
+      return false;
+   }
+   g_pending_queued = true;
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Commit the source cursor only after the exact cumulative ACK     |
+//+------------------------------------------------------------------+
+bool PollAndCommitAck()
+{
+   bool received_ack = false;
+   bool protocol_fault = false;
+   g_socket.PollReplies(g_last_acked_sequence, g_has_acked_sequence,
+                        InpBrokerID, g_session_id,
+                        received_ack, protocol_fault);
+   if(protocol_fault)
+   {
+      g_pending_queued = false;
+      return false;
+   }
+   if(!received_ack || !g_pending_batch) return true;
+
+   if(g_last_acked_sequence != g_pending_sequence_end)
+   {
+      PrintFormat("[TickCollector] Unexpected ACK %I64u, expected %I64u; preserving pending batch for replay.",
+                  g_last_acked_sequence, g_pending_sequence_end);
+      g_socket.Disconnect();
+      g_pending_queued = false;
+      return false;
+   }
+
+   g_cursor_time_msc = g_pending_cursor_time_msc;
+   g_cursor_same_ms_count = g_pending_cursor_same_ms;
+   g_last_tick_time_msc = g_pending_last_tick_time_msc;
+   g_current_sequence = g_pending_sequence_end + 1;
+   g_pending_batch = false;
+   g_pending_queued = false;
+   ArrayResize(g_pending_packet, 0);
+   return true;
+}
 
 //+------------------------------------------------------------------+
 //| Helper: Get EA program elapsed time in microseconds             |
@@ -95,7 +172,7 @@ void SendHeartbeat()
    PackHeader(g_packet_buffer, 0, MSG_TYPE_HEARTBEAT, flags,
               InpBrokerID, g_session_id, 0, 0, HEARTBEAT_PAYLOAD_LENGTH);
    PackHeartbeatPayload(g_packet_buffer, HEADER_LENGTH,
-                        g_session_id, g_current_sequence,
+                        g_session_id, (g_current_sequence > 0 ? g_current_sequence - 1 : 0),
                         g_last_tick_time_msc, offset_sec,
                         GetEaElapsedUs());
    g_socket.QueueBytes(g_packet_buffer, ArraySize(g_packet_buffer));
@@ -107,6 +184,14 @@ void SendHeartbeat()
 //+------------------------------------------------------------------+
 bool CollectAndStreamTicks(bool is_warmup)
 {
+   // Never advance CopyTicks cursor or sequence while a batch has not been
+   // acknowledged.  This bounds the resend ledger to one frame and prevents
+   // a socket disconnect from becoming an irreversible source-data gap.
+   if(g_pending_batch)
+   {
+      return QueuePendingBatch();
+   }
+
    // Invariant: Bounded request count to avoid infinite loop on same millisecond
    uint request_count = g_cursor_same_ms_count + InpBatchCount;
    if(request_count > InpMaxSameMsScanTicks)
@@ -145,25 +230,30 @@ bool CollectAndStreamTicks(bool is_warmup)
       new_tick_count = (int)InpBatchCount;
    }
 
-   // Construct TICK_BATCH packet
+   // Construct an immutable candidate TICK_BATCH packet.  All cursor and
+   // sequence changes remain local until the corresponding ACK arrives.
    uint payload_len = (uint)new_tick_count * TICK_RECORD_LENGTH;
-   ArrayResize(g_packet_buffer, HEADER_LENGTH + payload_len);
+   ArrayResize(g_pending_packet, HEADER_LENGTH + payload_len);
 
    ushort hdr_flags = is_warmup ? HEADER_FLAG_WARMUP : 0;
    ulong batch_start_seq = g_current_sequence;
 
-   PackHeader(g_packet_buffer, 0, MSG_TYPE_TICK_BATCH, hdr_flags,
+   PackHeader(g_pending_packet, 0, MSG_TYPE_TICK_BATCH, hdr_flags,
               InpBrokerID, g_session_id, batch_start_seq,
               (uint)new_tick_count, payload_len);
 
    WireTickRecord wire_tick;
    int offset = HEADER_LENGTH;
+   ulong candidate_sequence = g_current_sequence;
+   long candidate_cursor_time_msc = g_cursor_time_msc;
+   uint candidate_cursor_same_ms = g_cursor_same_ms_count;
+   long candidate_last_tick_time_msc = g_last_tick_time_msc;
 
    for(int i = 0; i < new_tick_count; i++)
    {
       MqlTick src = g_tick_buffer[start_index + i];
 
-      wire_tick.sequence = g_current_sequence;
+      wire_tick.sequence = candidate_sequence;
       wire_tick.broker_time_msc = src.time_msc;
       wire_tick.ea_elapsed_us = GetEaElapsedUs();
       wire_tick.bid = src.bid;
@@ -174,27 +264,32 @@ bool CollectAndStreamTicks(bool is_warmup)
       wire_tick.flags = src.flags;
       wire_tick.reserved = 0;
 
-      PackTickRecord(g_packet_buffer, offset, wire_tick);
+      PackTickRecord(g_pending_packet, offset, wire_tick);
       offset += TICK_RECORD_LENGTH;
 
-      // Advance sequence
-      g_current_sequence++;
-      g_last_tick_time_msc = src.time_msc;
+      candidate_sequence++;
+      candidate_last_tick_time_msc = src.time_msc;
 
-      // Advance cursor
-      if(src.time_msc == g_cursor_time_msc)
+      if(src.time_msc == candidate_cursor_time_msc)
       {
-         g_cursor_same_ms_count++;
+         candidate_cursor_same_ms++;
       }
       else
       {
-         g_cursor_time_msc = src.time_msc;
-         g_cursor_same_ms_count = 1;
+         candidate_cursor_time_msc = src.time_msc;
+         candidate_cursor_same_ms = 1;
       }
    }
 
-   g_socket.QueueBytes(g_packet_buffer, ArraySize(g_packet_buffer));
-   return true;
+   g_pending_batch = true;
+   g_pending_queued = false;
+   g_pending_sequence_start = batch_start_seq;
+   g_pending_sequence_end = candidate_sequence - 1;
+   g_pending_cursor_time_msc = candidate_cursor_time_msc;
+   g_pending_cursor_same_ms = candidate_cursor_same_ms;
+   g_pending_last_tick_time_msc = candidate_last_tick_time_msc;
+
+   return QueuePendingBatch();
 }
 
 //+------------------------------------------------------------------+
@@ -209,25 +304,60 @@ void PerformWarmup()
    datetime from_time = TimeCurrent() - InpWarmupSeconds;
    g_cursor_time_msc = ((long)from_time) * 1000;
    g_cursor_same_ms_count = 0;
+   g_current_sequence = 0;
+   g_last_acked_sequence = 0;
+   g_has_acked_sequence = false;
+   g_pending_batch = false;
+   g_pending_queued = false;
+   ArrayResize(g_pending_packet, 0);
+   g_warmup_started = true;
 
    // Send initial STATUS (WARMING)
    SendStatus(STATUS_CODE_PHASE, PHASE_WARMING, 0, 0, 0, 0, 0);
 
-   // Collect backlog until current time
-   int loops = 0;
-   while(loops < 50)
+   // The timer/OnTick driver sends one bounded batch at a time and waits for
+   // its ACK before asking CopyTicks for the next one.
+}
+
+//+------------------------------------------------------------------+
+//| Connect, replay pending data, drain ACKs, then collect one batch |
+//+------------------------------------------------------------------+
+void DriveReliableCollection()
+{
+   if(!g_socket.IsConnected())
    {
-      if(!CollectAndStreamTicks(true))
-      {
-         break;
-      }
-      loops++;
+      if(!g_socket.Connect()) return;
+      // SocketClient discards only its connection-local partial suffix.  The
+      // immutable pending batch is retained here and is replayed in full.
+      if(g_pending_batch) g_pending_queued = false;
    }
 
-   // Transition to LIVE
-   g_current_phase = PHASE_LIVE;
-   SendStatus(STATUS_CODE_PHASE, PHASE_LIVE, 0, 0, 0, 0, 0);
-   PrintFormat("Warmup completed. Transitioned to LIVE at seq %d", g_current_sequence);
+   if(!g_warmup_started)
+   {
+      PerformWarmup();
+      return;
+   }
+
+   if(!PollAndCommitAck()) return;
+
+   if(g_pending_batch)
+   {
+      QueuePendingBatch();
+      return;
+   }
+
+   bool is_warmup = (g_current_phase == PHASE_WARMING);
+   if(CollectAndStreamTicks(is_warmup)) return;
+
+   // No pending batch and no more history means warmup is complete.  Queueing
+   // failures leave g_pending_batch true, so they cannot cause a false LIVE.
+   if(is_warmup)
+   {
+      g_current_phase = PHASE_LIVE;
+      g_warmup_done = true;
+      SendStatus(STATUS_CODE_PHASE, PHASE_LIVE, 0, 0, 0, 0, 0);
+      PrintFormat("Warmup completed. Transitioned to LIVE at acknowledged seq %I64u", g_current_sequence);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -239,16 +369,17 @@ int OnInit()
    g_session_id = GenerateSessionId();
    g_current_sequence = 0;
    g_last_acked_sequence = 0;
+   g_has_acked_sequence = false;
    g_last_tick_time_msc = 0;
    g_last_heartbeat_us = 0;
    g_warmup_done = false;
+   g_warmup_started = false;
 
    g_socket.Init(InpServerHost, InpServerPort, InpSocketTimeoutMs);
 
    if(g_socket.Connect())
    {
       PerformWarmup();
-      g_warmup_done = true;
    }
    else
    {
@@ -288,36 +419,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   if(!g_socket.IsConnected())
-   {
-      if(!g_socket.Connect())
-      {
-         return;
-      }
-      if(!g_warmup_done)
-      {
-         PerformWarmup();
-         g_warmup_done = true;
-      }
-      else
-      {
-         PrintFormat("[TickCollector] Reconnected to %s:%d on tick, resuming streaming.", InpServerHost, InpServerPort);
-         SendStatus(STATUS_CODE_PHASE, g_current_phase, 0, g_current_sequence, g_current_sequence, 0, 0);
-      }
-   }
-
-   // Invariant I01: OnTick is a retrieval trigger. We collect all new ticks.
-   int passes = 0;
-   while(passes < 8) // Bounded execution budget
-   {
-      if(!CollectAndStreamTicks(g_current_phase == PHASE_WARMING))
-      {
-         break;
-      }
-      passes++;
-   }
-   
-   g_socket.Flush();
+   DriveReliableCollection();
 }
 
 //+------------------------------------------------------------------+
@@ -325,42 +427,15 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   if(!g_socket.IsConnected())
-   {
-      if(g_socket.Connect())
-      {
-         if(!g_warmup_done)
-         {
-            PerformWarmup();
-            g_warmup_done = true;
-         }
-         else
-         {
-            PrintFormat("[TickCollector] Reconnected to %s:%d, resuming streaming.", InpServerHost, InpServerPort);
-            SendStatus(STATUS_CODE_PHASE, g_current_phase, 0, g_current_sequence, g_current_sequence, 0, 0);
-            CollectAndStreamTicks(g_current_phase == PHASE_WARMING);
-         }
-      }
-      else
-      {
-         return; // Still disconnected, wait for next timer tick
-      }
-   }
+   DriveReliableCollection();
 
-   // 1. Flush any pending buffered bytes
-   g_socket.Flush();
-
-   // 2. Poll ACKs from server
-   g_socket.PollReplies(g_last_acked_sequence);
-
-   // 3. Check heartbeat interval
+   // Heartbeats are independent diagnostics. Their reported sequence is the
+   // last ACKed sequence, never an unconfirmed candidate batch.
    ulong now_us = GetEaElapsedUs();
    if(now_us - g_last_heartbeat_us >= ((ulong)InpHeartbeatIntervalMs * 1000))
    {
       SendHeartbeat();
    }
 
-   // 4. Drain any pending tick backlog in case of quiet market
-   CollectAndStreamTicks(g_current_phase == PHASE_WARMING);
 }
 //+------------------------------------------------------------------+

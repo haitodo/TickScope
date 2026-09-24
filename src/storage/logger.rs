@@ -4,7 +4,7 @@
 use crate::contracts::crc32c::crc32c;
 use crate::contracts::ports::{AppendResult, LogSinkPort};
 use crate::contracts::types::*;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::collections::HashMap;
@@ -127,9 +127,23 @@ pub fn create_file_header(run_id: RunId, file_id: u64, broker_id: BrokerId) -> [
 }
 
 pub struct AsyncLogger {
-    sender: Sender<Arc<LogRecord>>,
+    sender: Sender<LogCommand>,
     running: Arc<AtomicBool>,
+    queued_bytes: Arc<std::sync::atomic::AtomicUsize>,
+    max_queue_bytes: usize,
+    fault: Arc<Mutex<Option<String>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+struct QueuedLogRecord {
+    record: Arc<LogRecord>,
+    queued_bytes: usize,
+    durable_reply: Option<Sender<Result<(), String>>>,
+}
+
+enum LogCommand {
+    Record(QueuedLogRecord),
+    Flush(Sender<Result<(), String>>),
 }
 
 struct ActiveLog {
@@ -181,15 +195,26 @@ fn open_log_writer(
     Ok(writer)
 }
 
-fn flush_writer(writer: &mut BufWriter<std::fs::File>, durable: bool) {
-    if let Err(error) = writer.flush() {
-        eprintln!("Failed to flush log writer: {error}");
-        return;
-    }
+fn flush_writer(writer: &mut BufWriter<std::fs::File>, durable: bool) -> Result<(), String> {
+    writer.flush().map_err(|error| format!("failed to flush log writer: {error}"))?;
     if durable {
-        if let Err(error) = writer.get_ref().sync_all() {
-            eprintln!("Failed to sync log writer: {error}");
-        }
+        writer.get_ref().sync_data()
+            .map_err(|error| format!("failed to sync log writer: {error}"))?;
+    }
+    Ok(())
+}
+
+/// A conservative upper bound used to enforce the configured in-memory byte
+/// budget before a record is admitted to the logger worker.
+fn queued_record_bytes(record: &LogRecord) -> usize {
+    match record {
+        LogRecord::RawFrame(raw) => raw.raw_wire_bytes.len()
+            .saturating_add(raw.dispositions.len())
+            .saturating_add(128),
+        LogRecord::Metadata(metadata) => metadata.toml_text.len().saturating_add(64),
+        LogRecord::Diagnostic(diagnostic) => diagnostic.code.len()
+            .saturating_add(diagnostic.message.len())
+            .saturating_add(128),
     }
 }
 
@@ -224,31 +249,55 @@ impl AsyncLogger {
         log_dir: P,
         run_id: RunId,
         capacity: usize,
+        max_queue_bytes: usize,
         flush_interval_ms: u64,
     ) -> Result<Self, String> {
+        if capacity == 0 {
+            return Err("logger record capacity must be positive".to_string());
+        }
+        if max_queue_bytes == 0 {
+            return Err("logger byte capacity must be positive".to_string());
+        }
         create_dir_all(&log_dir)
             .map_err(|e| format!("Failed to create log dir: {}", e))?;
 
         let (sender, receiver) = bounded(capacity);
         let running = Arc::new(AtomicBool::new(true));
+        let queued_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fault = Arc::new(Mutex::new(None));
 
         let r_clone = running.clone();
+        let queued_bytes_clone = queued_bytes.clone();
+        let fault_clone = fault.clone();
         let log_dir_buf = log_dir.as_ref().to_path_buf();
 
         let worker = thread::spawn(move || {
-            Self::worker_loop(receiver, r_clone, log_dir_buf, run_id, flush_interval_ms);
+            Self::worker_loop(
+                receiver,
+                r_clone,
+                queued_bytes_clone,
+                fault_clone,
+                log_dir_buf,
+                run_id,
+                flush_interval_ms,
+            );
         });
 
         Ok(Self {
             sender,
             running,
+            queued_bytes,
+            max_queue_bytes,
+            fault,
             worker: Mutex::new(Some(worker)),
         })
     }
 
     fn worker_loop(
-        receiver: Receiver<Arc<LogRecord>>,
+        receiver: Receiver<LogCommand>,
         running: Arc<AtomicBool>,
+        queued_bytes: Arc<std::sync::atomic::AtomicUsize>,
+        fault: Arc<Mutex<Option<String>>>,
         log_dir: PathBuf,
         run_id: RunId,
         flush_interval_ms: u64,
@@ -260,38 +309,66 @@ impl AsyncLogger {
 
         while running.load(Ordering::SeqCst) || !receiver.is_empty() {
             match receiver.recv_timeout(Duration::from_millis(10)) {
-                Ok(rec) => {
-                    let broker_id = log_broker_id(&rec);
+                Ok(LogCommand::Record(command)) => {
+                    queued_bytes.fetch_sub(command.queued_bytes, Ordering::SeqCst);
+                    let broker_id = log_broker_id(&command.record);
                     let utc_date = utc_date_now();
-                    let needs_new_writer = writers.get(&broker_id)
-                        .is_none_or(|active| active.utc_date != utc_date);
-                    if needs_new_writer {
-                        if let Some(mut previous) = writers.remove(&broker_id) {
-                            flush_writer(&mut previous.writer, true);
+                    let write_result = (|| -> Result<(), String> {
+                        let needs_new_writer = writers.get(&broker_id)
+                            .is_none_or(|active| active.utc_date != utc_date);
+                        if needs_new_writer {
+                            if let Some(mut previous) = writers.remove(&broker_id) {
+                                flush_writer(&mut previous.writer, true)?;
+                            }
+                            let writer = open_log_writer(&log_dir, run_id, next_file_id, broker_id, &utc_date)?;
+                            writers.insert(broker_id, ActiveLog {
+                                utc_date,
+                                writer,
+                                next_record_index: 0,
+                            });
+                            next_file_id = next_file_id.saturating_add(1);
                         }
-                        match open_log_writer(&log_dir, run_id, next_file_id, broker_id, &utc_date) {
-                            Ok(writer) => {
-                                writers.insert(broker_id, ActiveLog {
-                                    utc_date,
-                                    writer,
-                                    next_record_index: 0,
-                                });
-                                next_file_id = next_file_id.saturating_add(1);
+
+                        let active = writers.get_mut(&broker_id)
+                            .expect("writer was just opened");
+                        let bytes = encode_record(&command.record, active.next_record_index)?;
+                        active.writer.write_all(&bytes)
+                            .map_err(|error| format!("failed to write broker {broker_id} log record: {error}"))?;
+                        active.next_record_index = active.next_record_index.saturating_add(1);
+                        if command.durable_reply.is_some() {
+                            // The reliable receiver only ACKs a source batch after its
+                            // raw frame has reached stable storage.
+                            flush_writer(&mut active.writer, true)?;
+                        }
+                        Ok(())
+                    })();
+
+                    match write_result {
+                        Ok(()) => {
+                            if let Some(reply) = command.durable_reply {
+                                let _ = reply.send(Ok(()));
                             }
-                            Err(error) => {
-                                eprintln!("Failed to open log writer for broker {}: {}", broker_id, error);
-                                continue;
+                        }
+                        Err(error) => {
+                            *fault.lock().expect("logger fault mutex poisoned") = Some(error.clone());
+                            running.store(false, Ordering::SeqCst);
+                            if let Some(reply) = command.durable_reply {
+                                let _ = reply.send(Err(error));
                             }
+                            break;
                         }
                     }
-
-                    let active = writers.get_mut(&broker_id).expect("writer was just opened");
-                    match encode_record(&rec, active.next_record_index) {
-                        Ok(bytes) => match active.writer.write_all(&bytes) {
-                            Ok(()) => active.next_record_index += 1,
-                            Err(error) => eprintln!("Failed to write broker {} log record: {}", broker_id, error),
-                        },
-                        Err(error) => eprintln!("Failed to encode broker {} log record: {}", broker_id, error),
+                }
+                Ok(LogCommand::Flush(reply)) => {
+                    let result = writers.values_mut()
+                        .try_for_each(|active| flush_writer(&mut active.writer, true));
+                    if let Err(error) = &result {
+                        *fault.lock().expect("logger fault mutex poisoned") = Some(error.clone());
+                        running.store(false, Ordering::SeqCst);
+                    }
+                    let _ = reply.send(result);
+                    if !running.load(Ordering::SeqCst) {
+                        break;
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
@@ -299,15 +376,79 @@ impl AsyncLogger {
             }
 
             if last_flush.elapsed() >= flush_interval {
-                for active in writers.values_mut() {
-                    flush_writer(&mut active.writer, false);
+                let flush_result = writers.values_mut()
+                    .try_for_each(|active| flush_writer(&mut active.writer, false));
+                if let Err(error) = flush_result {
+                    *fault.lock().expect("logger fault mutex poisoned") = Some(error);
+                    running.store(false, Ordering::SeqCst);
+                    break;
                 }
                 last_flush = std::time::Instant::now();
             }
         }
 
-        for active in writers.values_mut() {
-            flush_writer(&mut active.writer, true);
+        if fault.lock().expect("logger fault mutex poisoned").is_none() {
+            for active in writers.values_mut() {
+                if let Err(error) = flush_writer(&mut active.writer, true) {
+                    *fault.lock().expect("logger fault mutex poisoned") = Some(error);
+                    break;
+                }
+            }
+        }
+    }
+
+    fn current_fault(&self) -> Option<String> {
+        self.fault.lock().expect("logger fault mutex poisoned").clone()
+    }
+
+    fn reserve_bytes(&self, bytes: usize) -> bool {
+        loop {
+            let current = self.queued_bytes.load(Ordering::SeqCst);
+            let Some(next) = current.checked_add(bytes) else {
+                return false;
+            };
+            if next > self.max_queue_bytes {
+                return false;
+            }
+            if self.queued_bytes.compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                return true;
+            }
+        }
+    }
+
+    fn try_enqueue(
+        &self,
+        record: Arc<LogRecord>,
+        durable_reply: Option<Sender<Result<(), String>>>,
+    ) -> AppendResult<Arc<LogRecord>> {
+        if let Some(reason) = self.current_fault() {
+            return AppendResult::Fault(record, reason);
+        }
+        if !self.running.load(Ordering::SeqCst) {
+            return AppendResult::Fault(record, "Logger is stopped".to_string());
+        }
+
+        let bytes = queued_record_bytes(&record);
+        if !self.reserve_bytes(bytes) {
+            return AppendResult::Full(record);
+        }
+
+        let command = LogCommand::Record(QueuedLogRecord {
+            record,
+            queued_bytes: bytes,
+            durable_reply,
+        });
+        match self.sender.try_send(command) {
+            Ok(()) => AppendResult::Accepted,
+            Err(TrySendError::Full(LogCommand::Record(command))) => {
+                self.queued_bytes.fetch_sub(command.queued_bytes, Ordering::SeqCst);
+                AppendResult::Full(command.record)
+            }
+            Err(TrySendError::Disconnected(LogCommand::Record(command))) => {
+                self.queued_bytes.fetch_sub(command.queued_bytes, Ordering::SeqCst);
+                AppendResult::Fault(command.record, "Logger channel closed".to_string())
+            }
+            Err(_) => unreachable!("only Record commands are submitted through try_enqueue"),
         }
     }
 
@@ -325,17 +466,39 @@ impl AsyncLogger {
 
 impl LogSinkPort for AsyncLogger {
     fn try_append(&self, record: Arc<LogRecord>) -> AppendResult<Arc<LogRecord>> {
-        match self.sender.try_send(record) {
-            Ok(_) => AppendResult::Accepted,
-            Err(crossbeam_channel::TrySendError::Full(r)) => AppendResult::Full(r),
-            Err(crossbeam_channel::TrySendError::Disconnected(r)) => {
-                AppendResult::Fault(r, "Logger channel closed".to_string())
+        self.try_enqueue(record, None)
+    }
+
+    fn append_durable(&self, record: Arc<LogRecord>) -> Result<(), String> {
+        loop {
+            let (reply_sender, reply_receiver) = bounded(1);
+            match self.try_enqueue(record.clone(), Some(reply_sender)) {
+                AppendResult::Accepted => {
+                    return reply_receiver.recv()
+                        .map_err(|_| "Logger worker stopped before durable append completed".to_string())?;
+                }
+                AppendResult::Full(_) => thread::sleep(Duration::from_millis(1)),
+                AppendResult::Fault(_, reason) => return Err(reason),
             }
         }
     }
 
     fn flush(&self) -> Result<(), String> {
-        Ok(())
+        if let Some(reason) = self.current_fault() {
+            return Err(reason);
+        }
+        let (reply_sender, reply_receiver) = bounded(1);
+        loop {
+            match self.sender.try_send(LogCommand::Flush(reply_sender.clone())) {
+                Ok(()) => break,
+                Err(TrySendError::Full(_)) => thread::sleep(Duration::from_millis(1)),
+                Err(TrySendError::Disconnected(_)) => {
+                    return Err("Logger channel closed".to_string());
+                }
+            }
+        }
+        reply_receiver.recv()
+            .map_err(|_| "Logger worker stopped before flush completed".to_string())?
     }
 }
 

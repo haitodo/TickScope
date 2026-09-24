@@ -43,7 +43,7 @@ public:
       m_send_len = 0;
       m_recv_len = 0;
       ArrayResize(m_send_buffer, 0);
-      ArrayResize(m_recv_buffer, 4096);
+      ArrayResize(m_recv_buffer, 0);
    }
    
    ~CSocketClient()
@@ -159,6 +159,7 @@ public:
       }
       m_connected = false;
       ClearSendBuffer();
+      ClearReceiveBuffer();
    }
    
    void ClearSendBuffer()
@@ -166,6 +167,12 @@ public:
       m_send_offset = 0;
       m_send_len = 0;
       ArrayResize(m_send_buffer, 0);
+   }
+
+   void ClearReceiveBuffer()
+   {
+      m_recv_len = 0;
+      ArrayResize(m_recv_buffer, 0);
    }
    
    bool HasPendingSend() const
@@ -177,6 +184,10 @@ public:
    bool QueueBytes(const uchar &data[], int data_len)
    {
       if(data_len <= 0) return true;
+      // Connection establishment is owned by TickCollector.  Do not silently
+      // reconnect here: the collector must replay its oldest unacknowledged
+      // batch before any new bytes are accepted on a new TCP connection.
+      if(!IsConnected()) return false;
       
       // If there's an existing unsent suffix, append
       int remaining = m_send_len - m_send_offset;
@@ -204,10 +215,7 @@ public:
    // Attempt to flush pending bytes with deadline
    bool Flush()
    {
-      if(!IsConnected())
-      {
-         if(!Connect()) return false;
-      }
+      if(!IsConnected()) return false;
       
       while(m_send_offset < m_send_len)
       {
@@ -249,9 +257,51 @@ public:
       return true;
    }
    
-   // Drain replies (ACKs)
-   void PollReplies(ulong &last_acked_seq)
+   ushort ReadU16(const uchar &src[], int offset)
    {
+      return (ushort)(src[offset] | (src[offset + 1] << 8));
+   }
+
+   uint ReadU32(const uchar &src[], int offset)
+   {
+      uint value = 0;
+      for(int i = 0; i < 4; i++) value |= ((uint)src[offset + i]) << (i * 8);
+      return value;
+   }
+
+   ulong ReadU64(const uchar &src[], int offset)
+   {
+      ulong value = 0;
+      for(int i = 0; i < 8; i++) value |= ((ulong)src[offset + i]) << (i * 8);
+      return value;
+   }
+
+   void ConsumeReplyBytes(int count)
+   {
+      if(count <= 0) return;
+      if(count >= m_recv_len)
+      {
+         ClearReceiveBuffer();
+         return;
+      }
+      uchar remaining[];
+      int remain_len = m_recv_len - count;
+      ArrayResize(remaining, remain_len);
+      ArrayCopy(remaining, m_recv_buffer, 0, count, remain_len);
+      ArrayCopy(m_recv_buffer, remaining, 0, 0, remain_len);
+      m_recv_len = remain_len;
+      ArrayResize(m_recv_buffer, m_recv_len);
+   }
+
+   // Drain complete ACK frames while retaining every TCP partial tail.  The
+   // collector validates broker/session and advances its cursor only after it
+   // observes the exact ACK for its one outstanding batch.
+   void PollReplies(ulong &last_acked_seq, bool &has_acked_seq,
+                    uint expected_broker_id, ulong expected_session_id,
+                    bool &received_ack, bool &protocol_fault)
+   {
+      received_ack = false;
+      protocol_fault = false;
       if(!IsConnected()) return;
       
       ResetLastError();
@@ -264,35 +314,61 @@ public:
          return;
       }
 
-      // MQL5 SocketIsReadable can speculatively return 1 when buffer is empty.
-      // BATCH_ACK is 48 bytes (Header 40 + SeqEnd 8).
-      // Only proceed if at least 48 bytes are ready.
-      if(readable < 48) return;
+      if(readable == 0) return;
       
-      uint to_read = (readable > (uint)ArraySize(m_recv_buffer)) ? (uint)ArraySize(m_recv_buffer) : readable;
+      uint to_read = (readable > 4096) ? 4096 : readable;
+      uchar chunk[];
+      ArrayResize(chunk, to_read);
       
       // Use 0 timeout because SocketIsReadable indicated data is already buffered.
       ResetLastError();
-      int read = SocketRead(m_socket, m_recv_buffer, to_read, 0);
+      int read = SocketRead(m_socket, chunk, to_read, 0);
       if(read > 0)
       {
-         int offset = 0;
-         while(offset + 48 <= read)
+         if(m_recv_len + read > 8192)
          {
-            ushort msg_type = (ushort)(m_recv_buffer[offset + 6] | (m_recv_buffer[offset + 7] << 8));
-            if(msg_type == MSG_TYPE_BATCH_ACK)
+            Print("[TickCollector] ACK buffer exceeded safe limit; disconnecting.");
+            protocol_fault = true;
+            Disconnect();
+            return;
+         }
+         ArrayResize(m_recv_buffer, m_recv_len + read);
+         ArrayCopy(m_recv_buffer, chunk, m_recv_len, 0, read);
+         m_recv_len += read;
+
+         while(m_recv_len >= 48)
+         {
+            uint magic = ReadU32(m_recv_buffer, 0);
+            ushort version = ReadU16(m_recv_buffer, 4);
+            ushort msg_type = ReadU16(m_recv_buffer, 6);
+            ushort header_length = ReadU16(m_recv_buffer, 8);
+            ushort flags = ReadU16(m_recv_buffer, 10);
+            uint broker_id = ReadU32(m_recv_buffer, 12);
+            ulong session_id = ReadU64(m_recv_buffer, 16);
+            ulong sequence_start = ReadU64(m_recv_buffer, 24);
+            uint tick_count = ReadU32(m_recv_buffer, 32);
+            uint payload_length = ReadU32(m_recv_buffer, 36);
+
+            if(magic != MAGIC_TICK || version != PROTOCOL_VERSION ||
+               msg_type != MSG_TYPE_BATCH_ACK || header_length != HEADER_LENGTH ||
+               flags != 0 || broker_id != expected_broker_id ||
+               session_id != expected_session_id || sequence_start != 0 ||
+               tick_count != 0 || payload_length != BATCH_ACK_PAYLOAD_LENGTH)
             {
-               ulong seq_end = 0;
-               for(int i = 0; i < 8; i++)
-               {
-                  seq_end |= ((ulong)m_recv_buffer[offset + 40 + i]) << (i * 8);
-               }
-               if(seq_end > last_acked_seq)
-               {
-                  last_acked_seq = seq_end;
-               }
+               Print("[TickCollector] Invalid ACK frame; disconnecting.");
+               protocol_fault = true;
+               Disconnect();
+               return;
             }
-            offset += 48;
+
+            ulong seq_end = ReadU64(m_recv_buffer, 40);
+            if(!has_acked_seq || seq_end > last_acked_seq)
+            {
+               last_acked_seq = seq_end;
+               has_acked_seq = true;
+            }
+            received_ack = true;
+            ConsumeReplyBytes(48);
          }
       }
       else if(read < 0)

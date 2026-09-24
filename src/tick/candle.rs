@@ -3,6 +3,7 @@
 
 use crate::contracts::models::*;
 use crate::contracts::types::*;
+use crate::contracts::config::SlotRetention;
 use std::collections::{BTreeMap, HashMap};
 
 pub fn calculate_slot_start(utc_ms: UtcMs, period_ms: i64) -> UtcMs {
@@ -15,17 +16,38 @@ pub struct CandleBook {
     // period_ms -> broker_id -> slot_start -> CandleSlot
     books: HashMap<i64, HashMap<BrokerId, BTreeMap<UtcMs, CandleSlot>>>,
     supported_periods: Vec<i64>,
+    retention_slots: HashMap<i64, usize>,
+    latest_slot_by_broker: HashMap<(i64, BrokerId), UtcMs>,
 }
 
 impl CandleBook {
     pub fn new(supported_periods: Vec<i64>) -> Self {
+        let retentions = supported_periods.iter().map(|&period_ms| SlotRetention {
+            period_ms,
+            // Preserve a useful bounded default even for direct test/tool use.
+            slots: 1_024,
+        }).collect::<Vec<_>>();
+        Self::with_retentions(&retentions)
+    }
+
+    pub fn with_retentions(retentions: &[SlotRetention]) -> Self {
         let mut books = HashMap::new();
-        for &period in &supported_periods {
-            books.insert(period, HashMap::new());
+        let mut supported_periods = Vec::new();
+        let mut retention_slots = HashMap::new();
+        for retention in retentions {
+            if retention.period_ms > 0 && retention.slots > 0 {
+                books.entry(retention.period_ms).or_insert_with(HashMap::new);
+                if !supported_periods.contains(&retention.period_ms) {
+                    supported_periods.push(retention.period_ms);
+                }
+                retention_slots.insert(retention.period_ms, retention.slots);
+            }
         }
         Self {
             books,
             supported_periods,
+            retention_slots,
+            latest_slot_by_broker: HashMap::new(),
         }
     }
 
@@ -107,6 +129,18 @@ impl CandleBook {
             } else {
                 slot.state = SlotState::Active;
             }
+
+            let latest_slot = self.latest_slot_by_broker
+                .entry((period, broker_id))
+                .or_insert(slot_start);
+            if slot_start > *latest_slot {
+                *latest_slot = slot_start;
+            }
+            let slots = self.retention_slots.get(&period).copied().unwrap_or(1).max(1);
+            let cutoff = UtcMs(latest_slot.0.saturating_sub(
+                period.saturating_mul((slots.saturating_sub(1)) as i64),
+            ));
+            broker_map.retain(|start, _| *start >= cutoff);
         }
     }
 

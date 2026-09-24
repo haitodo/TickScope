@@ -57,7 +57,7 @@ fn default_max_payload() -> u32 {
     1_048_576
 }
 fn default_ack_mode() -> String {
-    "off".to_string()
+    "required".to_string()
 }
 fn default_debug_resync_limit() -> u32 {
     65_536
@@ -163,6 +163,10 @@ pub struct MatcherConfig {
     pub ema_alpha: f64,
     #[serde(default = "default_pending_capacity")]
     pub pending_event_capacity: usize,
+    /// Maximum receive-time skew permitted for a displayed pairwise price
+    /// difference. Lead/lag matching has its own window above.
+    #[serde(default = "default_max_quote_skew")]
+    pub max_quote_skew_ms: u64,
 }
 
 fn default_trigger_move() -> f64 {
@@ -180,6 +184,9 @@ fn default_ema_alpha() -> f64 {
 fn default_pending_capacity() -> usize {
     8192
 }
+fn default_max_quote_skew() -> u64 {
+    100
+}
 
 impl Default for MatcherConfig {
     fn default() -> Self {
@@ -189,6 +196,7 @@ impl Default for MatcherConfig {
             event_cooldown_ms: default_event_cooldown(),
             ema_alpha: default_ema_alpha(),
             pending_event_capacity: default_pending_capacity(),
+            max_quote_skew_ms: default_max_quote_skew(),
         }
     }
 }
@@ -442,6 +450,55 @@ impl AppConfig {
         }
         if self.matcher.ema_alpha <= 0.0 || self.matcher.ema_alpha > 1.0 {
             return Err("ema_alpha must be in (0.0, 1.0]".to_string());
+        }
+        if self.matcher.pending_event_capacity == 0 {
+            return Err("pending_event_capacity must be positive".to_string());
+        }
+        if self.matcher.max_quote_skew_ms == 0 {
+            return Err("max_quote_skew_ms must be positive".to_string());
+        }
+        if self.history.ledger_capacity == 0 {
+            return Err("history.ledger_capacity must be positive".to_string());
+        }
+        if self.ingress.max_frames_per_broker == 0 || self.ingress.max_bytes_per_broker == 0 {
+            return Err("ingress frame and byte capacities must be positive".to_string());
+        }
+        if self.logger.enabled
+            && (self.logger.max_queue_records == 0 || self.logger.max_queue_bytes == 0)
+        {
+            return Err("logger record and byte capacities must be positive".to_string());
+        }
+        if self.protocol.max_payload_length == 0 || self.protocol.debug_resync_limit == 0 {
+            return Err("protocol payload and resync limits must be positive".to_string());
+        }
+        let largest_raw_log_record = (self.protocol.max_payload_length as usize)
+            .saturating_add(HEADER_LENGTH as usize)
+            .saturating_add(128);
+        if self.logger.enabled && self.logger.max_queue_bytes < largest_raw_log_record {
+            return Err(format!(
+                "logger.max_queue_bytes ({}) is smaller than one maximum raw frame ({largest_raw_log_record})",
+                self.logger.max_queue_bytes,
+            ));
+        }
+        let largest_raw_frame = (self.protocol.max_payload_length as usize)
+            .saturating_add(HEADER_LENGTH as usize);
+        if self.ingress.max_bytes_per_broker < largest_raw_frame {
+            return Err(format!(
+                "ingress.max_bytes_per_broker ({}) is smaller than one maximum raw frame ({largest_raw_frame})",
+                self.ingress.max_bytes_per_broker,
+            ));
+        }
+        if self.ingress.progress_interval_ms == 0 {
+            return Err("ingress.progress_interval_ms must be positive".to_string());
+        }
+        if self.health.heartbeat_timeout_ms == 0 {
+            return Err("health.heartbeat_timeout_ms must be positive".to_string());
+        }
+        if self.protocol.ack_mode != "required" && self.protocol.ack_mode != "off" {
+            return Err("protocol.ack_mode must be 'required' or 'off'".to_string());
+        }
+        if self.history.retentions.iter().any(|retention| retention.period_ms <= 0 || retention.slots == 0) {
+            return Err("history retentions require positive period_ms and slots".to_string());
         }
         if self.display.visible_seconds == 0 {
             return Err("display.visible_seconds must be positive".to_string());

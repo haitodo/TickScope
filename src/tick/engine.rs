@@ -3,7 +3,6 @@
 
 use crate::contracts::config::AppConfig;
 use crate::contracts::models::*;
-use crate::contracts::ports::LogSinkPort;
 use crate::contracts::types::*;
 use crate::metrics::burst::MultiBrokerBurstDetector;
 use crate::metrics::consensus::ConsensusCalculator;
@@ -17,16 +16,22 @@ use crate::tick::candle::CandleBook;
 use crate::tick::matcher::OneToOneEventMatcher;
 use crate::tick::normalize::{normalize_tick, round_to_hourly_offset};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+
+const MAX_DIAGNOSTICS: usize = 2_048;
 
 struct BrokerChannelState {
     is_connected: bool,
     generation: u64,
     watermark: MonoNs,
     pending_frames: VecDeque<ReceivedFrame>,
+    pending_frame_bytes: usize,
+    max_pending_frames: usize,
+    max_pending_bytes: usize,
     expected_sequence: Sequence,
     session_id: Option<SessionId>,
     seen_sequences: HashSet<Sequence>,
+    recent_sequences: VecDeque<Sequence>,
+    sequence_ledger_capacity: usize,
     auto_utc_offset: bool,
     active_utc_offset_sec: i32,
     utc_verified: bool,
@@ -35,7 +40,6 @@ struct BrokerChannelState {
 pub struct TickEngine {
     config: AppConfig,
     channels: HashMap<BrokerId, BrokerChannelState>,
-    log_sink: Option<Arc<dyn LogSinkPort>>,
     candle_book: CandleBook,
     spread_trackers: HashMap<BrokerId, SpreadTracker>,
     latest_quotes: HashMap<BrokerId, Quote>,
@@ -47,7 +51,7 @@ pub struct TickEngine {
     active_pair: (BrokerId, BrokerId),
     projection_revision: u64,
     current_watermark: MonoNs,
-    diagnostics: Vec<Diagnostic>,
+    diagnostics: VecDeque<Diagnostic>,
 
     // Multi-Broker, Microstructure & Hypothesis additions (RFC Beta 0.3)
     pub consensus_calc: ConsensusCalculator,
@@ -61,14 +65,13 @@ pub struct TickEngine {
 }
 
 impl TickEngine {
-    pub fn new(config: AppConfig, log_sink: Option<Arc<dyn LogSinkPort>>) -> Self {
+    pub fn new(config: AppConfig) -> Self {
         let mut channels = HashMap::new();
         let mut spread_trackers = HashMap::new();
         let mut health_states = HashMap::new();
         let mut move_detectors = HashMap::new();
 
-        let periods = vec![1000, 5000, 10000, 60000];
-        let candle_book = CandleBook::new(periods);
+        let candle_book = CandleBook::with_retentions(&config.history.retentions);
 
         let mut quote_persistence = HashMap::new();
         let mut repricing_persistence = HashMap::new();
@@ -82,9 +85,14 @@ impl TickEngine {
                     generation: 0,
                     watermark: MonoNs::ZERO,
                     pending_frames: VecDeque::new(),
+                    pending_frame_bytes: 0,
+                    max_pending_frames: config.ingress.max_frames_per_broker,
+                    max_pending_bytes: config.ingress.max_bytes_per_broker,
                     expected_sequence: 0,
                     session_id: None,
                     seen_sequences: HashSet::new(),
+                    recent_sequences: VecDeque::with_capacity(config.history.ledger_capacity),
+                    sequence_ledger_capacity: config.history.ledger_capacity,
                     auto_utc_offset: b.auto_utc_offset,
                     active_utc_offset_sec: b.utc_offset_sec,
                     utc_verified: b.utc_verified,
@@ -143,7 +151,6 @@ impl TickEngine {
         Self {
             config,
             channels,
-            log_sink,
             candle_book,
             spread_trackers,
             latest_quotes: HashMap::new(),
@@ -155,7 +162,7 @@ impl TickEngine {
             active_pair,
             projection_revision: 0,
             current_watermark: MonoNs::ZERO,
-            diagnostics: Vec::new(),
+            diagnostics: VecDeque::with_capacity(MAX_DIAGNOSTICS),
             consensus_calc,
             burst_detector,
             quote_persistence,
@@ -165,6 +172,13 @@ impl TickEngine {
             latency_metrics,
             realtime_quote_history,
         }
+    }
+
+    fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
+        if self.diagnostics.len() == MAX_DIAGNOSTICS {
+            self.diagnostics.pop_front();
+        }
+        self.diagnostics.push_back(diagnostic);
     }
 
     pub fn set_active_pair(&mut self, pair: (BrokerId, BrokerId)) {
@@ -191,59 +205,69 @@ impl TickEngine {
 
     pub fn on_ingress_item(&mut self, item: IngressItem) {
         let broker_id = item.broker_id();
-        let ch = match self.channels.get_mut(&broker_id) {
-            Some(c) => c,
-            None => return,
-        };
+        let mut close_diagnostic = None;
+        let is_disconnected = {
+            let ch = match self.channels.get_mut(&broker_id) {
+                Some(c) => c,
+                None => return,
+            };
 
-        match item {
-            IngressItem::Connected { generation, .. } => {
-                ch.is_connected = true;
-                ch.generation = generation;
-                self.latest_quotes.remove(&broker_id);
-                if let Some(h) = self.health_states.get_mut(&broker_id) {
-                    h.connection = ConnectionState::Connected;
-                    h.data_freshness = FreshnessState::Unknown;
-                    h.last_live_tick_rx_mono = None;
-                    h.last_heartbeat_rx_mono = None;
-                    h.heartbeat = HeartbeatState::Unknown;
-                }
-            }
-            IngressItem::Progress { watermark_ns, .. } => {
-                if watermark_ns > ch.watermark {
-                    ch.watermark = watermark_ns;
-                }
-            }
-            IngressItem::Frame(rf) => {
-                if rf.rx_mono_ns > ch.watermark {
-                    ch.watermark = rf.rx_mono_ns;
-                }
-                ch.pending_frames.push_back(rf);
-            }
-            IngressItem::End { generation, reason, .. } => {
-                if ch.generation == generation {
-                    ch.is_connected = false;
+            match item {
+                IngressItem::Connected { generation, .. } => {
+                    ch.is_connected = true;
+                    ch.generation = generation;
                     self.latest_quotes.remove(&broker_id);
                     if let Some(h) = self.health_states.get_mut(&broker_id) {
-                        h.connection = ConnectionState::Disconnected;
+                        h.connection = ConnectionState::Connected;
+                        h.data_freshness = FreshnessState::Unknown;
+                        h.last_live_tick_rx_mono = None;
+                        h.last_heartbeat_rx_mono = None;
+                        h.heartbeat = HeartbeatState::Unknown;
                     }
-                    self.diagnostics.push(Diagnostic {
-                        code: "CONNECTION_CLOSED".to_string(),
-                        severity: DiagnosticSeverity::Info,
-                        broker_id,
-                        session_id: ch.session_id,
-                        mono_ns: ch.watermark,
-                        sequence_range: None,
-                        known_count: None,
-                        detail_value: 0,
-                        message: reason,
-                    });
+                }
+                IngressItem::Progress { watermark_ns, .. } => {
+                    if watermark_ns > ch.watermark {
+                        ch.watermark = watermark_ns;
+                    }
+                }
+                IngressItem::Frame(rf) => {
+                    if rf.rx_mono_ns > ch.watermark {
+                        ch.watermark = rf.rx_mono_ns;
+                    }
+                    ch.pending_frame_bytes = ch.pending_frame_bytes
+                        .saturating_add(rf.raw_wire_bytes.len());
+                    ch.pending_frames.push_back(rf);
+                }
+                IngressItem::End { generation, reason, .. } => {
+                    if ch.generation == generation {
+                        ch.is_connected = false;
+                        self.latest_quotes.remove(&broker_id);
+                        if let Some(h) = self.health_states.get_mut(&broker_id) {
+                            h.connection = ConnectionState::Disconnected;
+                        }
+                        close_diagnostic = Some(Diagnostic {
+                            code: "CONNECTION_CLOSED".to_string(),
+                            severity: DiagnosticSeverity::Info,
+                            broker_id,
+                            session_id: ch.session_id,
+                            mono_ns: ch.watermark,
+                            sequence_range: None,
+                            known_count: None,
+                            detail_value: 0,
+                            message: reason,
+                        });
+                    }
                 }
             }
+            !ch.is_connected
+        };
+        if let Some(diagnostic) = close_diagnostic {
+            self.push_diagnostic(diagnostic);
         }
 
+        self.force_drain_overflow(broker_id);
         self.drain_and_process_merge();
-        if self.channels.get(&broker_id).is_some_and(|ch| !ch.is_connected) {
+        if is_disconnected {
             self.latest_quotes.remove(&broker_id);
         }
     }
@@ -292,7 +316,7 @@ impl TickEngine {
 
             match best_broker {
                 Some(bid) => {
-                    let rf = self.channels.get_mut(&bid).unwrap().pending_frames.pop_front().unwrap();
+                    let rf = self.pop_pending_frame(bid).unwrap();
                     self.process_frame(rf);
                 }
                 None => break,
@@ -300,9 +324,57 @@ impl TickEngine {
         }
     }
 
+    fn pop_pending_frame(&mut self, broker_id: BrokerId) -> Option<ReceivedFrame> {
+        let channel = self.channels.get_mut(&broker_id)?;
+        let frame = channel.pending_frames.pop_front()?;
+        channel.pending_frame_bytes = channel
+            .pending_frame_bytes
+            .saturating_sub(frame.raw_wire_bytes.len());
+        Some(frame)
+    }
+
+    /// The merge watermark normally preserves a deterministic multi-feed
+    /// ordering. If one feed is delayed long enough to exhaust its explicitly
+    /// configured budget, preserving raw observations takes precedence over
+    /// holding unbounded memory: process the oldest durable frame and expose
+    /// the overload condition in health/diagnostics.
+    fn force_drain_overflow(&mut self, broker_id: BrokerId) {
+        let mut forced = 0_u64;
+        loop {
+            let over_capacity = self.channels.get(&broker_id).is_some_and(|channel| {
+                channel.pending_frames.len() > channel.max_pending_frames
+                    || channel.pending_frame_bytes > channel.max_pending_bytes
+            });
+            if !over_capacity {
+                break;
+            }
+            let Some(frame) = self.pop_pending_frame(broker_id) else {
+                break;
+            };
+            forced = forced.saturating_add(1);
+            self.process_frame(frame);
+        }
+        if forced > 0 {
+            if let Some(health) = self.health_states.get_mut(&broker_id) {
+                health.overload.engine = true;
+            }
+            self.push_diagnostic(Diagnostic {
+                code: "MERGE_BACKPRESSURE".to_string(),
+                severity: DiagnosticSeverity::Warn,
+                broker_id,
+                session_id: self.channels.get(&broker_id).and_then(|channel| channel.session_id),
+                mono_ns: self.current_watermark,
+                sequence_range: None,
+                known_count: Some(forced),
+                detail_value: 0,
+                message: "Merge wait budget exhausted; processed durable frames out of watermark order".to_string(),
+            });
+        }
+    }
+
     fn process_frame(&mut self, rf: ReceivedFrame) {
         let broker_id = rf.frame.header.broker_id;
-        let mut dispositions = Vec::new();
+        let mut sequence_gaps = Vec::new();
 
         // 1. Process payload according to message type
         match &rf.frame.payload {
@@ -311,6 +383,7 @@ impl TickEngine {
                 if ch.session_id != Some(rf.frame.header.session_id) {
                     ch.expected_sequence = 0;
                     ch.seen_sequences.clear();
+                    ch.recent_sequences.clear();
                 }
                 ch.session_id = Some(rf.frame.header.session_id);
 
@@ -338,16 +411,22 @@ impl TickEngine {
                         SequenceDisposition::OutOfOrderUnverified
                     } else if tick.sequence > ch.expected_sequence {
                         // Gap!
+                        sequence_gaps.push((ch.expected_sequence, tick.sequence.saturating_sub(1)));
                         ch.seen_sequences.insert(tick.sequence);
-                        ch.expected_sequence = tick.sequence + 1;
+                        ch.recent_sequences.push_back(tick.sequence);
+                        ch.expected_sequence = tick.sequence.saturating_add(1);
                         SequenceDisposition::New
                     } else {
                         ch.seen_sequences.insert(tick.sequence);
-                        ch.expected_sequence = tick.sequence + 1;
+                        ch.recent_sequences.push_back(tick.sequence);
+                        ch.expected_sequence = tick.sequence.saturating_add(1);
                         SequenceDisposition::New
                     };
-                    dispositions.push(disp);
-
+                    while ch.recent_sequences.len() > ch.sequence_ledger_capacity {
+                        if let Some(expired) = ch.recent_sequences.pop_front() {
+                            ch.seen_sequences.remove(&expired);
+                        }
+                    }
                     if disp == SequenceDisposition::New {
                         let is_warmup = (rf.frame.header.header_flags & HEADER_FLAG_WARMUP) != 0;
                         let obs = ObservedTick {
@@ -453,7 +532,15 @@ impl TickEngine {
                             });
                             let q_a = fresh(a);
                             let q_b = fresh(b);
-                            self.pair_tracker.compute_and_record(q_a, q_b, rf.rx_mono_ns);
+                            let synchronized = q_a.zip(q_b).filter(|(qa, qb)| {
+                                qa.rx_mono_ns.0.abs_diff(qb.rx_mono_ns.0)
+                                    <= self.config.matcher.max_quote_skew_ms.saturating_mul(1_000_000)
+                            });
+                            self.pair_tracker.compute_and_record(
+                                synchronized.map(|(qa, _)| qa),
+                                synchronized.map(|(_, qb)| qb),
+                                rf.rx_mono_ns,
+                            );
                         }
 
                         // Append point to Realtime Quote Path history for all active brokers
@@ -486,12 +573,31 @@ impl TickEngine {
                         }
                     }
                 }
+                if !sequence_gaps.is_empty() {
+                    if let Some(health) = self.health_states.get_mut(&broker_id) {
+                        health.integrity = IntegrityState::Gap;
+                    }
+                    for (first, last) in sequence_gaps.drain(..) {
+                        self.push_diagnostic(Diagnostic {
+                            code: "SEQUENCE_GAP".to_string(),
+                            severity: DiagnosticSeverity::Warn,
+                            broker_id,
+                            session_id: Some(rf.frame.header.session_id),
+                            mono_ns: rf.rx_mono_ns,
+                            sequence_range: Some((first, last)),
+                            known_count: Some(last.saturating_sub(first).saturating_add(1)),
+                            detail_value: 0,
+                            message: "One or more source tick sequences were not observed".to_string(),
+                        });
+                    }
+                }
             }
             FramePayload::Heartbeat(hb) => {
                 let ch = self.channels.get_mut(&broker_id).unwrap();
                 if ch.session_id != Some(hb.session_id) {
                     ch.expected_sequence = 0;
                     ch.seen_sequences.clear();
+                    ch.recent_sequences.clear();
                 }
                 ch.session_id = Some(hb.session_id);
                 if let Some(h) = self.health_states.get_mut(&broker_id) {
@@ -520,22 +626,6 @@ impl TickEngine {
             FramePayload::BatchAck(_) => {}
         }
 
-        // 2. Append to LogSink
-        if let Some(sink) = &self.log_sink {
-            let log_frame = LogRawFrame {
-                broker_id,
-                connection_generation: rf.connection_generation,
-                frame_index: rf.frame_index,
-                rx_mono_ns: rf.rx_mono_ns,
-                rx_unix_ns: rf.rx_unix_ns,
-                config_epoch: 1,
-                analysis_segment: 1,
-                raw_wire_bytes: rf.raw_wire_bytes,
-                dispositions,
-            };
-            sink.try_append(Arc::new(LogRecord::RawFrame(log_frame)));
-        }
-
         if let Some(h) = self.health_states.get_mut(&broker_id) {
             h.total_frames_received += 1;
         }
@@ -560,6 +650,12 @@ impl TickEngine {
                         <= self.config.health.stale_after_ms.saturating_mul(1_000_000) => FreshnessState::Live,
                     Some(_) => FreshnessState::Stale,
                     None => FreshnessState::Unknown,
+                };
+                health.heartbeat = match health.last_heartbeat_rx_mono {
+                    Some(last) if now_mono.0.saturating_sub(last.0)
+                        <= self.config.health.heartbeat_timeout_ms.saturating_mul(1_000_000) => HeartbeatState::Ok,
+                    Some(_) => HeartbeatState::Timeout,
+                    None => HeartbeatState::Unknown,
                 };
             }
             let ch = self.channels.get(&b.id);
@@ -591,27 +687,31 @@ impl TickEngine {
         };
         let q_a = fresh_quote(a);
         let q_b = fresh_quote(b);
+        let synchronized_pair = q_a.zip(q_b).filter(|(qa, qb)| {
+            qa.rx_mono_ns.0.abs_diff(qb.rx_mono_ns.0)
+                <= self.config.matcher.max_quote_skew_ms.saturating_mul(1_000_000)
+        });
 
         let active_pair_comparison = Some(PairComparison {
             broker_a: a,
             broker_b: b,
             as_of_mono_ns: now_mono,
-            bid_diff: if let (Some(qa), Some(qb)) = (q_a, q_b) {
+            bid_diff: if let Some((qa, qb)) = synchronized_pair {
                 Some(qa.bid - qb.bid)
             } else {
                 None
             },
-            ask_diff: if let (Some(qa), Some(qb)) = (q_a, q_b) {
+            ask_diff: if let Some((qa, qb)) = synchronized_pair {
                 Some(qa.ask - qb.ask)
             } else {
                 None
             },
-            mid_diff: if let (Some(qa), Some(qb)) = (q_a, q_b) {
+            mid_diff: if let Some((qa, qb)) = synchronized_pair {
                 Some(qa.mid - qb.mid)
             } else {
                 None
             },
-            spread_diff: if let (Some(qa), Some(qb)) = (q_a, q_b) {
+            spread_diff: if let Some((qa, qb)) = synchronized_pair {
                 Some(qa.spread - qb.spread)
             } else {
                 None
@@ -626,7 +726,8 @@ impl TickEngine {
 
         let mut candle_views = HashMap::new();
         let broker_ids: Vec<BrokerId> = self.config.brokers.iter().map(|b| b.id).collect();
-        for &period in &[1000, 5000, 10000, 60000] {
+        for retention in &self.config.history.retentions {
+            let period = retention.period_ms;
             let cv = self.candle_book.get_candle_view(period, &broker_ids, 20, current_utc_now);
             candle_views.insert(period, cv);
         }
@@ -685,7 +786,7 @@ impl TickEngine {
             active_pair: self.active_pair,
             active_pair_comparison,
             candle_views,
-            global_diagnostics: self.diagnostics.clone(),
+            global_diagnostics: self.diagnostics.iter().cloned().collect(),
             consensus: Some(consensus),
             active_clusters,
             current_breadth,

@@ -4,6 +4,7 @@ use tick_compare::runtime::deploy::{
 };
 
 #[test]
+#[ignore = "Writes to installed MT5 terminals and runs MetaEditor; opt in explicitly"]
 fn test_live_mt5_discovery_and_deployment_idempotency() {
     let config = Mt5DeployConfig::default();
     let (terminals, _warnings) = discover_mt5_terminals(&config);

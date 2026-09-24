@@ -85,6 +85,7 @@ impl RuntimeCoordinator {
                 &config.logger.log_dir,
                 run_id,
                 config.logger.max_queue_records,
+                config.logger.max_queue_bytes,
                 config.logger.flush_interval_ms,
             )?;
             Some(Arc::new(l))
@@ -115,7 +116,7 @@ impl RuntimeCoordinator {
             .as_ref()
             .map(|l| l.clone() as Arc<dyn crate::contracts::ports::LogSinkPort>);
 
-        let engine = Arc::new(Mutex::new(TickEngine::new(config.clone(), log_sink_port)));
+        let engine = Arc::new(Mutex::new(TickEngine::new(config.clone())));
         let exchange = Arc::new(SnapshotExchange::new_empty(run_id));
 
         // Ingress channel
@@ -127,9 +128,13 @@ impl RuntimeCoordinator {
 
         // 1. Spawn Transport Receivers for each broker
         for b_cfg in &config.brokers {
-            let receiver = Arc::new(TransportReceiver::new(
+            let receiver = Arc::new(TransportReceiver::new_with_limits(
                 b_cfg.clone(),
                 config.protocol.ack_mode.clone(),
+                config.protocol.max_payload_length as usize,
+                config.protocol.debug_resync_limit as usize,
+                config.ingress.progress_interval_ms,
+                log_sink_port.clone(),
                 clock.clone(),
                 ingress_sink.clone(),
             ));
@@ -197,13 +202,19 @@ impl RuntimeCoordinator {
         engine: Arc<Mutex<TickEngine>>,
         running: Arc<AtomicBool>,
     ) {
-        while running.load(Ordering::SeqCst) {
+        // Once shutdown begins, receivers are stopped first and every frame
+        // already accepted into ingress is processed before this worker exits.
+        while running.load(Ordering::SeqCst) || !rx.is_empty() {
             match rx.recv_timeout(Duration::from_millis(1)) {
                 Ok(item) => {
                     let mut eng = engine.lock();
                     eng.on_ingress_item(item);
                 }
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    if !running.load(Ordering::SeqCst) && rx.is_empty() {
+                        break;
+                    }
+                }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             }
         }
@@ -219,10 +230,10 @@ impl RuntimeCoordinator {
     }
 
     pub fn stop(&mut self) {
-        self.running.store(false, Ordering::SeqCst);
         for r in &self.receivers {
             r.stop();
         }
+        self.running.store(false, Ordering::SeqCst);
     }
 
     pub fn wait_for_shutdown(self) {

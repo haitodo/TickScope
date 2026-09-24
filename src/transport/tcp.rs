@@ -2,7 +2,7 @@
 //! Reference: docs/blueprint/interfaces.md and docs/blueprint/invariants.md
 
 use crate::contracts::config::BrokerConfig;
-use crate::contracts::ports::{ClockPort, RawIngressSink, SubmitResult};
+use crate::contracts::ports::{ClockPort, LogSinkPort, RawIngressSink, SubmitResult};
 use crate::contracts::types::*;
 use crate::protocol::codec::{encode_frame, StreamingDecoder};
 use std::io::{Read, Write};
@@ -17,6 +17,10 @@ pub struct TransportReceiver {
     ack_mode: String,
     clock: Arc<dyn ClockPort>,
     ingress_sink: Arc<dyn RawIngressSink>,
+    log_sink: Option<Arc<dyn LogSinkPort>>,
+    max_payload_length: usize,
+    debug_resync_limit: usize,
+    progress_interval: Duration,
     running: Arc<AtomicBool>,
 }
 
@@ -27,11 +31,38 @@ impl TransportReceiver {
         clock: Arc<dyn ClockPort>,
         ingress_sink: Arc<dyn RawIngressSink>,
     ) -> Self {
+        Self::new_with_limits(
+            broker_config,
+            ack_mode,
+            1_048_576,
+            65_536,
+            1,
+            None,
+            clock,
+            ingress_sink,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_limits(
+        broker_config: BrokerConfig,
+        ack_mode: String,
+        max_payload_length: usize,
+        debug_resync_limit: usize,
+        progress_interval_ms: u64,
+        log_sink: Option<Arc<dyn LogSinkPort>>,
+        clock: Arc<dyn ClockPort>,
+        ingress_sink: Arc<dyn RawIngressSink>,
+    ) -> Self {
         Self {
             broker_config,
             ack_mode,
             clock,
             ingress_sink,
+            log_sink,
+            max_payload_length,
+            debug_resync_limit,
+            progress_interval: Duration::from_millis(progress_interval_ms.max(1)),
             running: Arc::new(AtomicBool::new(true)),
         }
     }
@@ -91,7 +122,7 @@ impl TransportReceiver {
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     // Send idle progress watermark
-                    if last_progress_time.elapsed() >= Duration::from_millis(1) {
+                    if last_progress_time.elapsed() >= self.progress_interval {
                         let sample = self.clock.sample();
                         self.submit_ingress_item(IngressItem::Progress {
                             broker_id: self.broker_config.id,
@@ -110,7 +141,7 @@ impl TransportReceiver {
     }
 
     fn handle_connection(&self, mut stream: TcpStream, generation: u64) -> String {
-        let mut decoder = StreamingDecoder::new(1_048_576, 65_536);
+        let mut decoder = StreamingDecoder::new(self.max_payload_length, self.debug_resync_limit);
         let mut read_buf = [0u8; 8192];
         let mut frame_index: u64 = 0;
         let mut last_progress = std::time::Instant::now();
@@ -151,14 +182,27 @@ impl TransportReceiver {
                                     frame_index,
                                 };
 
-                                self.submit_ingress_item(IngressItem::Frame(rx_frame));
+                                if let Err(error) = self.persist_raw_frame(&rx_frame) {
+                                    return format!("Raw log durability failure: {error}");
+                                }
 
-                                // If batch ACK is enabled
+                                if !self.submit_ingress_item(IngressItem::Frame(rx_frame)) {
+                                    return "Ingress closed before frame acceptance".to_string();
+                                }
+
+                                // A batch is acknowledged only after its raw wire frame has
+                                // reached stable storage and the bounded ingress accepted it.
                                 if self.ack_mode != "off" && decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH {
                                     let seq_end = decoded.frame.header.sequence_start
                                         + decoded.frame.header.tick_count as u64
                                         - 1;
-                                    self.send_batch_ack(&mut stream, generation, seq_end);
+                                    if let Err(error) = self.send_batch_ack(
+                                        &mut stream,
+                                        decoded.frame.header.session_id,
+                                        seq_end,
+                                    ) {
+                                        return format!("Batch ACK write failed: {error}");
+                                    }
                                 }
                             }
                             Ok(None) => {
@@ -180,7 +224,7 @@ impl TransportReceiver {
                     }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    if last_progress.elapsed() >= Duration::from_millis(1) {
+                    if last_progress.elapsed() >= self.progress_interval {
                         let sample = self.clock.sample();
                         self.submit_ingress_item(IngressItem::Progress {
                             broker_id: self.broker_config.id,
@@ -200,20 +244,39 @@ impl TransportReceiver {
         "Server stopped".to_string()
     }
 
-    fn submit_ingress_item(&self, mut item: IngressItem) {
+    fn submit_ingress_item(&self, mut item: IngressItem) -> bool {
         while self.running.load(Ordering::SeqCst) {
             match self.ingress_sink.try_submit(item) {
-                SubmitResult::Accepted => return,
+                SubmitResult::Accepted => return true,
                 SubmitResult::Full(returned_item) => {
                     item = returned_item;
                     thread::sleep(Duration::from_micros(200));
                 }
-                SubmitResult::Closed(_) => return,
+                SubmitResult::Closed(_) => return false,
             }
         }
+        false
     }
 
-    fn send_batch_ack(&self, stream: &mut TcpStream, _generation: u64, seq_end: u64) {
+    fn persist_raw_frame(&self, frame: &ReceivedFrame) -> Result<(), String> {
+        let Some(sink) = &self.log_sink else {
+            return Ok(());
+        };
+        sink.append_durable(Arc::new(LogRecord::RawFrame(LogRawFrame {
+            broker_id: frame.frame.header.broker_id,
+            connection_generation: frame.connection_generation,
+            frame_index: frame.frame_index,
+            rx_mono_ns: frame.rx_mono_ns,
+            rx_unix_ns: frame.rx_unix_ns,
+            config_epoch: 1,
+            analysis_segment: 1,
+            raw_wire_bytes: frame.raw_wire_bytes.clone(),
+            // Replay recomputes dispositions from source session/sequence.
+            dispositions: Vec::new(),
+        })))
+    }
+
+    fn send_batch_ack(&self, stream: &mut TcpStream, session_id: SessionId, seq_end: u64) -> std::io::Result<()> {
         let ack_frame = Frame {
             header: Header {
                 magic: MAGIC_TICK,
@@ -222,7 +285,7 @@ impl TransportReceiver {
                 header_length: HEADER_LENGTH,
                 header_flags: 0,
                 broker_id: self.broker_config.id,
-                session_id: 0,
+                session_id,
                 sequence_start: 0,
                 tick_count: 0,
                 payload_length: BATCH_ACK_PAYLOAD_LENGTH as u32,
@@ -232,8 +295,8 @@ impl TransportReceiver {
             }),
         };
 
-        if let Ok(bytes) = encode_frame(&ack_frame) {
-            let _ = stream.write_all(&bytes);
-        }
+        let bytes = encode_frame(&ack_frame)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string()))?;
+        stream.write_all(&bytes)
     }
 }

@@ -365,7 +365,7 @@ fn test_rfc_section81_test_f_two_sided_directional_quote_change() {
 #[test]
 fn test_invariant_i4_i5_reference_broker_change_preserves_consensus() {
     let config = make_5_broker_config();
-    let mut engine = TickEngine::new(config, None);
+    let mut engine = TickEngine::new(config);
 
     // Connect all 5 brokers
     for b_id in 1..=5 {
@@ -478,7 +478,7 @@ fn test_invariant_i4_i5_reference_broker_change_preserves_consensus() {
 #[test]
 fn test_invariant_i12_i13_no_trading_signals_or_single_scores() {
     let config = make_5_broker_config();
-    let mut engine = TickEngine::new(config, None);
+    let mut engine = TickEngine::new(config);
 
     for b_id in 1..=5 {
         engine.on_ingress_item(IngressItem::Connected {

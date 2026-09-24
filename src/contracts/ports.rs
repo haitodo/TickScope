@@ -38,6 +38,20 @@ pub enum AppendResult<T> {
 
 pub trait LogSinkPort: Send + Sync {
     fn try_append(&self, record: Arc<LogRecord>) -> AppendResult<Arc<LogRecord>>;
+
+    /// Append a record at the durable boundary used by the reliable transport.
+    ///
+    /// Implementations that only provide an in-memory sink may retain the
+    /// default behaviour. The production logger overrides this to wait until
+    /// the record is flushed and synced before reporting success.
+    fn append_durable(&self, record: Arc<LogRecord>) -> Result<(), String> {
+        match self.try_append(record) {
+            AppendResult::Accepted => Ok(()),
+            AppendResult::Full(_) => Err("Log queue is full".to_string()),
+            AppendResult::Fault(_, reason) => Err(reason),
+        }
+    }
+
     fn flush(&self) -> Result<(), String>;
 }
 
