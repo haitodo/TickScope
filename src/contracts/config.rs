@@ -231,6 +231,8 @@ pub struct DisplayConfig {
     pub timeframe_ms: i64,
     #[serde(default = "default_visible_seconds")]
     pub visible_seconds: u64,
+    #[serde(default = "default_visible_ticks")]
+    pub visible_ticks: usize,
     #[serde(default = "default_false")]
     pub always_on_top: bool,
 }
@@ -244,6 +246,9 @@ fn default_timeframe_ms() -> i64 {
 fn default_visible_seconds() -> u64 {
     60
 }
+fn default_visible_ticks() -> usize {
+    1200
+}
 fn default_false() -> bool {
     false
 }
@@ -254,6 +259,7 @@ impl Default for DisplayConfig {
             repaint_hz: default_repaint_hz(),
             timeframe_ms: default_timeframe_ms(),
             visible_seconds: default_visible_seconds(),
+            visible_ticks: default_visible_ticks(),
             always_on_top: default_false(),
         }
     }
@@ -436,6 +442,12 @@ impl AppConfig {
         }
         if self.matcher.ema_alpha <= 0.0 || self.matcher.ema_alpha > 1.0 {
             return Err("ema_alpha must be in (0.0, 1.0]".to_string());
+        }
+        if self.display.visible_seconds == 0 {
+            return Err("display.visible_seconds must be positive".to_string());
+        }
+        if self.display.visible_ticks == 0 {
+            return Err("display.visible_ticks must be positive".to_string());
         }
 
         Ok(())

@@ -1,5 +1,5 @@
 use crate::contracts::config::AppConfig;
-use crate::contracts::ports::{ClockPort, RawIngressSink, SnapshotExchangePort, SubmitResult};
+use crate::contracts::ports::{AppendResult, ClockPort, LogSinkPort, RawIngressSink, SnapshotExchangePort, SubmitResult};
 use crate::contracts::types::*;
 
 use crate::state::snapshot::{SnapshotBuilder, SnapshotExchange};
@@ -91,6 +91,25 @@ impl RuntimeCoordinator {
         } else {
             None
         };
+
+        if let Some(logger) = &logger {
+            let config_text = toml::to_string(&config)
+                .map_err(|error| format!("Failed to serialize startup configuration for logging: {error}"))?;
+            let metadata = Arc::new(LogRecord::Metadata(LogMetadata {
+                config_epoch: 1,
+                observed_mono_ns: clock.sample().mono_ns,
+                toml_text: config_text,
+            }));
+            match logger.try_append(metadata) {
+                AppendResult::Accepted => {}
+                AppendResult::Full(_) => {
+                    return Err("Logger queue is full while recording startup configuration".to_string());
+                }
+                AppendResult::Fault(_, reason) => {
+                    return Err(format!("Logger rejected startup configuration: {reason}"));
+                }
+            }
+        }
 
         let log_sink_port: Option<Arc<dyn crate::contracts::ports::LogSinkPort>> = logger
             .as_ref()
@@ -204,14 +223,14 @@ impl RuntimeCoordinator {
         for r in &self.receivers {
             r.stop();
         }
-        if let Some(l) = &self.logger {
-            l.stop();
-        }
     }
 
     pub fn wait_for_shutdown(self) {
         for handle in self.threads {
             let _ = handle.join();
+        }
+        if let Some(logger) = &self.logger {
+            logger.finish();
         }
     }
 }

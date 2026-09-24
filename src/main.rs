@@ -35,6 +35,8 @@ fn main() -> eframe::Result<()> {
 
     let initial_pair = config.active_pair;
     let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
+    let visible_seconds = config.display.visible_seconds;
+    let visible_ticks = config.display.visible_ticks;
     let mut coordinator = match RuntimeCoordinator::new(config) {
         Ok(coord) => coord,
         Err(e) => {
@@ -46,6 +48,8 @@ fn main() -> eframe::Result<()> {
     let exchange = coordinator.exchange.clone();
     let app = DashboardApp::new(exchange, initial_pair)
         .with_pip_size(pip_size)
+        .with_visible_seconds(visible_seconds)
+        .with_visible_ticks(visible_ticks)
         .with_pair_selection_handler(coordinator.pair_selection_handler());
 
     let native_options = eframe::NativeOptions {

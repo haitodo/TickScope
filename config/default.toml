@@ -80,6 +80,8 @@ heartbeat_timeout_ms = 1500
 repaint_hz = 60
 timeframe_ms = 60000
 visible_seconds = 60
+# Tick count X-axis mode keeps this many most recent chart updates.
+visible_ticks = 1200
 always_on_top = false
 
 [history]

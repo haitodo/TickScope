@@ -18,6 +18,7 @@ private:
    uint     m_timeout_ms;
    bool     m_connected;
    ulong    m_last_connect_attempt_msc;
+   bool     m_last_connect_logged;
    
    // Partial write buffer
    uchar    m_send_buffer[];
@@ -37,6 +38,7 @@ public:
       m_timeout_ms = 10;
       m_connected = false;
       m_last_connect_attempt_msc = 0;
+      m_last_connect_logged = false;
       m_send_offset = 0;
       m_send_len = 0;
       m_recv_len = 0;
@@ -58,23 +60,33 @@ public:
    
    bool IsConnected()
    {
-      return (m_connected && m_socket != INVALID_HANDLE);
+      if(!m_connected || m_socket == INVALID_HANDLE)
+      {
+         return false;
+      }
+      ResetLastError();
+      if(!SocketIsConnected(m_socket))
+      {
+         PrintFormat("[TickCollector] Socket connection lost (SocketIsConnected == false). Disconnecting.");
+         Disconnect();
+         return false;
+      }
+      return true;
    }
    
    bool Connect()
    {
-      if(m_connected) return true;
+      if(IsConnected()) return true;
       
       ulong now_msc = GetMicrosecondCount() / 1000;
-      if(now_msc - m_last_connect_attempt_msc < 1000)
+      // Allow immediate initial connection attempt (m_last_connect_attempt_msc == 0), then 1000ms cooldown
+      if(m_last_connect_attempt_msc > 0 && (now_msc - m_last_connect_attempt_msc < 1000))
       {
          return false; // reconnect cooldown 1000ms
       }
-      m_last_connect_attempt_msc = now_msc;
+      m_last_connect_attempt_msc = (now_msc == 0) ? 1 : now_msc;
 
-      // A failed SocketConnect can leave a native handle behind. Always
-      // close that handle before creating the next attempt so startup and
-      // reconnect retries do not inherit stale socket state.
+      // Clean up previous socket if left open
       if(m_socket != INVALID_HANDLE)
       {
          SocketClose(m_socket);
@@ -93,30 +105,39 @@ public:
          return false;
       }
       
-      uint connect_timeout = 2000; // 2000ms for TCP 3-way handshake
+      // 200ms is plenty for localhost TCP 3-way handshake.
+      // Keeping it small prevents blocking EA thread when TickScope is not running yet.
+      uint connect_timeout = 200;
+      ResetLastError();
       if(!SocketConnect(m_socket, m_host, m_port, connect_timeout))
       {
          int err = GetLastError();
-         if(err == 4014)
+         if(!m_last_connect_logged)
          {
-            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 4014 (Function not allowed). "
-                        "Please open MT5: Tools -> Options -> Expert Advisors -> check 'Allow WebRequest for listed URL' "
-                        "and add '%s', 'http://%s', and 'http://%s:%d'",
-                        m_host, m_port, m_host, m_host, m_host, m_port);
-         }
-         else if(err == 5272)
-         {
-            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 5272 (Cannot connect). "
-                        "Check that TickScope app is running and port %d is open.",
-                        m_host, m_port, m_port);
-         }
-         else if(err == 5273)
-         {
-            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 5273 (Timeout).", m_host, m_port);
-         }
-         else
-         {
-            PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error %d.", m_host, m_port, err);
+            if(err == 4014)
+            {
+               PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 4014 (Function not allowed). "
+                           "Please open MT5: Tools -> Options -> Expert Advisors -> check 'Allow WebRequest for listed URL' "
+                           "and add '%s', 'http://%s', and 'http://%s:%d'",
+                           m_host, m_port, m_host, m_host, m_host, m_port);
+            }
+            else if(err == 5272)
+            {
+               PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 5272 (Cannot connect). "
+                           "TickScope app is not running yet. Retrying automatically in background...",
+                           m_host, m_port);
+            }
+            else if(err == 5273)
+            {
+               PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 5273 (Timeout). "
+                           "Retrying automatically in background...", m_host, m_port);
+            }
+            else
+            {
+               PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error %d. "
+                           "Retrying automatically in background...", m_host, m_port, err);
+            }
+            m_last_connect_logged = true;
          }
          SocketClose(m_socket);
          m_socket = INVALID_HANDLE;
@@ -124,6 +145,7 @@ public:
       }
       
       m_connected = true;
+      m_last_connect_logged = false;
       PrintFormat("[TickCollector] Successfully CONNECTED to TickScope at %s:%d", m_host, m_port);
       return true;
    }
@@ -204,14 +226,15 @@ public:
          {
             int err = GetLastError();
             // 0 = Would block / no bytes transferred yet
-            // 5273 = ERR_NETSOCKET_IO_ERROR (can happen on transient buffer congestion)
-            if(err == 0 || err == 5273)
+            if(err == 0)
             {
                break; // Socket full for now, will retry next call without disconnecting
             }
             else
             {
-               PrintFormat("[TickCollector] SocketSend error: %d, disconnecting", err);
+               // 5273 (ERR_NETSOCKET_IO_ERROR), 5270 (ERR_NETSOCKET_INVALID_HANDLE), etc.
+               // Remote closed connection or broken socket
+               PrintFormat("[TickCollector] SocketSend error: %d, disconnecting.", err);
                Disconnect();
                return false;
             }
@@ -233,6 +256,14 @@ public:
       
       ResetLastError();
       uint readable = SocketIsReadable(m_socket);
+      int is_read_err = GetLastError();
+      if(is_read_err != 0 && is_read_err != 5273)
+      {
+         PrintFormat("[TickCollector] SocketIsReadable error: %d, disconnecting.", is_read_err);
+         Disconnect();
+         return;
+      }
+
       // MQL5 SocketIsReadable can speculatively return 1 when buffer is empty.
       // BATCH_ACK is 48 bytes (Header 40 + SeqEnd 8).
       // Only proceed if at least 48 bytes are ready.
@@ -241,6 +272,7 @@ public:
       uint to_read = (readable > (uint)ArraySize(m_recv_buffer)) ? (uint)ArraySize(m_recv_buffer) : readable;
       
       // Use 0 timeout because SocketIsReadable indicated data is already buffered.
+      ResetLastError();
       int read = SocketRead(m_socket, m_recv_buffer, to_read, 0);
       if(read > 0)
       {
@@ -266,9 +298,9 @@ public:
       else if(read < 0)
       {
          int err = GetLastError();
-         if(err != 0 && err != 5273)
+         if(err != 0)
          {
-            PrintFormat("[TickCollector] SocketRead fatal error: %d, disconnecting", err);
+            PrintFormat("[TickCollector] SocketRead fatal error: %d, disconnecting.", err);
             Disconnect();
          }
       }

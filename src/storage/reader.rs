@@ -130,6 +130,12 @@ impl<R: Read + Seek> LogFileReader<R> {
                     return ReadResult::Corrupt("RawFrame payload too short".to_string());
                 }
                 let broker_id = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                if self.broker_id != 0 && broker_id != self.broker_id {
+                    return ReadResult::Corrupt(format!(
+                        "RawFrame broker {} does not match file broker {}",
+                        broker_id, self.broker_id
+                    ));
+                }
                 let connection_generation = u64::from_le_bytes(payload[4..12].try_into().unwrap());
                 let frame_index = u64::from_le_bytes(payload[12..20].try_into().unwrap());
                 let rx_mono_ns = MonoNs(u64::from_le_bytes(payload[20..28].try_into().unwrap()));
@@ -194,6 +200,12 @@ impl<R: Read + Seek> LogFileReader<R> {
                 }
                 let mono_ns = MonoNs(u64::from_le_bytes(payload[0..8].try_into().unwrap()));
                 let broker_id = u32::from_le_bytes(payload[8..12].try_into().unwrap());
+                if self.broker_id != 0 && broker_id != self.broker_id {
+                    return ReadResult::Corrupt(format!(
+                        "Diagnostic broker {} does not match file broker {}",
+                        broker_id, self.broker_id
+                    ));
+                }
                 let severity_num = u16::from_le_bytes(payload[12..14].try_into().unwrap());
                 let d_flags = u16::from_le_bytes(payload[14..16].try_into().unwrap());
                 let session_raw = u64::from_le_bytes(payload[16..24].try_into().unwrap());

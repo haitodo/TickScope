@@ -124,7 +124,7 @@ impl TickEngine {
             active_pair.0,
             active_pair.1,
             config.display.visible_seconds,
-        );
+        ).with_max_points(config.display.visible_ticks);
         let matcher = OneToOneEventMatcher::new(
             active_pair.0,
             active_pair.1,
@@ -138,7 +138,7 @@ impl TickEngine {
         let burst_detector = MultiBrokerBurstDetector::new(config.matcher.matching_window_ms, 2);
         let hypothesis_engine = HypothesisEngine::default();
         let latency_metrics = LatencyMetrics::default();
-        let realtime_quote_history = VecDeque::with_capacity(1280);
+        let realtime_quote_history = VecDeque::with_capacity(config.display.visible_ticks);
 
         Self {
             config,
@@ -176,7 +176,7 @@ impl TickEngine {
                 pair.0,
                 pair.1,
                 self.config.display.visible_seconds,
-            );
+            ).with_max_points(self.config.display.visible_ticks);
             self.matcher = OneToOneEventMatcher::new(
                 pair.0,
                 pair.1,
@@ -472,7 +472,7 @@ impl TickEngine {
                             broker_mids: mids,
                             consensus_mid: consensus.consensus_mid,
                         });
-                        while self.realtime_quote_history.len() > 1200 {
+                        while self.realtime_quote_history.len() > self.config.display.visible_ticks {
                             self.realtime_quote_history.pop_front();
                         }
 

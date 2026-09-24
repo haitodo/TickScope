@@ -299,6 +299,11 @@ void OnTick()
          PerformWarmup();
          g_warmup_done = true;
       }
+      else
+      {
+         PrintFormat("[TickCollector] Reconnected to %s:%d on tick, resuming streaming.", InpServerHost, InpServerPort);
+         SendStatus(STATUS_CODE_PHASE, g_current_phase, 0, g_current_sequence, g_current_sequence, 0, 0);
+      }
    }
 
    // Invariant I01: OnTick is a retrieval trigger. We collect all new ticks.
@@ -333,6 +338,7 @@ void OnTimer()
          {
             PrintFormat("[TickCollector] Reconnected to %s:%d, resuming streaming.", InpServerHost, InpServerPort);
             SendStatus(STATUS_CODE_PHASE, g_current_phase, 0, g_current_sequence, g_current_sequence, 0, 0);
+            CollectAndStreamTicks(g_current_phase == PHASE_WARMING);
          }
       }
       else

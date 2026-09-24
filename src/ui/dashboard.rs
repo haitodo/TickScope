@@ -4,6 +4,7 @@ use crate::ui::chart::{
     draw_bid_ask_diff_chart, draw_candlestick_chart_multi, draw_lead_lag_view, draw_mid_diff_chart,
     draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
     draw_spread_diff_chart, draw_realtime_quote_path_chart, draw_state_ribbon, BottomMetric, ChartTheme,
+    ChartXAxisMode,
 };
 use eframe::egui;
 use egui::{Color32, RichText};
@@ -20,6 +21,9 @@ pub struct DashboardApp {
     show_candle_context: bool,
     chart_anchor: Option<f64>,
     pip_size: f64,
+    visible_seconds: u64,
+    visible_ticks: usize,
+    x_axis_mode: ChartXAxisMode,
     pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
 }
 
@@ -39,6 +43,9 @@ impl DashboardApp {
             show_candle_context: false,
             chart_anchor: None,
             pip_size: 0.01,
+            visible_seconds: 60,
+            visible_ticks: 1200,
+            x_axis_mode: ChartXAxisMode::default(),
             pair_selection_handler: None,
         }
     }
@@ -47,6 +54,16 @@ impl DashboardApp {
         if pip_size.is_finite() && pip_size > 0.0 {
             self.pip_size = pip_size;
         }
+        self
+    }
+
+    pub fn with_visible_seconds(mut self, visible_seconds: u64) -> Self {
+        self.visible_seconds = visible_seconds.max(1);
+        self
+    }
+
+    pub fn with_visible_ticks(mut self, visible_ticks: usize) -> Self {
+        self.visible_ticks = visible_ticks.max(1);
         self
     }
 
@@ -157,6 +174,16 @@ impl DashboardApp {
                 ui.selectable_value(&mut self.selected_timeframe_ms, 10000, "S10");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 5000, "S5");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 1000, "S1");
+
+                ui.separator();
+
+                ui.label("X:");
+                egui::ComboBox::from_id_salt("chart_x_axis_mode")
+                    .selected_text(self.x_axis_mode.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.x_axis_mode, ChartXAxisMode::ReceiveTime, ChartXAxisMode::ReceiveTime.label());
+                        ui.selectable_value(&mut self.x_axis_mode, ChartXAxisMode::TickCount, ChartXAxisMode::TickCount.label());
+                    });
 
                 ui.separator();
 
@@ -296,7 +323,8 @@ impl DashboardApp {
             } else {
                 draw_realtime_quote_path_chart(
                     &painter, candle_rect, &snapshot.realtime_quote_points,
-                    &snapshot.broker_overviews, self.pip_size, 5.0, 0.4,
+                    &snapshot.broker_overviews, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks,
+                    self.pip_size, 5.0, 0.4,
                     &mut self.chart_anchor, &self.theme,
                 );
             }
@@ -349,13 +377,13 @@ impl DashboardApp {
 
             match self.bottom_metric {
                 BottomMetric::MidDiff => {
-                    draw_mid_diff_chart(&bottom_painter, bottom_rect, series, &self.theme);
+                    draw_mid_diff_chart(&bottom_painter, bottom_rect, series, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks, &self.theme);
                 }
                 BottomMetric::BidAskDiff => {
-                    draw_bid_ask_diff_chart(&bottom_painter, bottom_rect, series, &self.theme);
+                    draw_bid_ask_diff_chart(&bottom_painter, bottom_rect, series, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks, &self.theme);
                 }
                 BottomMetric::SpreadDiff => {
-                    draw_spread_diff_chart(&bottom_painter, bottom_rect, series, &self.theme);
+                    draw_spread_diff_chart(&bottom_painter, bottom_rect, series, self.x_axis_mode, snapshot.built_mono_ns, self.visible_seconds, self.visible_ticks, &self.theme);
                 }
                 BottomMetric::LeadLag => {
                     draw_lead_lag_view(

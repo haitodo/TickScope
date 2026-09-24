@@ -2,7 +2,7 @@ use crate::contracts::models::{
     BrokerOverview, CandleView, DiffPoint, MoveDirection, MoveQuality, Ohlc, PairComparison,
     RealtimeQuotePoint, SlotState,
 };
-use crate::contracts::types::{BrokerId, ConnectionState, FreshnessState};
+use crate::contracts::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
 use crate::metrics::{
     EventCluster, MoveBreadth, ObservedBrokerConsensus, StageLatencySummary,
 };
@@ -174,6 +174,22 @@ pub fn draw_candlestick_chart(
         fallback_price,
         theme,
     );
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChartXAxisMode {
+    #[default]
+    ReceiveTime,
+    TickCount,
+}
+
+impl ChartXAxisMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ReceiveTime => "Receive time",
+            Self::TickCount => "Tick count",
+        }
+    }
 }
 
 /// Draw context candles for every configured broker on a shared time and
@@ -430,15 +446,23 @@ pub fn draw_difference_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    x_axis_mode: ChartXAxisMode,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
     theme: &ChartTheme,
 ) {
-    draw_mid_diff_chart(painter, rect, series, theme);
+    draw_mid_diff_chart(painter, rect, series, x_axis_mode, now_mono, visible_seconds, visible_ticks, theme);
 }
 
 pub fn draw_mid_diff_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    x_axis_mode: ChartXAxisMode,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
@@ -498,20 +522,15 @@ pub fn draw_mid_diff_chart(
         );
     }
 
-    // Plot Mid difference line
-    let count = series.len();
-    let step_x = rect.width() / (count as f32).max(1.0);
-
-    let mut points = Vec::with_capacity(count);
-    for (i, pt) in series.iter().enumerate() {
-        let x = rect.left() + (i as f32) * step_x;
-        let y = diff_to_y(pt.mid_diff);
-        points.push(Pos2::new(x, y));
-    }
-
-    if points.len() >= 2 {
-        for w in points.windows(2) {
-            painter.line_segment([w[0], w[1]], Stroke::new(1.5_f32, theme.diff_line));
+    draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
+    let mut previous = None;
+    for (index, pt) in series.iter().enumerate() {
+        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+            let position = Pos2::new(x, diff_to_y(pt.mid_diff));
+            if let Some(previous) = previous {
+                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.diff_line));
+            }
+            previous = Some(position);
         }
     }
 }
@@ -520,6 +539,10 @@ pub fn draw_bid_ask_diff_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    x_axis_mode: ChartXAxisMode,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
@@ -581,27 +604,23 @@ pub fn draw_bid_ask_diff_chart(
         );
     }
 
-    let count = series.len();
-    let step_x = rect.width() / (count as f32).max(1.0);
-
-    let mut bid_points = Vec::with_capacity(count);
-    let mut ask_points = Vec::with_capacity(count);
-
-    for (i, pt) in series.iter().enumerate() {
-        let x = rect.left() + (i as f32) * step_x;
-        bid_points.push(Pos2::new(x, diff_to_y(pt.bid_diff)));
-        ask_points.push(Pos2::new(x, diff_to_y(pt.ask_diff)));
-    }
-
-    if bid_points.len() >= 2 {
-        for w in bid_points.windows(2) {
-            painter.line_segment([w[0], w[1]], Stroke::new(1.5_f32, theme.bid_diff_line));
+    draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
+    let mut previous_bid = None;
+    let mut previous_ask = None;
+    for (index, pt) in series.iter().enumerate() {
+        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+            let position = Pos2::new(x, diff_to_y(pt.bid_diff));
+            if let Some(previous) = previous_bid {
+                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.bid_diff_line));
+            }
+            previous_bid = Some(position);
         }
-    }
-
-    if ask_points.len() >= 2 {
-        for w in ask_points.windows(2) {
-            painter.line_segment([w[0], w[1]], Stroke::new(1.5_f32, theme.ask_diff_line));
+        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+            let position = Pos2::new(x, diff_to_y(pt.ask_diff));
+            if let Some(previous) = previous_ask {
+                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.ask_diff_line));
+            }
+            previous_ask = Some(position);
         }
     }
 }
@@ -610,6 +629,10 @@ pub fn draw_spread_diff_chart(
     painter: &egui::Painter,
     rect: Rect,
     series: &[DiffPoint],
+    x_axis_mode: ChartXAxisMode,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
@@ -675,22 +698,78 @@ pub fn draw_spread_diff_chart(
         );
     }
 
-    // Plot Spread difference line
-    let count = series.len();
-    let step_x = rect.width() / (count as f32).max(1.0);
-
-    let mut points = Vec::with_capacity(count);
-    for (i, pt) in series.iter().enumerate() {
-        let x = rect.left() + (i as f32) * step_x;
-        let y = diff_to_y(pt.spread_diff);
-        points.push(Pos2::new(x, y));
-    }
-
-    if points.len() >= 2 {
-        for w in points.windows(2) {
-            painter.line_segment([w[0], w[1]], Stroke::new(1.5_f32, theme.spread_diff_line));
+    draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
+    let mut previous = None;
+    for (index, pt) in series.iter().enumerate() {
+        if let Some(x) = x_axis_coordinate(x_axis_mode, rect, index, series.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks) {
+            let position = Pos2::new(x, diff_to_y(pt.spread_diff));
+            if let Some(previous) = previous {
+                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.spread_diff_line));
+            }
+            previous = Some(position);
         }
     }
+}
+
+fn fixed_time_window(now_mono: MonoNs, visible_seconds: u64) -> (u64, u64) {
+    let span_ns = visible_seconds.max(1).saturating_mul(1_000_000_000);
+    (now_mono.0.saturating_sub(span_ns), now_mono.0)
+}
+
+fn x_axis_coordinate(
+    mode: ChartXAxisMode,
+    rect: Rect,
+    sample_index: usize,
+    sample_count: usize,
+    mono_ns: MonoNs,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
+) -> Option<f32> {
+    match mode {
+        ChartXAxisMode::ReceiveTime => {
+            let (start_ns, end_ns) = fixed_time_window(now_mono, visible_seconds);
+            if mono_ns.0 < start_ns || mono_ns.0 > end_ns {
+                return None;
+            }
+            let span_ns = end_ns.saturating_sub(start_ns).max(1);
+            Some(rect.left()
+                + (mono_ns.0.saturating_sub(start_ns) as f64 / span_ns as f64) as f32 * rect.width())
+        }
+        ChartXAxisMode::TickCount => {
+            let slots = visible_ticks.max(1);
+            let first_visible = sample_count.saturating_sub(slots);
+            if sample_index < first_visible {
+                return None;
+            }
+            if slots == 1 {
+                return Some(rect.right());
+            }
+            let shown_count = sample_count - first_visible;
+            let slot_index = slots - shown_count + sample_index - first_visible;
+            Some(rect.left() + slot_index as f32 / (slots - 1) as f32 * rect.width())
+        }
+    }
+}
+
+fn draw_x_axis_caption(
+    painter: &egui::Painter,
+    rect: Rect,
+    mode: ChartXAxisMode,
+    visible_seconds: u64,
+    visible_ticks: usize,
+) {
+    let caption = match mode {
+        ChartXAxisMode::ReceiveTime => format!("Receive time · fixed {} s window", visible_seconds.max(1)),
+        ChartXAxisMode::TickCount => format!("Tick count · fixed {} updates", visible_ticks.max(1)),
+    };
+    painter.text(
+        Pos2::new(rect.left() + 6.0, rect.top() + 18.0),
+        egui::Align2::LEFT_TOP,
+        caption,
+        egui::FontId::monospace(10.0),
+        Color32::from_gray(130),
+    );
 }
 
 pub fn draw_lead_lag_view(
@@ -874,6 +953,10 @@ pub fn draw_realtime_quote_path_chart(
     rect: Rect,
     quote_points: &[RealtimeQuotePoint],
     broker_overviews: &[BrokerOverview],
+    x_axis_mode: ChartXAxisMode,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
     pip_size: f64,
     fixed_follow_span_pips: f64,
     deadzone_pct: f64,
@@ -952,16 +1035,12 @@ pub fn draw_realtime_quote_path_chart(
     painter.text(
         Pos2::new(rect.left() + 6.0, rect.top() + 4.0),
         egui::Align2::LEFT_TOP,
-        format!("Y-Span: {:.1} pip | Grid: {:.1} pip | Receive time", price_range / pip_size, price_range / pip_size / grid_steps as f64),
+        format!("Y-Span: {:.1} pip | Grid: {:.1} pip", price_range / pip_size, price_range / pip_size / grid_steps as f64),
         egui::FontId::monospace(10.0),
         Color32::from_gray(140),
     );
 
-    let start_ns = quote_points.first().unwrap().mono_ns.0;
-    let end_ns = quote_points.last().unwrap().mono_ns.0;
-    let span_ns = end_ns.saturating_sub(start_ns).max(1);
-    let time_to_x = |ns: u64| rect.left()
-        + (ns.saturating_sub(start_ns) as f64 / span_ns as f64) as f32 * rect.width();
+    draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
 
     let broker_index: HashMap<BrokerId, usize> = broker_overviews
         .iter()
@@ -973,9 +1052,10 @@ pub fn draw_realtime_quote_path_chart(
     for (&bid, &idx) in &broker_index {
         let color = broker_color_for(theme, idx);
         let mut previous = None;
-        for pt in quote_points {
+        for (index, pt) in quote_points.iter().enumerate() {
             let current = pt.broker_mids.get(&bid).filter(|m| m.is_finite())
-                .map(|&mid| Pos2::new(time_to_x(pt.mono_ns.0), price_to_y(mid)));
+                .and_then(|&mid| x_axis_coordinate(x_axis_mode, rect, index, quote_points.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks)
+                    .map(|x| Pos2::new(x, price_to_y(mid))));
             if let (Some(a), Some(b)) = (previous, current) {
                 painter.line_segment([a, b], Stroke::new(1.5_f32, color));
             }
@@ -991,9 +1071,10 @@ pub fn draw_realtime_quote_path_chart(
     // flicker even when the data itself is unchanged.
     {
         let mut previous = None;
-        for pt in quote_points {
+        for (index, pt) in quote_points.iter().enumerate() {
             let current = pt.consensus_mid.filter(|m| m.is_finite())
-                .map(|mid| Pos2::new(time_to_x(pt.mono_ns.0), price_to_y(mid)));
+                .and_then(|mid| x_axis_coordinate(x_axis_mode, rect, index, quote_points.len(), pt.mono_ns, now_mono, visible_seconds, visible_ticks)
+                    .map(|x| Pos2::new(x, price_to_y(mid))));
             if let (Some(a), Some(b)) = (previous, current) {
                 painter.line_segment([a, b], Stroke::new(2.0_f32, theme.median_line));
             }

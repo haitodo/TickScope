@@ -11,6 +11,7 @@ pub struct PairDifferenceTracker {
     pub broker_b: BrokerId,
     pub ring_buffer: VecDeque<DiffPoint>,
     max_history_ns: u64,
+    max_points: usize,
 }
 
 impl PairDifferenceTracker {
@@ -18,9 +19,16 @@ impl PairDifferenceTracker {
         Self {
             broker_a,
             broker_b,
-            ring_buffer: VecDeque::with_capacity(4096),
+            ring_buffer: VecDeque::with_capacity(1200),
             max_history_ns: visible_seconds * 1_000_000_000,
+            max_points: 1200,
         }
+    }
+
+    pub fn with_max_points(mut self, max_points: usize) -> Self {
+        self.max_points = max_points.max(1);
+        self.ring_buffer = VecDeque::with_capacity(self.max_points);
+        self
     }
 
     pub fn compute_and_record(
@@ -54,6 +62,9 @@ impl PairDifferenceTracker {
                     } else {
                         break;
                     }
+                }
+                while self.ring_buffer.len() > self.max_points {
+                    self.ring_buffer.pop_front();
                 }
 
                 return (
