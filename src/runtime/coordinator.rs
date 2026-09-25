@@ -5,9 +5,11 @@ use crate::contracts::types::*;
 use crate::state::snapshot::{SnapshotBuilder, SnapshotExchange};
 use crate::storage::logger::AsyncLogger;
 use crate::tick::engine::TickEngine;
+use crate::transport::router::TransportRouter;
 use crate::transport::tcp::TransportReceiver;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -65,7 +67,11 @@ pub struct RuntimeCoordinator {
     pub clock: Arc<dyn ClockPort>,
     pub exchange: Arc<SnapshotExchange>,
     pub running: Arc<AtomicBool>,
+    /// Broker routes with the actual listener ports used by this process.
+    /// These are written to each MT5 terminal's connection map at startup.
+    pub deployment_brokers: Vec<crate::contracts::config::BrokerConfig>,
     receivers: Vec<Arc<TransportReceiver>>,
+    router: Option<Arc<TransportRouter>>,
     engine: Arc<Mutex<TickEngine>>,
     logger: Option<Arc<AsyncLogger>>,
     threads: Vec<JoinHandle<()>>,
@@ -125,8 +131,11 @@ impl RuntimeCoordinator {
 
         let mut receivers = Vec::new();
         let mut threads = Vec::new();
+        let mut deployment_brokers = config.brokers.clone();
+        let mut routed_receivers = HashMap::new();
 
-        // 1. Spawn Transport Receivers for each broker
+        // Build one broker receiver per configured source. Auto-deploy mode
+        // routes all EA connections through one shared listener below.
         for b_cfg in &config.brokers {
             let receiver = Arc::new(TransportReceiver::new_with_limits(
                 b_cfg.clone(),
@@ -139,13 +148,32 @@ impl RuntimeCoordinator {
                 ingress_sink.clone(),
             ));
             receivers.push(receiver.clone());
+            routed_receivers.insert(b_cfg.id, receiver.clone());
 
-            let rec_clone = receiver.clone();
-            let handle = thread::spawn(move || {
-                rec_clone.run();
-            });
-            threads.push(handle);
+            if !config.mt5.auto_deploy {
+                let rec_clone = receiver.clone();
+                let handle = thread::spawn(move || {
+                    rec_clone.run();
+                });
+                threads.push(handle);
+            }
         }
+
+        let router = if config.mt5.auto_deploy {
+            let router = Arc::new(TransportRouter::bind_loopback(
+                routed_receivers,
+                config.ingress.progress_interval_ms,
+            )?);
+            for broker in &mut deployment_brokers {
+                broker.host = "127.0.0.1".to_string();
+                broker.port = router.local_port();
+            }
+            let router_thread = router.clone();
+            threads.push(thread::spawn(move || router_thread.run()));
+            Some(router)
+        } else {
+            None
+        };
 
         // 2. Spawn Engine Worker
         let eng_clone = engine.clone();
@@ -190,7 +218,9 @@ impl RuntimeCoordinator {
             clock,
             exchange,
             running,
+            deployment_brokers,
             receivers,
+            router,
             engine,
             logger,
             threads,
@@ -230,6 +260,9 @@ impl RuntimeCoordinator {
     }
 
     pub fn stop(&mut self) {
+        if let Some(router) = &self.router {
+            router.stop();
+        }
         for r in &self.receivers {
             r.stop();
         }

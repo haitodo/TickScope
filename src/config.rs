@@ -67,6 +67,7 @@ mod tests {
     #[test]
     fn test_duplicate_broker_port_rejected() {
         let mut cfg = AppConfig::default();
+        cfg.mt5.auto_deploy = false;
         cfg.brokers[1].port = cfg.brokers[0].port;
         assert!(cfg.validate().is_err());
     }

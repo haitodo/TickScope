@@ -21,12 +21,6 @@ fn main() -> eframe::Result<()> {
         }
     };
 
-    // Auto-deploy MT5 EA and Include files to detected MT5 terminals
-    if config.mt5.auto_deploy {
-        let deploy_report = tick_compare::runtime::deploy_mt5_files_for_brokers(&config.mt5, &config.brokers);
-        tick_compare::runtime::print_deploy_report(&deploy_report);
-    }
-
     let initial_pair = config.active_pair;
     let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
     let visible_seconds = config.display.visible_seconds;
@@ -38,6 +32,16 @@ fn main() -> eframe::Result<()> {
             std::process::exit(1);
         }
     };
+
+    // Deploy the connection map only after each listener has reserved its
+    // actual OS-selected port. Every terminal then receives usable endpoints.
+    if coordinator.config.mt5.auto_deploy {
+        let deploy_report = tick_compare::runtime::deploy_mt5_files_for_brokers(
+            &coordinator.config.mt5,
+            &coordinator.deployment_brokers,
+        );
+        tick_compare::runtime::print_deploy_report(&deploy_report);
+    }
 
     let exchange = coordinator.exchange.clone();
     let app = DashboardApp::new(exchange, initial_pair)

@@ -11,6 +11,14 @@
 - B: frame payload最大=1,048,576 byte。`40 + payload_length`、`tick_count * 72`、`sequence_start + tick_count - 1`はchecked算術。
 - S: 送信とreadの呼出回数は一致しない。short writeを成功完了とせず、同じ接続で未送信suffixだけ送る。
 
+## 1.1 Auto-deploy接続ルーティング
+
+自動配置モードでは、全ブローカーが1つのloopback TCP listenerへ接続する。TickScopeが各起動時にOSから空きportを取得し、接続表を各MT5の`MQL5/Files/TickScope/connection.tsv`へ配置する。
+
+各TCP接続の最初に、EAは8 byteのroute prefaceを一度だけ送る。最初の4 byteはASCII `TSCP`、続く4 byteはbroker_idのu32 Little Endian。これは通常のFrameではなく、Rust routerはprefaceを消費して既存のブローカー別receiverへ接続を振り分ける。以降は本書の40 byte Headerから始まるbinary frameを続ける。TCP切断後の再接続ではprefaceを再送する。
+
+このprefaceは自動配置モードでのみ使用する。固定ポートのlegacy receiverは従来どおりFrameから読み始める。
+
 ## 2. Header（S: offset/type、B: 値・用途の詳細）
 
 | offset | byte数 | field | type | C1の値／検証 |
@@ -20,7 +28,7 @@
 | 6 | 2 | message_type | u16 | 下表 |
 | 8 | 2 | header_length | u16 | 40 |
 | 10 | 2 | header_flags | u16 | message別の許可bitのみ |
-| 12 | 4 | broker_id | u32 | 接続portの設定IDと一致 |
+| 12 | 4 | broker_id | u32 | Auto-deployではroute prefaceで指定したreceiver IDと一致 |
 | 16 | 8 | session_id | u64 | EA起動単位。0はC1で禁止 |
 | 24 | 8 | sequence_start | u64 | TICK_BATCHの先頭seq。それ以外は0 |
 | 32 | 4 | tick_count | u32 | TICK_BATCHのみ1以上。それ以外は0 |

@@ -17,6 +17,7 @@ private:
    uint     m_port;
    uint     m_timeout_ms;
    bool     m_connected;
+   bool     m_route_hello_sent;
    ulong    m_last_connect_attempt_msc;
    bool     m_last_connect_logged;
    
@@ -37,6 +38,7 @@ public:
       m_port = 39001;
       m_timeout_ms = 10;
       m_connected = false;
+      m_route_hello_sent = false;
       m_last_connect_attempt_msc = 0;
       m_last_connect_logged = false;
       m_send_offset = 0;
@@ -117,9 +119,9 @@ public:
             if(err == 4014)
             {
                PrintFormat("[TickCollector] SocketConnect to %s:%d FAILED: Error 4014 (Function not allowed). "
-                           "Please open MT5: Tools -> Options -> Expert Advisors -> check 'Allow WebRequest for listed URL' "
-                           "and add '%s', 'http://%s', and 'http://%s:%d'",
-                           m_host, m_port, m_host, m_host, m_host, m_port);
+                           "Please open MT5: Tools -> Options -> Expert Advisors and allow the local address '%s'. "
+                           "The TickScope port is assigned automatically and does not need to be entered here.",
+                           m_host, m_port, m_host);
             }
             else if(err == 5272)
             {
@@ -145,8 +147,28 @@ public:
       }
       
       m_connected = true;
+      m_route_hello_sent = false;
       m_last_connect_logged = false;
       PrintFormat("[TickCollector] Successfully CONNECTED to TickScope at %s:%d", m_host, m_port);
+      return true;
+   }
+
+   // Identify the configured broker to TickScope's shared local listener.
+   bool SendRouteHello(uint broker_id)
+   {
+      if(m_route_hello_sent) return true;
+      if(!IsConnected()) return false;
+
+      uchar hello[8];
+      hello[0] = 0x54; // 'T'
+      hello[1] = 0x53; // 'S'
+      hello[2] = 0x43; // 'C'
+      hello[3] = 0x50; // 'P'
+      for(int i = 0; i < 4; i++)
+         hello[4 + i] = (uchar)((broker_id >> (i * 8)) & 0xFF);
+
+      if(!QueueBytes(hello, ArraySize(hello))) return false;
+      m_route_hello_sent = true;
       return true;
    }
    
@@ -158,6 +180,7 @@ public:
          m_socket = INVALID_HANDLE;
       }
       m_connected = false;
+      m_route_hello_sent = false;
       ClearSendBuffer();
       ClearReceiveBuffer();
    }
@@ -297,7 +320,7 @@ public:
    // collector validates broker/session and advances its cursor only after it
    // observes the exact ACK for its one outstanding batch.
    void PollReplies(ulong &last_acked_seq, bool &has_acked_seq,
-                    uint expected_broker_id, ulong expected_session_id,
+                    uint &active_broker_id, ulong expected_session_id,
                     bool &received_ack, bool &protocol_fault)
    {
       received_ack = false;
@@ -351,14 +374,21 @@ public:
 
             if(magic != MAGIC_TICK || version != PROTOCOL_VERSION ||
                msg_type != MSG_TYPE_BATCH_ACK || header_length != HEADER_LENGTH ||
-               flags != 0 || broker_id != expected_broker_id ||
-               session_id != expected_session_id || sequence_start != 0 ||
-               tick_count != 0 || payload_length != BATCH_ACK_PAYLOAD_LENGTH)
+               flags != 0 || session_id != expected_session_id ||
+               sequence_start != 0 || tick_count != 0 || payload_length != BATCH_ACK_PAYLOAD_LENGTH)
             {
-               Print("[TickCollector] Invalid ACK frame; disconnecting.");
+               PrintFormat("[TickCollector] Invalid ACK frame (magic=0x%08X exp 0x%08X, ver=%d, type=%d, flags=0x%X, session=%I64u exp %I64u, seq_start=%I64u, tick_cnt=%d, payload_len=%d); disconnecting.",
+                           magic, MAGIC_TICK, version, msg_type, flags, session_id, expected_session_id, sequence_start, tick_count, payload_length);
                protocol_fault = true;
                Disconnect();
                return;
+            }
+
+            if(broker_id != active_broker_id)
+            {
+               PrintFormat("[TickCollector] Broker ID synchronized from server: was %u, now %u (connected port defines broker).",
+                           active_broker_id, broker_id);
+               active_broker_id = broker_id;
             }
 
             ulong seq_end = ReadU64(m_recv_buffer, 40);

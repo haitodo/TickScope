@@ -5,6 +5,8 @@ active_pair = [1, 2]
 # Broker 1: OANDA
 # Note: auto_utc_offset = true automatically detects broker timezone (e.g. GMT+2 / GMT+3 / GMT+9)
 # from MT5 heartbeat and tick timestamps, eliminating manual offset configuration.
+# Legacy fixed ports are used only with auto_deploy = false. Normally TickScope
+# assigns one free local port shared by every broker at startup.
 [[brokers]]
 id = 1
 name = "OANDA"

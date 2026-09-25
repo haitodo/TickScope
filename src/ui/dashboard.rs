@@ -240,6 +240,16 @@ impl DashboardApp {
         // Overview panel of ALL configured brokers
         egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
             ui.strong("Broker Overview");
+            if snapshot
+                .broker_overviews
+                .iter()
+                .any(|broker| broker.health.connection == ConnectionState::Disconnected)
+            {
+                ui.colored_label(
+                    Color32::YELLOW,
+                    "MT5接続待ち: 対象銘柄チャートに共通EA TickCollector を追加してください。既にEAが動作中なら一度外して再追加してください。接続が拒否された場合はMT5のエキスパートログを確認してください。",
+                );
+            }
             egui::ScrollArea::vertical()
                 .max_height(180.0)
                 .show(ui, |ui| {

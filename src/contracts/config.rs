@@ -9,6 +9,9 @@ pub struct BrokerConfig {
     pub id: BrokerId,
     pub name: String,
     pub host: String,
+    /// Legacy listener port used only when MT5 auto-deployment is disabled.
+    /// With auto-deployment enabled, TickScope binds an ephemeral loopback port.
+    #[serde(default = "default_broker_port")]
     pub port: u16,
     pub symbol: String,
     pub digits: u32,
@@ -19,6 +22,10 @@ pub struct BrokerConfig {
     pub utc_verified: bool,
     #[serde(default = "default_auto_utc_offset")]
     pub auto_utc_offset: bool,
+}
+
+fn default_broker_port() -> u16 {
+    39001
 }
 
 fn default_auto_utc_offset() -> bool {
@@ -411,13 +418,16 @@ impl AppConfig {
         let mut seen_ids = std::collections::HashSet::new();
         let mut seen_ports = std::collections::HashSet::new();
         for b in &self.brokers {
+            if b.name.trim().is_empty() {
+                return Err(format!("Broker {} name must not be empty", b.id));
+            }
             if b.id == 0 {
                 return Err("Broker id 0 is reserved and invalid".to_string());
             }
             if !seen_ids.insert(b.id) {
                 return Err(format!("Duplicate broker id: {}", b.id));
             }
-            if !seen_ports.insert(b.port) {
+            if !self.mt5.auto_deploy && !seen_ports.insert(b.port) {
                 return Err(format!("Duplicate broker port: {}", b.port));
             }
             if b.digits == 0 || b.digits > 8 {

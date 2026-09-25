@@ -11,17 +11,8 @@
 #include <TickScope/Protocol.mqh>
 #include <TickScope/SocketClient.mqh>
 
-//--- Inputs
-#ifdef TICKSCOPE_BROKER_ID
-// Generated broker EAs get connection settings from TickScope configuration.
-const uint   InpBrokerID = TICKSCOPE_BROKER_ID;
-const string InpServerHost = TICKSCOPE_SERVER_HOST;
-const uint   InpServerPort = TICKSCOPE_SERVER_PORT;
-#else
-input uint   InpBrokerID            = 1;              // Broker ID (1, 2, 3...)
-input string InpServerHost          = "127.0.0.1";    // TickScope Server Host
-input uint   InpServerPort          = 39001;          // TickScope Server Port
-#endif
+//--- Collection settings. Broker, host, and port are loaded automatically
+//    from MQL5/Files/TickScope/connection.tsv.
 input uint   InpWarmupSeconds       = 60;             // Warmup history duration (seconds)
 input uint   InpBatchCount          = 256;            // CopyTicks batch size
 input uint   InpMaxSameMsScanTicks  = 65536;          // Max scan ticks in single millisecond
@@ -36,6 +27,12 @@ ulong         g_last_acked_sequence    = 0;
 bool          g_has_acked_sequence     = false;
 ushort        g_current_phase          = PHASE_WARMING;
 ulong         g_ea_start_microsecond   = 0;
+uint          g_active_broker_id       = 0;
+string        g_server_host            = "";
+uint          g_server_port            = 0;
+bool          g_connection_ready       = false;
+ulong         g_last_config_log_us     = 0;
+ulong         g_last_config_check_us   = 0;
 
 // Cursor tracking
 long          g_cursor_time_msc        = 0;
@@ -89,7 +86,7 @@ bool PollAndCommitAck()
    bool received_ack = false;
    bool protocol_fault = false;
    g_socket.PollReplies(g_last_acked_sequence, g_has_acked_sequence,
-                        InpBrokerID, g_session_id,
+                        g_active_broker_id, g_session_id,
                         received_ack, protocol_fault);
    if(protocol_fault)
    {
@@ -145,7 +142,7 @@ void SendStatus(ushort status_code, ushort phase, uint detail_flags,
 {
    ArrayResize(g_packet_buffer, HEADER_LENGTH + STATUS_PAYLOAD_LENGTH);
    PackHeader(g_packet_buffer, 0, MSG_TYPE_STATUS, 0,
-              InpBrokerID, g_session_id, 0, 0, STATUS_PAYLOAD_LENGTH);
+              g_active_broker_id, g_session_id, 0, 0, STATUS_PAYLOAD_LENGTH);
    PackStatusPayload(g_packet_buffer, HEADER_LENGTH,
                      status_code, phase, detail_flags,
                      seq_first, seq_last, affected_count,
@@ -170,7 +167,7 @@ void SendHeartbeat()
 
    ArrayResize(g_packet_buffer, HEADER_LENGTH + HEARTBEAT_PAYLOAD_LENGTH);
    PackHeader(g_packet_buffer, 0, MSG_TYPE_HEARTBEAT, flags,
-              InpBrokerID, g_session_id, 0, 0, HEARTBEAT_PAYLOAD_LENGTH);
+              g_active_broker_id, g_session_id, 0, 0, HEARTBEAT_PAYLOAD_LENGTH);
    PackHeartbeatPayload(g_packet_buffer, HEADER_LENGTH,
                         g_session_id, (g_current_sequence > 0 ? g_current_sequence - 1 : 0),
                         g_last_tick_time_msc, offset_sec,
@@ -239,7 +236,7 @@ bool CollectAndStreamTicks(bool is_warmup)
    ulong batch_start_seq = g_current_sequence;
 
    PackHeader(g_pending_packet, 0, MSG_TYPE_TICK_BATCH, hdr_flags,
-              InpBrokerID, g_session_id, batch_start_seq,
+              g_active_broker_id, g_session_id, batch_start_seq,
               (uint)new_tick_count, payload_len);
 
    WireTickRecord wire_tick;
@@ -320,13 +317,148 @@ void PerformWarmup()
 }
 
 //+------------------------------------------------------------------+
+//| Load the port assigned by TickScope and identify this chart      |
+//+------------------------------------------------------------------+
+void ReportConnectionConfigIssue(string message)
+{
+   ulong now_us = GetMicrosecondCount();
+   if(g_last_config_log_us == 0 || now_us - g_last_config_log_us >= 5000000)
+   {
+      PrintFormat("[TickCollector] %s", message);
+      g_last_config_log_us = now_us;
+   }
+}
+
+bool LoadConnectionSettings()
+{
+   ulong now_us = GetMicrosecondCount();
+   if(g_last_config_check_us > 0 && now_us - g_last_config_check_us < 1000000)
+      return g_connection_ready;
+   g_last_config_check_us = (now_us == 0 ? 1 : now_us);
+   bool previous_config_ready = g_connection_ready;
+   uint previous_broker_id = g_active_broker_id;
+   uint previous_server_port = g_server_port;
+   g_connection_ready = false;
+
+   ushort separator = (ushort)StringGetCharacter("\t", 0);
+   int handle = FileOpen(
+      "TickScope\\connection.tsv",
+      FILE_READ | FILE_TXT | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE,
+      separator, 65001);
+   if(handle == INVALID_HANDLE)
+   {
+      ReportConnectionConfigIssue("TickScope connection map is not available yet. Start the TickScope app and retrying automatically.");
+      return false;
+   }
+
+   string account_server = AccountInfoString(ACCOUNT_SERVER);
+   StringToLower(account_server);
+   string chart_symbol = Symbol();
+
+   bool saw_header = false;
+   bool saw_end = false;
+   int symbol_matches = 0;
+   int server_matches = 0;
+   int best_server_hint_length = 0;
+   uint server_broker_id = 0;
+   uint server_port = 0;
+
+   while(!FileIsEnding(handle))
+   {
+      string line = FileReadString(handle);
+      string fields[];
+      int field_count = StringSplit(line, separator, fields);
+
+      if(!saw_header)
+      {
+         if(field_count == 2 && fields[0] == "TICKSCOPE" && fields[1] == "1")
+            saw_header = true;
+         continue;
+      }
+
+      if(field_count == 1 && fields[0] == "END")
+      {
+         saw_end = true;
+         break;
+      }
+      if(field_count < 4 || fields[2] != chart_symbol)
+         continue;
+
+      long broker_id = StringToInteger(fields[0]);
+      long port = StringToInteger(fields[3]);
+      if(broker_id <= 0 || port <= 0 || port > 65535)
+         continue;
+
+      symbol_matches++;
+
+      string server_hint = fields[1];
+      StringToLower(server_hint);
+      if(StringLen(server_hint) > 0 && StringFind(account_server, server_hint) >= 0)
+      {
+         int hint_length = StringLen(server_hint);
+         if(hint_length > best_server_hint_length)
+         {
+            best_server_hint_length = hint_length;
+            server_matches = 1;
+            server_broker_id = (uint)broker_id;
+            server_port = (uint)port;
+         }
+         else if(hint_length == best_server_hint_length)
+         {
+            server_matches++;
+         }
+      }
+   }
+   FileClose(handle);
+
+   if(!saw_header || !saw_end)
+   {
+      ReportConnectionConfigIssue("TickScope connection map is incomplete. Waiting for the app to finish updating it.");
+      return false;
+   }
+
+   uint selected_broker_id = 0;
+   uint selected_port = 0;
+   if(server_matches == 1)
+   {
+      selected_broker_id = server_broker_id;
+      selected_port = server_port;
+   }
+   else
+   {
+      ReportConnectionConfigIssue(StringFormat(
+         "Cannot uniquely map chart %s on account server '%s' (symbol matches: %d, server matches: %d). Set each broker name to include its MT5 server name and use the matching symbol.",
+         chart_symbol, AccountInfoString(ACCOUNT_SERVER), symbol_matches, server_matches));
+      return false;
+   }
+
+   bool changed = !previous_config_ready || previous_broker_id != selected_broker_id ||
+                  previous_server_port != selected_port;
+   g_active_broker_id = selected_broker_id;
+   g_server_host = "127.0.0.1";
+   g_server_port = selected_port;
+   g_connection_ready = true;
+   g_socket.Init(g_server_host, g_server_port, InpSocketTimeoutMs);
+   if(changed)
+   {
+      PrintFormat("[TickCollector] Matched broker %u, chart %s, server '%s'; TickScope port is assigned automatically.",
+                  g_active_broker_id, chart_symbol, AccountInfoString(ACCOUNT_SERVER));
+      g_last_config_log_us = 0;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Connect, replay pending data, drain ACKs, then collect one batch |
 //+------------------------------------------------------------------+
 void DriveReliableCollection()
 {
    if(!g_socket.IsConnected())
    {
+      if(!LoadConnectionSettings()) return;
+      g_socket.Init(g_server_host, g_server_port, InpSocketTimeoutMs);
       if(!g_socket.Connect()) return;
+      if(!g_socket.SendRouteHello(g_active_broker_id)) return;
       // SocketClient discards only its connection-local partial suffix.  The
       // immutable pending batch is retained here and is replayed in full.
       if(g_pending_batch) g_pending_queued = false;
@@ -367,6 +499,7 @@ int OnInit()
 {
    g_ea_start_microsecond = GetMicrosecondCount();
    g_session_id = GenerateSessionId();
+   g_active_broker_id = 0;
    g_current_sequence = 0;
    g_last_acked_sequence = 0;
    g_has_acked_sequence = false;
@@ -374,17 +507,6 @@ int OnInit()
    g_last_heartbeat_us = 0;
    g_warmup_done = false;
    g_warmup_started = false;
-
-   g_socket.Init(InpServerHost, InpServerPort, InpSocketTimeoutMs);
-
-   if(g_socket.Connect())
-   {
-      PerformWarmup();
-   }
-   else
-   {
-      PrintFormat("[TickCollector] Initial connection to %s:%d failed. Will automatically retry on timer.", InpServerHost, InpServerPort);
-   }
 
    // The timer is also the connection supervisor. It keeps retrying when
    // TickScope was not running yet, so launch order is irrelevant.
@@ -397,6 +519,7 @@ int OnInit()
          PrintFormat("[TickCollector] Failed to start fallback reconnect timer, error: %d", GetLastError());
       }
    }
+   DriveReliableCollection();
    return INIT_SUCCEEDED;
 }
 
@@ -428,6 +551,9 @@ void OnTick()
 void OnTimer()
 {
    DriveReliableCollection();
+
+   if(!g_connection_ready || !g_socket.IsConnected())
+      return;
 
    // Heartbeats are independent diagnostics. Their reported sequence is the
    // last ACKed sequence, never an unconfirmed candidate batch.

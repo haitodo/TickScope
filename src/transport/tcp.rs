@@ -73,26 +73,24 @@ impl TransportReceiver {
 
     pub fn run(&self) {
         let addr = format!("{}:{}", self.broker_config.host, self.broker_config.port);
-        // Keep the receiver alive while the port is temporarily unavailable.
-        // This covers app restarts and startup races with another receiver.
+        // Keep the receiver alive while the configured legacy port is
+        // temporarily unavailable. This covers app restarts and startup races.
         let listener = loop {
             if !self.running.load(Ordering::SeqCst) {
                 return;
             }
             match TcpListener::bind(&addr) {
-                Ok(l) => {
-                    l.set_nonblocking(true).ok();
-                    break l;
-                }
-                Err(e) => {
+                Ok(listener) => break listener,
+                Err(error) => {
                     eprintln!(
                         "Failed to bind TCP listener on {} for broker {}: {}. Retrying...",
-                        addr, self.broker_config.id, e
+                        addr, self.broker_config.id, error
                     );
                     thread::sleep(Duration::from_millis(250));
                 }
             }
         };
+        listener.set_nonblocking(true).ok();
 
         let mut generation: u64 = 0;
         let mut last_progress_time = std::time::Instant::now();
@@ -104,21 +102,7 @@ impl TransportReceiver {
                     generation += 1;
                     stream.set_nodelay(true).ok();
                     stream.set_nonblocking(true).ok();
-
-                    let connected_mono = self.clock.sample().mono_ns;
-                    self.submit_ingress_item(IngressItem::Connected {
-                        broker_id: self.broker_config.id,
-                        generation,
-                        connected_at_mono: connected_mono,
-                    });
-
-                    let end_reason = self.handle_connection(stream, generation);
-
-                    self.submit_ingress_item(IngressItem::End {
-                        broker_id: self.broker_config.id,
-                        generation,
-                        reason: end_reason,
-                    });
+                    self.process_accepted_connection(stream, generation);
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     // Send idle progress watermark
@@ -138,6 +122,37 @@ impl TransportReceiver {
                 }
             }
         }
+    }
+
+    pub(crate) fn handle_routed_connection(&self, stream: TcpStream, generation: u64) {
+        stream.set_nodelay(true).ok();
+        stream.set_nonblocking(true).ok();
+        self.process_accepted_connection(stream, generation);
+    }
+
+    pub(crate) fn report_idle_progress(&self) {
+        let sample = self.clock.sample();
+        self.submit_ingress_item(IngressItem::Progress {
+            broker_id: self.broker_config.id,
+            watermark_ns: sample.mono_ns,
+        });
+    }
+
+    fn process_accepted_connection(&self, stream: TcpStream, generation: u64) {
+        let connected_mono = self.clock.sample().mono_ns;
+        self.submit_ingress_item(IngressItem::Connected {
+            broker_id: self.broker_config.id,
+            generation,
+            connected_at_mono: connected_mono,
+        });
+
+        let end_reason = self.handle_connection(stream, generation);
+
+        self.submit_ingress_item(IngressItem::End {
+            broker_id: self.broker_config.id,
+            generation,
+            reason: end_reason,
+        });
     }
 
     fn handle_connection(&self, mut stream: TcpStream, generation: u64) -> String {
