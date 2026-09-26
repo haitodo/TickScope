@@ -62,7 +62,12 @@ fn main() -> eframe::Result<()> {
     let result = eframe::run_native(
         "TickScope",
         native_options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| {
+            tick_compare::ui::setup_fonts(&cc.egui_ctx);
+            let mut app = app;
+            app.mark_fonts_configured();
+            Ok(Box::new(app))
+        }),
     );
     coordinator.stop();
     coordinator.wait_for_shutdown();

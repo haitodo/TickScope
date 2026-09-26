@@ -6,6 +6,7 @@ use crate::ui::chart::{
     draw_realtime_quote_path_chart, draw_spread_diff_chart, draw_state_ribbon, BottomMetric,
     ChartTheme, ChartXAxisMode,
 };
+use crate::ui::fonts::setup_fonts;
 use eframe::egui;
 use egui::{Color32, RichText};
 use std::sync::Arc;
@@ -25,6 +26,7 @@ pub struct DashboardApp {
     visible_ticks: usize,
     x_axis_mode: ChartXAxisMode,
     pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
+    fonts_configured: bool,
 }
 
 impl DashboardApp {
@@ -47,7 +49,12 @@ impl DashboardApp {
             visible_ticks: 1200,
             x_axis_mode: ChartXAxisMode::default(),
             pair_selection_handler: None,
+            fonts_configured: false,
         }
+    }
+
+    pub fn mark_fonts_configured(&mut self) {
+        self.fonts_configured = true;
     }
 
     pub fn with_pip_size(mut self, pip_size: f64) -> Self {
@@ -99,6 +106,11 @@ impl DashboardApp {
     }
 
     pub fn render_ui(&mut self, ctx: &egui::Context) {
+        if !self.fonts_configured {
+            setup_fonts(ctx);
+            self.fonts_configured = true;
+        }
+
         let snapshot = self.exchange.load_latest();
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
