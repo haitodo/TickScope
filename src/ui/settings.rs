@@ -146,7 +146,7 @@ pub fn load_ui_state<P: AsRef<Path>>(path: P) -> Option<UiState> {
     let content = match fs::read_to_string(p) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Warning: Failed to read UI state file '{}': {}", p.display(), e);
+            log::warn!("Failed to read UI state file '{}': {}", p.display(), e);
             return None;
         }
     };
@@ -156,7 +156,7 @@ pub fn load_ui_state<P: AsRef<Path>>(path: P) -> Option<UiState> {
             Some(state)
         }
         Err(e) => {
-            eprintln!("Warning: Failed to parse UI state from '{}': {}", p.display(), e);
+            log::warn!("Failed to parse UI state from '{}': {}", p.display(), e);
             None
         }
     }

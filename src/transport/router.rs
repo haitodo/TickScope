@@ -92,7 +92,7 @@ impl TransportRouter {
                     thread::sleep(Duration::from_millis(1));
                 }
                 Err(error) => {
-                    eprintln!("Shared MT5 listener accept failed: {error}");
+                    log::error!("Shared MT5 listener accept failed: {error}");
                     thread::sleep(Duration::from_millis(50));
                 }
             }
@@ -107,27 +107,27 @@ impl TransportRouter {
     fn route(&self, mut stream: TcpStream) {
         stream.set_nodelay(true).ok();
         if let Err(error) = stream.set_read_timeout(Some(Duration::from_secs(2))) {
-            eprintln!("Failed to configure route handshake timeout: {error}");
+            log::warn!("Failed to configure route handshake timeout: {error}");
             return;
         }
 
         let mut hello = [0u8; ROUTE_HELLO_LENGTH];
         if let Err(error) = stream.read_exact(&mut hello) {
-            eprintln!("Rejected MT5 connection without a complete route handshake: {error}");
+            log::warn!("Rejected MT5 connection without a complete route handshake: {error}");
             return;
         }
         if hello[..4] != ROUTE_HELLO_MAGIC[..] {
-            eprintln!("Rejected MT5 connection with an invalid route handshake.");
+            log::warn!("Rejected MT5 connection with an invalid route handshake.");
             return;
         }
 
         let broker_id = u32::from_le_bytes(hello[4..8].try_into().unwrap());
         let Some(receiver) = self.receivers.get(&broker_id).cloned() else {
-            eprintln!("Rejected MT5 connection for unknown broker id {broker_id}.");
+            log::warn!("Rejected MT5 connection for unknown broker id {broker_id}.");
             return;
         };
         if let Err(error) = stream.set_nonblocking(true) {
-            eprintln!("Failed to configure broker {broker_id} connection: {error}");
+            log::warn!("Failed to configure broker {broker_id} connection: {error}");
             return;
         }
         let Some(active) = self.active_connections.get(&broker_id).cloned() else {
@@ -137,7 +137,7 @@ impl TransportRouter {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            eprintln!("Rejected a duplicate active MT5 connection for broker {broker_id}.");
+            log::warn!("Rejected a duplicate active MT5 connection for broker {broker_id}.");
             return;
         }
 
@@ -147,6 +147,8 @@ impl TransportRouter {
             .map(|counter| counter.fetch_add(1, Ordering::AcqRel) + 1)
             .unwrap_or(1);
         stream.set_read_timeout(None).ok();
+
+        log::info!("Accepted MT5 connection for broker {broker_id} (generation: {generation})");
 
         let active_for_thread = active.clone();
         let spawn_result = thread::Builder::new()
@@ -171,7 +173,7 @@ impl TransportRouter {
             }
             Err(error) => {
                 active.store(false, Ordering::Release);
-                eprintln!("Failed to start MT5 receiver for broker {broker_id}: {error}");
+                log::error!("Failed to start MT5 receiver for broker {broker_id}: {error}");
             }
         }
     }

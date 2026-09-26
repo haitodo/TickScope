@@ -98,7 +98,7 @@ impl DashboardApp {
         if let Some(path) = &self.ui_state_path {
             let state = self.current_ui_state();
             if let Err(e) = save_ui_state(path, &state) {
-                eprintln!("Warning: Failed to persist UI state: {}", e);
+                log::warn!("Failed to persist UI state: {}", e);
             }
         }
         self.state_dirty = false;

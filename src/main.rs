@@ -1,24 +1,68 @@
+#![cfg_attr(not(test), windows_subsystem = "windows")]
+
 //! TickScope application main entry point.
 //! Multi-broker FX real-time tick comparison and candlestick chart visualization.
 
 use eframe::egui;
 use std::env;
-use std::path::Path;
+use tick_compare::cli::CliArgs;
 use tick_compare::config::load_startup_config;
+use tick_compare::logging::{cleanup_console, init_logging, is_console_allocated, setup_console};
 use tick_compare::runtime::coordinator::RuntimeCoordinator;
 use tick_compare::ui::dashboard::DashboardApp;
 use tick_compare::ui::settings::{load_ui_state, resolve_ui_state_path};
 
+fn pause_if_allocated_console() {
+    if is_console_allocated() {
+        eprintln!("\nPress Enter to exit...");
+        let mut _buf = String::new();
+        let _ = std::io::stdin().read_line(&mut _buf);
+    }
+}
+
 fn main() -> eframe::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    println!("TickScope initializing...");
+    let cli = match CliArgs::parse(env::args().skip(1)) {
+        Ok(cli) => cli,
+        Err(err) => {
+            setup_console();
+            eprintln!("Error: {}\n", err);
+            eprintln!("{}", CliArgs::help_text());
+            pause_if_allocated_console();
+            std::process::exit(1);
+        }
+    };
+
+    if cli.show_help {
+        setup_console();
+        println!("{}", CliArgs::help_text());
+        pause_if_allocated_console();
+        std::process::exit(0);
+    }
+
+    if cli.show_version {
+        setup_console();
+        println!("TickScope {}", env!("CARGO_PKG_VERSION"));
+        pause_if_allocated_console();
+        std::process::exit(0);
+    }
+
+    // Initialize diagnostic logging and attach/alloc console if requested.
+    // If cli.console is false, logging is completely disabled (LevelFilter::Off)
+    // and no console window appears.
+    let _ = init_logging(cli.console, cli.log_level);
+
+    log::info!("TickScope v{} initializing...", env!("CARGO_PKG_VERSION"));
     let exe = env::current_exe().expect("Cannot locate TickScope executable");
     let cwd = env::current_dir().expect("Cannot locate working directory");
     let exe_dir = exe.parent().unwrap();
-    let mut config = match load_startup_config(args.get(1).map(Path::new), exe_dir, &cwd) {
+    let mut config = match load_startup_config(cli.config_path.as_deref(), exe_dir, &cwd) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("Failed to load configuration: {}", e);
+            log::error!("Failed to load configuration: {}", e);
+            if !cli.console {
+                eprintln!("Failed to load configuration: {}", e);
+            }
+            pause_if_allocated_console();
             std::process::exit(1);
         }
     };
@@ -37,7 +81,11 @@ fn main() -> eframe::Result<()> {
     let mut coordinator = match RuntimeCoordinator::new(config) {
         Ok(coord) => coord,
         Err(e) => {
-            eprintln!("Fatal error starting RuntimeCoordinator: {}", e);
+            log::error!("Fatal error starting RuntimeCoordinator: {}", e);
+            if !cli.console {
+                eprintln!("Fatal error starting RuntimeCoordinator: {}", e);
+            }
+            pause_if_allocated_console();
             std::process::exit(1);
         }
     };
@@ -76,7 +124,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    println!("TickScope running. Starting egui GUI window...");
+    log::info!("TickScope running. Starting egui GUI window...");
     let result = eframe::run_native(
         "TickScope",
         native_options,
@@ -87,7 +135,9 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(app))
         }),
     );
+
     coordinator.stop();
     coordinator.wait_for_shutdown();
+    cleanup_console();
     result
 }

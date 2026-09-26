@@ -659,19 +659,19 @@ pub fn deploy_mt5_files_for_brokers(config: &Mt5DeployConfig, brokers: &[BrokerC
 /// Print formatted deploy report to standard output.
 pub fn print_deploy_report(report: &DeployReport) {
     if !report.enabled {
-        println!("[MT5 Auto-Deploy] Auto-deployment is disabled in config.");
+        log::info!("[MT5 Auto-Deploy] Auto-deployment is disabled in config.");
         return;
     }
 
     if report.terminals.is_empty() {
-        println!("[MT5 Auto-Deploy] No MetaTrader 5 terminal directories discovered.");
+        log::info!("[MT5 Auto-Deploy] No MetaTrader 5 terminal directories discovered.");
     } else {
-        println!(
+        log::info!(
             "[MT5 Auto-Deploy] Discovered {} MetaTrader 5 terminal(s):",
             report.terminals.len()
         );
         for term in &report.terminals {
-            println!("  * {}", term.terminal_name);
+            log::info!("  * {}", term.terminal_name);
             for f in &term.results {
                 let status_str = match &f.status {
                     DeployFileStatus::Created => "Deployed (new)",
@@ -679,7 +679,7 @@ pub fn print_deploy_report(report: &DeployReport) {
                     DeployFileStatus::SkippedIdentical => "Up to date (skipped)",
                     DeployFileStatus::Archived => "Archived legacy duplicate",
                     DeployFileStatus::Failed(err) => {
-                        println!("    - {}: FAILED ({})", f.rel_name, err);
+                        log::error!("    - {}: FAILED ({})", f.rel_name, err);
                         continue;
                     }
                 };
@@ -688,16 +688,16 @@ pub fn print_deploy_report(report: &DeployReport) {
                 } else {
                     f.target_path.display().to_string()
                 };
-                println!("    - {}: {}", display_path, status_str);
+                log::info!("    - {}: {}", display_path, status_str);
             }
             if let Some(status) = &term.compile_status {
-                println!("    - TickCollector.ex5: {:?}", status);
+                log::info!("    - TickCollector.ex5: {:?}", status);
             }
         }
     }
 
     for w in &report.warnings {
-        eprintln!("[MT5 Auto-Deploy Warning] {}", w);
+        log::warn!("[MT5 Auto-Deploy Warning] {}", w);
     }
 }
 

@@ -82,7 +82,7 @@ impl TransportReceiver {
             match TcpListener::bind(&addr) {
                 Ok(listener) => break listener,
                 Err(error) => {
-                    eprintln!(
+                    log::warn!(
                         "Failed to bind TCP listener on {} for broker {}: {}. Retrying...",
                         addr, self.broker_config.id, error
                     );
@@ -117,7 +117,7 @@ impl TransportReceiver {
                     thread::sleep(Duration::from_millis(1));
                 }
                 Err(e) => {
-                    eprintln!("Listener accept error for broker {}: {}", self.broker_config.id, e);
+                    log::error!("Listener accept error for broker {}: {}", self.broker_config.id, e);
                     thread::sleep(Duration::from_millis(50));
                 }
             }
@@ -139,6 +139,11 @@ impl TransportReceiver {
     }
 
     fn process_accepted_connection(&self, stream: TcpStream, generation: u64) {
+        log::info!(
+            "Broker {} connection established (generation: {})",
+            self.broker_config.id,
+            generation
+        );
         let connected_mono = self.clock.sample().mono_ns;
         self.submit_ingress_item(IngressItem::Connected {
             broker_id: self.broker_config.id,
@@ -147,6 +152,12 @@ impl TransportReceiver {
         });
 
         let end_reason = self.handle_connection(stream, generation);
+        log::info!(
+            "Broker {} connection closed (generation: {}, reason: {})",
+            self.broker_config.id,
+            generation,
+            end_reason
+        );
 
         self.submit_ingress_item(IngressItem::End {
             broker_id: self.broker_config.id,
@@ -169,7 +180,7 @@ impl TransportReceiver {
                 }
                 Ok(n) => {
                     if let Err(e) = decoder.push(&read_buf[..n]) {
-                        eprintln!(
+                        log::error!(
                             "Decoder push error for broker {}: {}, terminating connection",
                             self.broker_config.id, e
                         );
@@ -224,7 +235,7 @@ impl TransportReceiver {
                                 break;
                             }
                             Err(e) => {
-                                eprintln!(
+                                log::warn!(
                                     "Malformed frame from broker {}: {}, closing connection",
                                     self.broker_config.id, e
                                 );

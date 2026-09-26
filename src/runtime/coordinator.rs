@@ -82,6 +82,7 @@ impl RuntimeCoordinator {
         config.validate()?;
 
         let run_id = RunId::new_random();
+        log::info!("Initializing RuntimeCoordinator (run_id: {:?})", run_id);
         let clock = Arc::new(SystemClock::new(run_id));
         let running = Arc::new(AtomicBool::new(true));
 
@@ -94,8 +95,10 @@ impl RuntimeCoordinator {
                 config.logger.max_queue_bytes,
                 config.logger.flush_interval_ms,
             )?;
+            log::info!("Binary tick logger enabled (dir: {})", config.logger.log_dir);
             Some(Arc::new(l))
         } else {
+            log::info!("Binary tick logger disabled in configuration");
             None
         };
 
@@ -164,6 +167,7 @@ impl RuntimeCoordinator {
                 routed_receivers,
                 config.ingress.progress_interval_ms,
             )?);
+            log::info!("MT5 shared router listening on 127.0.0.1:{}", router.local_port());
             for broker in &mut deployment_brokers {
                 broker.host = "127.0.0.1".to_string();
                 broker.port = router.local_port();
@@ -260,6 +264,7 @@ impl RuntimeCoordinator {
     }
 
     pub fn stop(&mut self) {
+        log::info!("Stopping RuntimeCoordinator...");
         if let Some(router) = &self.router {
             router.stop();
         }
@@ -276,5 +281,6 @@ impl RuntimeCoordinator {
         if let Some(logger) = &self.logger {
             logger.finish();
         }
+        log::info!("RuntimeCoordinator shutdown complete.");
     }
 }

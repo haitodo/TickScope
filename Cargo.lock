@@ -2203,6 +2203,7 @@ dependencies = [
  "crossbeam-channel",
  "eframe",
  "egui",
+ "log",
  "parking_lot",
  "serde",
  "serde_json",
