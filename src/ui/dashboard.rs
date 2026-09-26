@@ -97,6 +97,54 @@ impl DashboardApp {
         }
     }
 
+    pub fn set_broker_a(&mut self, a: BrokerId) {
+        if a == self.selected_broker_a {
+            return;
+        }
+        if a == self.selected_broker_b {
+            self.set_selected_pair(self.selected_broker_b, self.selected_broker_a);
+        } else {
+            self.set_selected_pair(a, self.selected_broker_b);
+        }
+    }
+
+    pub fn set_broker_b(&mut self, b: BrokerId) {
+        if b == self.selected_broker_b {
+            return;
+        }
+        if b == self.selected_broker_a {
+            self.set_selected_pair(self.selected_broker_b, self.selected_broker_a);
+        } else {
+            self.set_selected_pair(self.selected_broker_a, b);
+        }
+    }
+
+    pub fn cycle_pair(&mut self, broker_ids: &[BrokerId], forward: bool) {
+        if broker_ids.len() < 2 {
+            return;
+        }
+        let mut pairs = Vec::new();
+        for &a in broker_ids {
+            for &b in broker_ids {
+                if a != b {
+                    pairs.push((a, b));
+                }
+            }
+        }
+        if pairs.is_empty() {
+            return;
+        }
+        let current = self.selected_pair();
+        let current_idx = pairs.iter().position(|&p| p == current).unwrap_or(0);
+        let next_idx = if forward {
+            (current_idx + 1) % pairs.len()
+        } else {
+            (current_idx + pairs.len() - 1) % pairs.len()
+        };
+        let (next_a, next_b) = pairs[next_idx];
+        self.set_selected_pair(next_a, next_b);
+    }
+
     pub fn bottom_metric(&self) -> BottomMetric {
         self.bottom_metric
     }
@@ -112,6 +160,18 @@ impl DashboardApp {
         }
 
         let snapshot = self.exchange.load_latest();
+        let name_a = snapshot
+            .broker_overviews
+            .iter()
+            .find(|b| b.broker_id == self.selected_broker_a)
+            .map(|b| b.name.as_str())
+            .unwrap_or("A");
+        let name_b = snapshot
+            .broker_overviews
+            .iter()
+            .find(|b| b.broker_id == self.selected_broker_b)
+            .map(|b| b.name.as_str())
+            .unwrap_or("B");
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -120,71 +180,6 @@ impl DashboardApp {
                         .strong()
                         .color(Color32::from_rgb(0, 200, 255)),
                 );
-                ui.separator();
-
-                // Multi-broker Pair Selector
-                ui.label("Focus Pair:");
-                let previous_pair = self.selected_pair();
-                let broker_ids: Vec<BrokerId> = snapshot
-                    .broker_overviews
-                    .iter()
-                    .map(|b| b.broker_id)
-                    .collect();
-
-                egui::ComboBox::from_id_salt("broker_a_select")
-                    .selected_text(
-                        snapshot
-                            .broker_overviews
-                            .iter()
-                            .find(|b| b.broker_id == self.selected_broker_a)
-                            .map(|b| b.name.as_str())
-                            .unwrap_or("Broker A"),
-                    )
-                    .show_ui(ui, |ui| {
-                        for &bid in &broker_ids {
-                            if bid != self.selected_broker_b {
-                                let name = snapshot
-                                    .broker_overviews
-                                    .iter()
-                                    .find(|b| b.broker_id == bid)
-                                    .map(|b| b.name.as_str())
-                                    .unwrap_or("Broker");
-                                ui.selectable_value(&mut self.selected_broker_a, bid, name);
-                            }
-                        }
-                    });
-
-                ui.label("vs");
-
-                egui::ComboBox::from_id_salt("broker_b_select")
-                    .selected_text(
-                        snapshot
-                            .broker_overviews
-                            .iter()
-                            .find(|b| b.broker_id == self.selected_broker_b)
-                            .map(|b| b.name.as_str())
-                            .unwrap_or("Broker B"),
-                    )
-                    .show_ui(ui, |ui| {
-                        for &bid in &broker_ids {
-                            if bid != self.selected_broker_a {
-                                let name = snapshot
-                                    .broker_overviews
-                                    .iter()
-                                    .find(|b| b.broker_id == bid)
-                                    .map(|b| b.name.as_str())
-                                    .unwrap_or("Broker");
-                                ui.selectable_value(&mut self.selected_broker_b, bid, name);
-                            }
-                        }
-                    });
-
-                if self.selected_pair() != previous_pair {
-                    if let Some(handler) = &self.pair_selection_handler {
-                        handler(self.selected_pair());
-                    }
-                }
-
                 ui.separator();
 
                 // Timeframe selector
@@ -214,7 +209,7 @@ impl DashboardApp {
 
                 ui.separator();
 
-                // Observed Lead/Lag Badge
+                // Observed Lead/Lag Badge with pair context
                 if let Some(comp) = &snapshot.active_pair_comparison {
                     if let Some(m) = &comp.latest_match {
                         let leader_name = snapshot
@@ -228,7 +223,9 @@ impl DashboardApp {
                             .map(|e| format!(" (EMA: {:+.1} ms)", e))
                             .unwrap_or_default();
                         let badge = format!(
-                            "First observed on this PC: {} ({:.1} ms){}",
+                            "Lead [{} vs {}]: {} ({:.1} ms){}",
+                            name_a,
+                            name_b,
                             leader_name,
                             m.raw_delta_ms.abs(),
                             ema_text
@@ -239,7 +236,10 @@ impl DashboardApp {
                                 .color(Color32::from_rgb(255, 215, 0)),
                         );
                     } else {
-                        ui.label(RichText::new("Observed Lead: None").color(Color32::GRAY));
+                        ui.label(
+                            RichText::new(format!("Lead [{} vs {}]: None", name_a, name_b))
+                                .color(Color32::GRAY),
+                        );
                     }
                 }
 
@@ -269,6 +269,7 @@ impl DashboardApp {
                         .striped(true)
                         .show(ui, |ui| {
                             for header in [
+                                "Focus",
                                 "Broker",
                                 "Symbol",
                                 "Bid",
@@ -301,6 +302,34 @@ impl DashboardApp {
                                 } else {
                                     Color32::from_gray(145)
                                 };
+
+                                let is_a = b.broker_id == self.selected_broker_a;
+                                let is_b = b.broker_id == self.selected_broker_b;
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 2.0;
+                                    let btn_a = ui.selectable_label(
+                                        is_a,
+                                        RichText::new("A").strong().color(if is_a {
+                                            Color32::from_rgb(0, 220, 255)
+                                        } else {
+                                            Color32::from_gray(100)
+                                        }),
+                                    );
+                                    if btn_a.on_hover_text("Assign as Broker A").clicked() {
+                                        self.set_broker_a(b.broker_id);
+                                    }
+                                    let btn_b = ui.selectable_label(
+                                        is_b,
+                                        RichText::new("B").strong().color(if is_b {
+                                            Color32::from_rgb(255, 120, 200)
+                                        } else {
+                                            Color32::from_gray(100)
+                                        }),
+                                    );
+                                    if btn_b.on_hover_text("Assign as Broker B").clicked() {
+                                        self.set_broker_b(b.broker_id);
+                                    }
+                                });
 
                                 ui.label(RichText::new(&b.name).strong().color(if quote_is_live {
                                     Color32::WHITE
@@ -387,6 +416,13 @@ impl DashboardApp {
                 } else {
                     self.bottom_metric = self.bottom_metric.next();
                 }
+            } else if i.key_pressed(egui::Key::P) {
+                let broker_ids: Vec<BrokerId> = snapshot
+                    .broker_overviews
+                    .iter()
+                    .map(|b| b.broker_id)
+                    .collect();
+                self.cycle_pair(&broker_ids, !i.modifiers.shift);
             }
         });
 
@@ -474,9 +510,56 @@ impl DashboardApp {
                         }
                     }
 
+                    let is_pair_metric = matches!(
+                        self.bottom_metric,
+                        BottomMetric::MidDiff
+                            | BottomMetric::BidAskDiff
+                            | BottomMetric::SpreadDiff
+                            | BottomMetric::LeadLag
+                    );
+
+                    if is_pair_metric {
+                        ui.separator();
+                        ui.label(RichText::new("Pair:").color(Color32::from_gray(160)).small());
+
+                        ui.menu_button(
+                            RichText::new(format!("[A] {}", name_a))
+                                .strong()
+                                .color(Color32::from_rgb(0, 220, 255)),
+                            |ui| {
+                                for b in &snapshot.broker_overviews {
+                                    if b.broker_id != self.selected_broker_b {
+                                        if ui.selectable_label(b.broker_id == self.selected_broker_a, &b.name).clicked() {
+                                            self.set_broker_a(b.broker_id);
+                                            ui.close_menu();
+                                        }
+                                    }
+                                }
+                            },
+                        );
+
+                        ui.label(RichText::new("vs").color(Color32::from_gray(130)).small());
+
+                        ui.menu_button(
+                            RichText::new(format!("[B] {}", name_b))
+                                .strong()
+                                .color(Color32::from_rgb(255, 120, 200)),
+                            |ui| {
+                                for b in &snapshot.broker_overviews {
+                                    if b.broker_id != self.selected_broker_a {
+                                        if ui.selectable_label(b.broker_id == self.selected_broker_b, &b.name).clicked() {
+                                            self.set_broker_b(b.broker_id);
+                                            ui.close_menu();
+                                        }
+                                    }
+                                }
+                            },
+                        );
+                    }
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            RichText::new("Keys: [1-7] or [Tab] to switch")
+                            RichText::new("Keys: [1-7] Metric, [P] Pair")
                                 .color(Color32::from_gray(120))
                                 .small(),
                         );
@@ -605,3 +688,69 @@ impl eframe::App for DashboardApp {
         self.render_ui(ctx);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contracts::models::UiSnapshot;
+    use crate::state::snapshot::SnapshotExchange;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_set_broker_a_and_b_with_swapping() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        assert_eq!(app.selected_pair(), (1, 2));
+
+        // Change A to 3
+        app.set_broker_a(3);
+        assert_eq!(app.selected_pair(), (3, 2));
+
+        // Setting A to 2 (current B) should swap them
+        app.set_broker_a(2);
+        assert_eq!(app.selected_pair(), (2, 3));
+
+        // Setting B to 2 (current A) should swap them
+        app.set_broker_b(2);
+        assert_eq!(app.selected_pair(), (3, 2));
+    }
+
+    #[test]
+    fn test_cycle_pair_forward_and_backward() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+        let brokers = vec![1, 2, 3];
+
+        // Forward cycling
+        app.cycle_pair(&brokers, true);
+        assert_eq!(app.selected_pair(), (1, 3));
+        app.cycle_pair(&brokers, true);
+        assert_eq!(app.selected_pair(), (2, 1));
+        app.cycle_pair(&brokers, true);
+        assert_eq!(app.selected_pair(), (2, 3));
+
+        // Backward cycling
+        app.cycle_pair(&brokers, false);
+        assert_eq!(app.selected_pair(), (2, 1));
+    }
+
+    #[test]
+    fn test_pair_selection_handler_called() {
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_clone = Arc::clone(&call_count);
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2)).with_pair_selection_handler(Arc::new(
+            move |_| {
+                count_clone.fetch_add(1, Ordering::SeqCst);
+            },
+        ));
+
+        app.set_broker_a(3);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+        app.set_broker_b(1);
+        assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+}
+
