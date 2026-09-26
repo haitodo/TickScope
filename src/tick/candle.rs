@@ -137,8 +137,9 @@ impl CandleBook {
                 *latest_slot = slot_start;
             }
             let slots = self.retention_slots.get(&period).copied().unwrap_or(1).max(1);
+            let keep_slots = slots.saturating_add(5);
             let cutoff = UtcMs(latest_slot.0.saturating_sub(
-                period.saturating_mul((slots.saturating_sub(1)) as i64),
+                period.saturating_mul((keep_slots.saturating_sub(1)) as i64),
             ));
             broker_map.retain(|start, _| *start >= cutoff);
         }

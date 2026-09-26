@@ -728,7 +728,7 @@ impl TickEngine {
         let broker_ids: Vec<BrokerId> = self.config.brokers.iter().map(|b| b.id).collect();
         for retention in &self.config.history.retentions {
             let period = retention.period_ms;
-            let cv = self.candle_book.get_candle_view(period, &broker_ids, 20, current_utc_now);
+            let cv = self.candle_book.get_candle_view(period, &broker_ids, retention.slots, current_utc_now);
             candle_views.insert(period, cv);
         }
 

@@ -174,6 +174,7 @@ pub fn draw_candlestick_chart(
     );
 }
 
+pub const FIXED_CANDLE_SLOT_WIDTH: f32 = 36.0;
 const CHART_HEADER_HEIGHT: f32 = 40.0;
 const CHART_FOOTER_HEIGHT: f32 = 18.0;
 const PRICE_AXIS_WIDTH: f32 = 88.0;
@@ -280,19 +281,43 @@ fn draw_candlestick_chart_for_brokers(
         return;
     }
 
-    let num_slots = view.slot_starts.len();
-    let slot_width = plot_rect.width() / (num_slots as f32).max(1.0);
+    let slot_width = FIXED_CANDLE_SLOT_WIDTH;
+    let total_slots = view.slot_starts.len();
 
-    // Find global min and max prices across broker A and B
+    // Right-aligned anchor: latest slot (index total_slots - 1) is pinned to the right edge
+    let right_slot_center_x = (plot_rect.right() - slot_width * 0.5).round();
+    let available_width = (right_slot_center_x + slot_width * 0.5 - plot_rect.left()).max(0.0);
+    let max_visible_slots = ((available_width / slot_width).ceil() as usize).max(1);
+    let start_idx = total_slots.saturating_sub(max_visible_slots);
+
+    // Find min and max prices across visible broker slots only
     let mut min_price = f64::MAX;
     let mut max_price = f64::MIN;
 
     for broker_id in &broker_ids {
         if let Some(slots) = view.slots_by_broker.get(broker_id) {
-            for s in slots {
-                if let Some(ohlc) = &s.ohlc {
-                    min_price = min_price.min(ohlc.low);
-                    max_price = max_price.max(ohlc.high);
+            for (i, s) in slots.iter().enumerate().skip(start_idx) {
+                let offset_from_latest = (total_slots - 1).saturating_sub(i) as f32;
+                let slot_center_x = right_slot_center_x - offset_from_latest * slot_width;
+                if slot_center_x + slot_width * 0.5 >= plot_rect.left() {
+                    if let Some(ohlc) = &s.ohlc {
+                        min_price = min_price.min(ohlc.low);
+                        max_price = max_price.max(ohlc.high);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback if no visible slots have OHLC yet: inspect all available slots
+    if min_price > max_price || min_price == f64::MAX {
+        for broker_id in &broker_ids {
+            if let Some(slots) = view.slots_by_broker.get(broker_id) {
+                for s in slots {
+                    if let Some(ohlc) = &s.ohlc {
+                        min_price = min_price.min(ohlc.low);
+                        max_price = max_price.max(ohlc.high);
+                    }
                 }
             }
         }
@@ -364,16 +389,23 @@ fn draw_candlestick_chart_for_brokers(
         );
     }
 
-    // Draw one candle band per broker inside each time slot. Keep a small
-    // explicit gap so adjacent broker candles remain visually distinct.
+    // Draw candles with fixed width and pixel-aligned layout for up to 8 brokers
     let broker_count = broker_ids.len() as f32;
     let candle_gap = 1.0_f32;
     let total_gap = candle_gap * (broker_count - 1.0).max(0.0);
-    let bar_width = ((slot_width * 0.82 - total_gap) / broker_count).clamp(1.5, 12.0);
+    let usable_slot_width = (slot_width - 4.0 - total_gap).max(broker_count * 2.0);
+    let bar_width = (usable_slot_width / broker_count).clamp(2.5, 10.0);
     let candle_group_width = bar_width * broker_count + total_gap;
 
-    for (i, _) in view.slot_starts.iter().enumerate() {
-        let slot_center_x = plot_rect.left() + (i as f32 + 0.5) * slot_width;
+    let plot_painter = painter.with_clip_rect(plot_rect);
+
+    for i in start_idx..total_slots {
+        let offset_from_latest = (total_slots - 1).saturating_sub(i) as f32;
+        let slot_center_x = (right_slot_center_x - offset_from_latest * slot_width).round();
+
+        if slot_center_x + slot_width * 0.5 < plot_rect.left() {
+            continue;
+        }
 
         for (broker_index, broker_id) in broker_ids.iter().enumerate() {
             if let Some(s) = view
@@ -384,12 +416,12 @@ fn draw_candlestick_chart_for_brokers(
                 if s.state != SlotState::Empty {
                     if let Some(ohlc) = &s.ohlc {
                         let group_left = slot_center_x - candle_group_width * 0.5;
-                        let cx = group_left
+                        let cx = (group_left
                             + broker_index as f32 * (bar_width + candle_gap)
-                            + bar_width * 0.5;
+                            + bar_width * 0.5).round();
                         let color = broker_color_for(theme, broker_index);
                         draw_single_candle(
-                            painter,
+                            &plot_painter,
                             cx,
                             bar_width,
                             ohlc,
@@ -468,28 +500,30 @@ fn draw_single_candle<F>(
 ) where
     F: Fn(f64) -> f32,
 {
-    let y_open = price_to_y(ohlc.open);
-    let y_close = price_to_y(ohlc.close);
-    let y_high = price_to_y(ohlc.high);
-    let y_low = price_to_y(ohlc.low);
+    let y_open = price_to_y(ohlc.open).round();
+    let y_close = price_to_y(ohlc.close).round();
+    let y_high = price_to_y(ohlc.high).round();
+    let y_low = price_to_y(ohlc.low).round();
 
     let is_up = ohlc.close >= ohlc.open;
     let color = if is_up { up_color } else { down_color };
 
-    // Wick
+    // Wick: Snap to integer X coordinate for a 1px solid crisp vertical line
+    let wick_x = cx.round();
     painter.line_segment(
-        [Pos2::new(cx, y_high), Pos2::new(cx, y_low)],
+        [Pos2::new(wick_x, y_high), Pos2::new(wick_x, y_low)],
         Stroke::new(1.0_f32, color),
     );
 
-    // Body
+    // Body: Snap edges to integer coordinates to eliminate subpixel blurring
     let top_body = y_open.min(y_close);
     let bottom_body = y_open.max(y_close).max(top_body + 1.0);
+    let half_width = (bar_width * 0.5).floor().max(1.0);
     let body_rect = Rect::from_min_max(
-        Pos2::new(cx - bar_width * 0.5, top_body),
-        Pos2::new(cx + bar_width * 0.5, bottom_body),
+        Pos2::new(wick_x - half_width, top_body),
+        Pos2::new(wick_x + half_width, bottom_body),
     );
-    painter.rect_filled(body_rect, 1.0, color);
+    painter.rect_filled(body_rect, 0.0, color);
 }
 
 pub fn draw_difference_chart(

@@ -208,6 +208,64 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
 }
 
 #[test]
+fn test_candlestick_fixed_slot_width_and_responsive_slots() {
+    use tick_compare::ui::chart::{draw_candlestick_chart_multi, ChartTheme, FIXED_CANDLE_SLOT_WIDTH};
+
+    assert_eq!(FIXED_CANDLE_SLOT_WIDTH, 36.0);
+
+    let mut slots_by_broker = HashMap::new();
+    let mut ohlc_slots = Vec::new();
+    let mut slot_starts = Vec::new();
+
+    for i in 0..60 {
+        let utc = UtcMs(i * 1000);
+        slot_starts.push(utc);
+        ohlc_slots.push(CandleSlot {
+            broker_id: 1,
+            segment_id: 1,
+            period_ms: 1000,
+            start_utc_ms: utc,
+            state: SlotState::Closed,
+            ohlc: Some(Ohlc {
+                open: 150.0 + (i as f64 * 0.01),
+                high: 150.05 + (i as f64 * 0.01),
+                low: 149.95 + (i as f64 * 0.01),
+                close: 150.02 + (i as f64 * 0.01),
+                open_key: (utc, 1),
+                close_key: (utc, 1),
+            }),
+            tick_count: 5,
+            revision: 1,
+            coverage: SlotCoverage::Full,
+        });
+    }
+    slots_by_broker.insert(1, ohlc_slots);
+
+    let view = CandleView {
+        period_ms: 1000,
+        slot_starts,
+        slots_by_broker,
+    };
+
+    let ctx = egui::Context::default();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let theme = ChartTheme::default();
+
+            // Test render on narrow rect (800x400)
+            let rect_narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 400.0));
+            let painter_narrow = ui.painter_at(rect_narrow);
+            draw_candlestick_chart_multi(&painter_narrow, rect_narrow, Some(&view), &[], None, &theme);
+
+            // Test render on wide rect (1600x400)
+            let rect_wide = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1600.0, 400.0));
+            let painter_wide = ui.painter_at(rect_wide);
+            draw_candlestick_chart_multi(&painter_wide, rect_wide, Some(&view), &[], None, &theme);
+        });
+    });
+}
+
+#[test]
 fn test_bottom_metric_shortcuts_and_cycling() {
     use tick_compare::ui::chart::BottomMetric;
 

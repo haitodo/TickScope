@@ -276,10 +276,10 @@ pub struct HistoryConfig {
 
 fn default_slots() -> Vec<SlotRetention> {
     vec![
-        SlotRetention { period_ms: 1000, slots: 60 },
-        SlotRetention { period_ms: 5000, slots: 24 },
-        SlotRetention { period_ms: 10000, slots: 12 },
-        SlotRetention { period_ms: 60000, slots: 10 },
+        SlotRetention { period_ms: 1000, slots: 120 },
+        SlotRetention { period_ms: 5000, slots: 120 },
+        SlotRetention { period_ms: 10000, slots: 120 },
+        SlotRetention { period_ms: 60000, slots: 120 },
     ]
 }
 fn default_ledger_cap() -> usize {

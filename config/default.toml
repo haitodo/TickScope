@@ -84,10 +84,10 @@ visible_ticks = 1200
 [history]
 ledger_capacity = 16384
 retentions = [
-    { period_ms = 1000, slots = 60 },
-    { period_ms = 5000, slots = 24 },
-    { period_ms = 10000, slots = 12 },
-    { period_ms = 60000, slots = 10 },
+    { period_ms = 1000, slots = 120 },
+    { period_ms = 5000, slots = 120 },
+    { period_ms = 10000, slots = 120 },
+    { period_ms = 60000, slots = 120 },
 ]
 
 [mt5]

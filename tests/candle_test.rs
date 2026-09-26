@@ -131,3 +131,61 @@ fn test_tc03_slot_active_to_closed_advancement() {
     assert_eq!(view2.slots_by_broker[&1][1].start_utc_ms, UtcMs(2000));
     assert_eq!(view2.slots_by_broker[&1][1].state, SlotState::Active);
 }
+
+#[test]
+fn test_tc04_retention_slots_preserved_to_left_edge() {
+    use tick_compare::contracts::config::SlotRetention;
+
+    let retentions = vec![SlotRetention { period_ms: 1000, slots: 60 }];
+    let mut book = CandleBook::with_retentions(&retentions);
+
+    // Feed 70 slots of ticks (from 1000ms to 70000ms)
+    for i in 1..=70 {
+        let utc_ms = i * 1000;
+        book.on_tick(
+            &make_test_tick(1, i as u64, utc_ms, 150.0 + (i as f64 * 0.01), 150.02 + (i as f64 * 0.01)),
+            PriceMode::Bid,
+            UtcMs(utc_ms + 100),
+        );
+    }
+
+    // Now query 60 slots ending at current_utc_now = 70500ms
+    let view = book.get_candle_view(1000, &[1], 60, UtcMs(70500));
+    assert_eq!(view.slot_starts.len(), 60);
+
+    let b1_slots = &view.slots_by_broker[&1];
+    assert_eq!(b1_slots.len(), 60);
+
+    // Every single slot from index 0 (left edge) to 59 (right edge) must have valid OHLC!
+    for (i, slot) in b1_slots.iter().enumerate() {
+        assert!(
+            slot.ohlc.is_some(),
+            "Slot at index {} (start_utc_ms = {:?}) must have OHLC and not disappear at the left edge",
+            i,
+            slot.start_utc_ms
+        );
+        assert_ne!(slot.state, SlotState::Empty);
+    }
+}
+
+#[test]
+fn test_tc05_engine_candle_views_use_configured_retention_slots() {
+    use tick_compare::contracts::config::AppConfig;
+    use tick_compare::tick::engine::TickEngine;
+
+    let mut config = AppConfig::default();
+    config.history.retentions = vec![
+        tick_compare::contracts::config::SlotRetention { period_ms: 1000, slots: 60 },
+        tick_compare::contracts::config::SlotRetention { period_ms: 60000, slots: 60 },
+    ];
+    let engine = TickEngine::new(config);
+    let proj = engine.make_projection(UtcMs(1_000_000));
+
+    let cv_s1 = proj.candle_views.get(&1000).expect("S1 candle view exists");
+    assert_eq!(cv_s1.slot_starts.len(), 60, "S1 candle view should have 60 slots as configured");
+
+    let cv_m1 = proj.candle_views.get(&60000).expect("M1 candle view exists");
+    assert_eq!(cv_m1.slot_starts.len(), 60, "M1 candle view should have 60 slots as configured");
+}
+
+
