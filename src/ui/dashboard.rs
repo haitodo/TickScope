@@ -27,6 +27,7 @@ pub struct DashboardApp {
     x_axis_mode: ChartXAxisMode,
     pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
     fonts_configured: bool,
+    show_broker_overview: bool,
 }
 
 impl DashboardApp {
@@ -50,11 +51,25 @@ impl DashboardApp {
             x_axis_mode: ChartXAxisMode::default(),
             pair_selection_handler: None,
             fonts_configured: false,
+            show_broker_overview: false,
         }
     }
 
     pub fn mark_fonts_configured(&mut self) {
         self.fonts_configured = true;
+    }
+
+    pub fn with_show_broker_overview(mut self, show: bool) -> Self {
+        self.show_broker_overview = show;
+        self
+    }
+
+    pub fn show_broker_overview(&self) -> bool {
+        self.show_broker_overview
+    }
+
+    pub fn set_show_broker_overview(&mut self, show: bool) {
+        self.show_broker_overview = show;
     }
 
     pub fn with_pip_size(mut self, pip_size: f64) -> Self {
@@ -209,6 +224,35 @@ impl DashboardApp {
 
                 ui.separator();
 
+                // Broker Overview Collapsing Toggle
+                let total_brokers = snapshot.broker_overviews.len();
+                let live_brokers = snapshot
+                    .broker_overviews
+                    .iter()
+                    .filter(|b| {
+                        b.health.connection == ConnectionState::Connected
+                            && b.health.data_freshness == FreshnessState::Live
+                    })
+                    .count();
+
+                let overview_arrow = if self.show_broker_overview { "▲" } else { "▼" };
+                let overview_text = format!("{} Brokers ({}/{})", overview_arrow, live_brokers, total_brokers);
+                let overview_color = if live_brokers > 0 {
+                    Color32::from_rgb(0, 220, 140)
+                } else {
+                    Color32::from_rgb(255, 120, 120)
+                };
+
+                let toggle_btn = ui.selectable_label(
+                    self.show_broker_overview,
+                    RichText::new(overview_text).color(overview_color).strong(),
+                );
+                if toggle_btn.on_hover_text("Toggle Broker Overview table [Key: B]").clicked() {
+                    self.show_broker_overview = !self.show_broker_overview;
+                }
+
+                ui.separator();
+
                 // Observed Lead/Lag Badge with pair context
                 if let Some(comp) = &snapshot.active_pair_comparison {
                     if let Some(m) = &comp.latest_match {
@@ -249,141 +293,148 @@ impl DashboardApp {
             });
         });
 
-        // Overview panel of ALL configured brokers
-        egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
-            ui.strong("Broker Overview");
-            if snapshot
-                .broker_overviews
-                .iter()
-                .any(|broker| broker.health.connection == ConnectionState::Disconnected)
-            {
-                ui.colored_label(
-                    Color32::YELLOW,
-                    "MT5接続待ち: 対象銘柄チャートに共通EA TickCollector を追加してください。既にEAが動作中なら一度外して再追加してください。接続が拒否された場合はMT5のエキスパートログを確認してください。",
-                );
-            }
-            egui::ScrollArea::vertical()
-                .max_height(180.0)
-                .show(ui, |ui| {
-                    egui::Grid::new("broker_overview_grid")
-                        .striped(true)
-                        .show(ui, |ui| {
-                            for header in [
-                                "Focus",
-                                "Broker",
-                                "Symbol",
-                                "Bid",
-                                "Ask",
-                                "Spread",
-                                "Quote age",
-                                "Feed",
-                                "Ticks/s",
-                            ] {
-                                ui.strong(header);
-                            }
-                            ui.end_row();
-                            for b in &snapshot.broker_overviews {
-                                let (status, status_color) = match b.health.connection {
-                                    ConnectionState::Disconnected => ("DISCONNECTED", Color32::RED),
-                                    ConnectionState::Connecting => ("CONNECTING", Color32::YELLOW),
-                                    ConnectionState::Connected => match b.health.data_freshness {
-                                        FreshnessState::Live => ("LIVE", Color32::GREEN),
-                                        FreshnessState::Stale => ("STALE", Color32::YELLOW),
-                                        FreshnessState::Unknown => ("WARMING", Color32::GRAY),
-                                    },
-                                };
-                                let quote_is_live = b.health.connection
-                                    == ConnectionState::Connected
-                                    && b.health.data_freshness == FreshnessState::Live;
-                                let quote_color = if quote_is_live {
-                                    Color32::WHITE
-                                } else if b.health.connection == ConnectionState::Disconnected {
-                                    Color32::from_gray(90)
-                                } else {
-                                    Color32::from_gray(145)
-                                };
-
-                                let is_a = b.broker_id == self.selected_broker_a;
-                                let is_b = b.broker_id == self.selected_broker_b;
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 2.0;
-                                    let btn_a = ui.selectable_label(
-                                        is_a,
-                                        RichText::new("A").strong().color(if is_a {
-                                            Color32::from_rgb(0, 220, 255)
-                                        } else {
-                                            Color32::from_gray(100)
-                                        }),
-                                    );
-                                    if btn_a.on_hover_text("Assign as Broker A").clicked() {
-                                        self.set_broker_a(b.broker_id);
-                                    }
-                                    let btn_b = ui.selectable_label(
-                                        is_b,
-                                        RichText::new("B").strong().color(if is_b {
-                                            Color32::from_rgb(255, 120, 200)
-                                        } else {
-                                            Color32::from_gray(100)
-                                        }),
-                                    );
-                                    if btn_b.on_hover_text("Assign as Broker B").clicked() {
-                                        self.set_broker_b(b.broker_id);
-                                    }
-                                });
-
-                                ui.label(RichText::new(&b.name).strong().color(if quote_is_live {
-                                    Color32::WHITE
-                                } else {
-                                    status_color
-                                }));
-                                ui.label(RichText::new(&b.symbol).color(quote_color));
-                                if let Some(q) = &b.latest_quote {
-                                    ui.label(
-                                        RichText::new(format!("{:.3}", q.bid))
-                                            .monospace()
-                                            .color(quote_color),
-                                    );
-                                    ui.label(
-                                        RichText::new(format!("{:.3}", q.ask))
-                                            .monospace()
-                                            .color(quote_color),
-                                    );
-                                    ui.label(
-                                        RichText::new(format!("{:.3}", q.spread))
-                                            .monospace()
-                                            .color(quote_color),
-                                    );
-                                    let age_ms =
-                                        snapshot.built_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
-                                            / 1_000_000;
-                                    let age_label = if quote_is_live {
-                                        format!("{} ms", age_ms)
-                                    } else {
-                                        format!("{} · {} ms", status, age_ms)
-                                    };
-                                    ui.label(RichText::new(age_label).monospace().color(
-                                        if quote_is_live {
-                                            Color32::from_gray(210)
-                                        } else {
-                                            status_color
-                                        },
-                                    ));
-                                } else {
-                                    for _ in 0..4 {
-                                        ui.label(RichText::new("—").color(quote_color));
-                                    }
-                                }
-                                ui.colored_label(status_color, status);
-                                ui.label(
-                                    RichText::new(format!("{:.0}", b.tick_rate_1s))
-                                        .monospace()
-                                        .color(quote_color),
-                                );
-                                ui.end_row();
-                            }
-                        });
+        // Overview panel of ALL configured brokers (collapsible)
+        if self.show_broker_overview {
+            egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong("Broker Overview");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("✕ Close [B]").clicked() {
+                            self.show_broker_overview = false;
+                        }
+                    });
                 });
-        });
+
+                egui::ScrollArea::vertical()
+                    .max_height(140.0)
+                    .show(ui, |ui| {
+                        egui::Grid::new("broker_overview_grid")
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for header in [
+                                    "Focus",
+                                    "Broker",
+                                    "Symbol",
+                                    "Bid",
+                                    "Ask",
+                                    "Spread",
+                                    "Quote age",
+                                    "Feed",
+                                    "Ticks/s",
+                                ] {
+                                    ui.strong(header);
+                                }
+                                ui.end_row();
+                                for b in &snapshot.broker_overviews {
+                                    let (status, status_color) = match b.health.connection {
+                                        ConnectionState::Disconnected => ("DISCONNECTED", Color32::RED),
+                                        ConnectionState::Connecting => ("CONNECTING", Color32::YELLOW),
+                                        ConnectionState::Connected => match b.health.data_freshness {
+                                            FreshnessState::Live => ("LIVE", Color32::GREEN),
+                                            FreshnessState::Stale => ("STALE", Color32::YELLOW),
+                                            FreshnessState::Unknown => ("WARMING", Color32::GRAY),
+                                        },
+                                    };
+                                    let quote_is_live = b.health.connection
+                                        == ConnectionState::Connected
+                                        && b.health.data_freshness == FreshnessState::Live;
+                                    let quote_color = if quote_is_live {
+                                        Color32::WHITE
+                                    } else if b.health.connection == ConnectionState::Disconnected {
+                                        Color32::from_gray(90)
+                                    } else {
+                                        Color32::from_gray(145)
+                                    };
+
+                                    let is_a = b.broker_id == self.selected_broker_a;
+                                    let is_b = b.broker_id == self.selected_broker_b;
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 2.0;
+                                        let btn_a = ui.selectable_label(
+                                            is_a,
+                                            RichText::new("A").strong().color(if is_a {
+                                                Color32::from_rgb(0, 220, 255)
+                                            } else {
+                                                Color32::from_gray(100)
+                                            }),
+                                        );
+                                        if btn_a.on_hover_text("Assign as Broker A").clicked() {
+                                            self.set_broker_a(b.broker_id);
+                                        }
+                                        let btn_b = ui.selectable_label(
+                                            is_b,
+                                            RichText::new("B").strong().color(if is_b {
+                                                Color32::from_rgb(255, 120, 200)
+                                            } else {
+                                                Color32::from_gray(100)
+                                            }),
+                                        );
+                                        if btn_b.on_hover_text("Assign as Broker B").clicked() {
+                                            self.set_broker_b(b.broker_id);
+                                        }
+                                    });
+
+                                    ui.label(RichText::new(&b.name).strong().color(if quote_is_live {
+                                        Color32::WHITE
+                                    } else {
+                                        status_color
+                                    }));
+                                    ui.label(RichText::new(&b.symbol).color(quote_color));
+                                    if let Some(q) = &b.latest_quote {
+                                        ui.label(
+                                            RichText::new(format!("{:.3}", q.bid))
+                                                .monospace()
+                                                .color(quote_color),
+                                        );
+                                        ui.label(
+                                            RichText::new(format!("{:.3}", q.ask))
+                                                .monospace()
+                                                .color(quote_color),
+                                        );
+                                        ui.label(
+                                            RichText::new(format!("{:.3}", q.spread))
+                                                .monospace()
+                                                .color(quote_color),
+                                        );
+                                        let age_ms =
+                                            snapshot.built_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                                / 1_000_000;
+                                        let age_label = if quote_is_live {
+                                            format!("{} ms", age_ms)
+                                        } else {
+                                            format!("{} · {} ms", status, age_ms)
+                                        };
+                                        ui.label(RichText::new(age_label).monospace().color(
+                                            if quote_is_live {
+                                                Color32::from_gray(210)
+                                            } else {
+                                                status_color
+                                            },
+                                        ));
+                                    } else {
+                                        for _ in 0..4 {
+                                            ui.label(RichText::new("—").color(quote_color));
+                                        }
+                                    }
+
+                                    let status_label = ui.colored_label(status_color, status);
+                                    if b.health.connection == ConnectionState::Disconnected {
+                                        status_label.on_hover_text(
+                                            "MT5接続待ち: 対象銘柄チャートに共通EA TickCollector を追加してください。既に動作中なら一度外して再追加してください。",
+                                        );
+                                    }
+
+                                    ui.label(
+                                        RichText::new(format!("{:.0}", b.tick_rate_1s))
+                                            .monospace()
+                                            .color(quote_color),
+                                    );
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            });
+        }
 
         // Keyboard Shortcuts for Bottom Metric Switching: 1-7, Tab, Shift+Tab
         egui::TopBottomPanel::bottom("state_ribbon").show(ctx, |ui| {
@@ -423,6 +474,8 @@ impl DashboardApp {
                     .map(|b| b.broker_id)
                     .collect();
                 self.cycle_pair(&broker_ids, !i.modifiers.shift);
+            } else if i.key_pressed(egui::Key::B) {
+                self.show_broker_overview = !self.show_broker_overview;
             }
         });
 
@@ -559,7 +612,7 @@ impl DashboardApp {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            RichText::new("Keys: [1-7] Metric, [P] Pair")
+                            RichText::new("Keys: [1-7] Metric, [P] Pair, [B] Brokers")
                                 .color(Color32::from_gray(120))
                                 .small(),
                         );
@@ -751,6 +804,21 @@ mod tests {
 
         app.set_broker_b(1);
         assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_show_broker_overview_toggle() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        // Default should be collapsed (false)
+        assert!(!app.show_broker_overview());
+
+        app.set_show_broker_overview(true);
+        assert!(app.show_broker_overview());
+
+        app.set_show_broker_overview(false);
+        assert!(!app.show_broker_overview());
     }
 }
 
