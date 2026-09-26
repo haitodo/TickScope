@@ -8,7 +8,8 @@ use crate::ui::chart::{
 };
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
-    save_ui_state, UiState, WindowGeometryState, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
+    save_ui_state, UiState, WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, MIN_WINDOW_HEIGHT,
+    MIN_WINDOW_WIDTH, VALID_CANDLE_BAR_WIDTHS,
 };
 use eframe::egui;
 use egui::{Color32, RichText};
@@ -24,6 +25,7 @@ pub struct DashboardApp {
     bottom_metric: BottomMetric,
     theme: ChartTheme,
     show_candle_context: bool,
+    candle_bar_width: f32,
     chart_anchor: Option<f64>,
     pip_size: f64,
     visible_seconds: u64,
@@ -51,6 +53,7 @@ impl DashboardApp {
             bottom_metric: BottomMetric::default(),
             theme: ChartTheme::default(),
             show_candle_context: false,
+            candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
             chart_anchor: None,
             pip_size: 0.01,
             visible_seconds: 60,
@@ -70,6 +73,7 @@ impl DashboardApp {
         self.selected_broker_b = state.active_pair.1;
         self.show_candle_context = state.show_candle_context;
         self.selected_timeframe_ms = state.selected_timeframe_ms;
+        self.candle_bar_width = state.candle_bar_width;
         self.x_axis_mode = state.x_axis_mode;
         self.bottom_metric = state.bottom_metric;
         self.show_broker_overview = state.show_broker_overview;
@@ -87,6 +91,7 @@ impl DashboardApp {
             active_pair: (self.selected_broker_a, self.selected_broker_b),
             show_candle_context: self.show_candle_context,
             selected_timeframe_ms: self.selected_timeframe_ms,
+            candle_bar_width: self.candle_bar_width,
             x_axis_mode: self.x_axis_mode,
             bottom_metric: self.bottom_metric,
             show_broker_overview: self.show_broker_overview,
@@ -228,9 +233,21 @@ impl DashboardApp {
         }
     }
 
+    pub fn candle_bar_width(&self) -> f32 {
+        self.candle_bar_width
+    }
+
+    pub fn set_candle_bar_width(&mut self, width: f32) {
+        if (self.candle_bar_width - width).abs() > 1e-4 {
+            self.candle_bar_width = width;
+            self.state_dirty = true;
+        }
+    }
+
     pub fn render_ui(&mut self, ctx: &egui::Context) {
         let prev_candle = self.show_candle_context;
         let prev_timeframe = self.selected_timeframe_ms;
+        let prev_candle_bar_width = self.candle_bar_width;
         let prev_xaxis = self.x_axis_mode;
         let prev_overview = self.show_broker_overview;
         let prev_metric = self.bottom_metric;
@@ -269,6 +286,24 @@ impl DashboardApp {
                 ui.selectable_value(&mut self.selected_timeframe_ms, 10000, "S10");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 5000, "S5");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 1000, "S1");
+
+                if self.show_candle_context {
+                    ui.separator();
+                    ui.label("Width:");
+                    let current_width_label = format!("{:.0}px", self.candle_bar_width);
+                    egui::ComboBox::from_id_salt("candle_bar_width_combo")
+                        .selected_text(current_width_label)
+                        .show_ui(ui, |ui| {
+                            for &w in &VALID_CANDLE_BAR_WIDTHS {
+                                let label = if (w - DEFAULT_CANDLE_BAR_WIDTH).abs() < 1e-4 {
+                                    format!("{:.0}px (Default)", w)
+                                } else {
+                                    format!("{:.0}px", w)
+                                };
+                                ui.selectable_value(&mut self.candle_bar_width, w, label);
+                            }
+                        });
+                }
 
                 ui.separator();
 
@@ -580,6 +615,7 @@ impl DashboardApp {
                     candle_rect,
                     candle_view,
                     &snapshot.broker_overviews,
+                    self.candle_bar_width,
                     fallback_price,
                     &self.theme,
                 );
@@ -800,6 +836,7 @@ impl DashboardApp {
         // Check if any interactive UI settings changed during this frame
         if self.show_candle_context != prev_candle
             || self.selected_timeframe_ms != prev_timeframe
+            || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
             || self.x_axis_mode != prev_xaxis
             || self.show_broker_overview != prev_overview
             || self.bottom_metric != prev_metric

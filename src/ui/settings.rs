@@ -13,6 +13,8 @@ pub const DEFAULT_WINDOW_HEIGHT: f32 = 750.0;
 pub const MIN_WINDOW_WIDTH: f32 = 800.0;
 pub const MIN_WINDOW_HEIGHT: f32 = 500.0;
 pub const VALID_TIMEFRAMES_MS: [i64; 4] = [1000, 5000, 10000, 60000];
+pub const DEFAULT_CANDLE_BAR_WIDTH: f32 = 5.0;
+pub const VALID_CANDLE_BAR_WIDTHS: [f32; 5] = [3.0, 4.0, 5.0, 6.0, 8.0];
 
 fn default_active_pair() -> (BrokerId, BrokerId) {
     (1, 2)
@@ -20,6 +22,10 @@ fn default_active_pair() -> (BrokerId, BrokerId) {
 
 fn default_timeframe_ms() -> i64 {
     60000
+}
+
+fn default_candle_bar_width() -> f32 {
+    DEFAULT_CANDLE_BAR_WIDTH
 }
 
 fn default_window_size() -> [f32; 2] {
@@ -76,6 +82,8 @@ pub struct UiState {
     pub bottom_metric: BottomMetric,
     #[serde(default)]
     pub show_broker_overview: bool,
+    #[serde(default = "default_candle_bar_width")]
+    pub candle_bar_width: f32,
     #[serde(default)]
     pub window: WindowGeometryState,
 }
@@ -86,6 +94,7 @@ impl Default for UiState {
             active_pair: default_active_pair(),
             show_candle_context: false,
             selected_timeframe_ms: default_timeframe_ms(),
+            candle_bar_width: default_candle_bar_width(),
             x_axis_mode: ChartXAxisMode::default(),
             bottom_metric: BottomMetric::default(),
             show_broker_overview: false,
@@ -99,6 +108,9 @@ impl UiState {
         self.window.sanitize();
         if !VALID_TIMEFRAMES_MS.contains(&self.selected_timeframe_ms) {
             self.selected_timeframe_ms = default_timeframe_ms();
+        }
+        if !VALID_CANDLE_BAR_WIDTHS.iter().any(|&w| (w - self.candle_bar_width).abs() < 1e-4) {
+            self.candle_bar_width = default_candle_bar_width();
         }
         if self.active_pair.0 == self.active_pair.1 {
             self.active_pair = default_active_pair();
@@ -201,6 +213,7 @@ mod tests {
             active_pair: (2, 3),
             show_candle_context: true,
             selected_timeframe_ms: 10000,
+            candle_bar_width: 6.0,
             x_axis_mode: ChartXAxisMode::TickCount,
             bottom_metric: BottomMetric::SpreadDiff,
             show_broker_overview: true,
@@ -222,6 +235,7 @@ mod tests {
             active_pair: (99, 100),
             show_candle_context: false,
             selected_timeframe_ms: 42000, // Invalid timeframe
+            candle_bar_width: 99.0,       // Invalid width -> should sanitize to default
             x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_metric: BottomMetric::MidDiff,
             show_broker_overview: false,
@@ -251,6 +265,8 @@ mod tests {
         assert_eq!(state.active_pair, (1, 2));
         // timeframe should sanitize to 60000
         assert_eq!(state.selected_timeframe_ms, 60000);
+        // candle_bar_width should sanitize to default
+        assert_eq!(state.candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
         // window size should sanitize to min/defaults
         assert_eq!(state.window.inner_size, [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]);
     }

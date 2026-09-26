@@ -159,6 +159,7 @@ pub fn draw_candlestick_chart(
     candle_view: Option<&CandleView>,
     broker_a: BrokerId,
     broker_b: BrokerId,
+    bar_width: f32,
     fallback_price: Option<f64>,
     theme: &ChartTheme,
 ) {
@@ -169,12 +170,12 @@ pub fn draw_candlestick_chart(
         candle_view,
         &broker_ids,
         &[],
+        bar_width,
         fallback_price,
         theme,
     );
 }
 
-pub const FIXED_CANDLE_SLOT_WIDTH: f32 = 36.0;
 const CHART_HEADER_HEIGHT: f32 = 40.0;
 const CHART_FOOTER_HEIGHT: f32 = 18.0;
 const PRICE_AXIS_WIDTH: f32 = 88.0;
@@ -224,6 +225,7 @@ pub fn draw_candlestick_chart_multi(
     rect: Rect,
     candle_view: Option<&CandleView>,
     broker_overviews: &[BrokerOverview],
+    bar_width: f32,
     fallback_price: Option<f64>,
     theme: &ChartTheme,
 ) {
@@ -234,6 +236,7 @@ pub fn draw_candlestick_chart_multi(
         candle_view,
         &broker_ids,
         broker_overviews,
+        bar_width,
         fallback_price,
         theme,
     );
@@ -245,6 +248,7 @@ fn draw_candlestick_chart_for_brokers(
     candle_view: Option<&CandleView>,
     broker_ids: &[BrokerId],
     broker_overviews: &[BrokerOverview],
+    bar_width: f32,
     fallback_price: Option<f64>,
     theme: &ChartTheme,
 ) {
@@ -281,7 +285,11 @@ fn draw_candlestick_chart_for_brokers(
         return;
     }
 
-    let slot_width = FIXED_CANDLE_SLOT_WIDTH;
+    let broker_count = broker_ids.len() as f32;
+    let candle_gap = 1.0_f32;
+    let total_gap = candle_gap * (broker_count - 1.0).max(0.0);
+    let candle_group_width = bar_width * broker_count + total_gap;
+    let slot_width = (candle_group_width + 4.0).max(12.0);
     let total_slots = view.slot_starts.len();
 
     // Right-aligned anchor: latest slot (index total_slots - 1) is pinned to the right edge
@@ -389,14 +397,7 @@ fn draw_candlestick_chart_for_brokers(
         );
     }
 
-    // Draw candles with fixed width and pixel-aligned layout for up to 8 brokers
-    let broker_count = broker_ids.len() as f32;
-    let candle_gap = 1.0_f32;
-    let total_gap = candle_gap * (broker_count - 1.0).max(0.0);
-    let usable_slot_width = (slot_width - 4.0 - total_gap).max(broker_count * 2.0);
-    let bar_width = (usable_slot_width / broker_count).clamp(2.5, 10.0);
-    let candle_group_width = bar_width * broker_count + total_gap;
-
+    // Draw candles with user-specified bar_width and pixel-aligned layout
     let plot_painter = painter.with_clip_rect(plot_rect);
 
     for i in start_idx..total_slots {

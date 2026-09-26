@@ -209,9 +209,11 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
 
 #[test]
 fn test_candlestick_fixed_slot_width_and_responsive_slots() {
-    use tick_compare::ui::chart::{draw_candlestick_chart_multi, ChartTheme, FIXED_CANDLE_SLOT_WIDTH};
+    use tick_compare::ui::chart::{draw_candlestick_chart_multi, ChartTheme};
+    use tick_compare::ui::settings::{DEFAULT_CANDLE_BAR_WIDTH, VALID_CANDLE_BAR_WIDTHS};
 
-    assert_eq!(FIXED_CANDLE_SLOT_WIDTH, 36.0);
+    assert_eq!(DEFAULT_CANDLE_BAR_WIDTH, 5.0);
+    assert_eq!(VALID_CANDLE_BAR_WIDTHS, [3.0, 4.0, 5.0, 6.0, 8.0]);
 
     let mut slots_by_broker = HashMap::new();
     let mut ohlc_slots = Vec::new();
@@ -252,15 +254,15 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
         egui::CentralPanel::default().show(ctx, |ui| {
             let theme = ChartTheme::default();
 
-            // Test render on narrow rect (800x400)
+            // Test render on narrow rect (800x400) with 5px bar
             let rect_narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 400.0));
             let painter_narrow = ui.painter_at(rect_narrow);
-            draw_candlestick_chart_multi(&painter_narrow, rect_narrow, Some(&view), &[], None, &theme);
+            draw_candlestick_chart_multi(&painter_narrow, rect_narrow, Some(&view), &[], 5.0, None, &theme);
 
-            // Test render on wide rect (1600x400)
+            // Test render on wide rect (1600x400) with 8px bar
             let rect_wide = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1600.0, 400.0));
             let painter_wide = ui.painter_at(rect_wide);
-            draw_candlestick_chart_multi(&painter_wide, rect_wide, Some(&view), &[], None, &theme);
+            draw_candlestick_chart_multi(&painter_wide, rect_wide, Some(&view), &[], 8.0, None, &theme);
         });
     });
 }
@@ -541,6 +543,7 @@ fn test_ui_settings_persistence_lifecycle() {
         app.set_selected_pair(2, 3);
         app.set_bottom_metric(BottomMetric::SpreadDiff);
         app.set_show_broker_overview(true);
+        app.set_candle_bar_width(6.0);
 
         let ctx = egui::Context::default();
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
@@ -569,6 +572,7 @@ fn test_ui_settings_persistence_lifecycle() {
     assert_eq!(loaded.active_pair, (2, 3));
     assert_eq!(loaded.bottom_metric, BottomMetric::LeadLag);
     assert!(loaded.show_broker_overview);
+    assert_eq!(loaded.candle_bar_width, 6.0);
 
     // 3. Second session: reconcile with brokers and restore into new app instance
     let brokers = vec![
@@ -586,6 +590,7 @@ fn test_ui_settings_persistence_lifecycle() {
         assert_eq!(app.selected_pair(), (2, 3));
         assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
         assert!(app.show_broker_overview());
+        assert_eq!(app.candle_bar_width(), 6.0);
     }
 
     // 4. Test broker disappearance fallback
