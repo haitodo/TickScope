@@ -14,7 +14,6 @@ pub struct BrokerConfig {
     #[serde(default = "default_broker_port")]
     pub port: u16,
     pub symbol: String,
-    pub digits: u32,
     pub point_size: f64,
     pub pip_size: f64,
     pub utc_offset_sec: i32,
@@ -40,7 +39,6 @@ impl Default for BrokerConfig {
             host: "127.0.0.1".to_string(),
             port: 39001,
             symbol: "USDJPY".to_string(),
-            digits: 3,
             point_size: 0.001,
             pip_size: 0.01,
             utc_offset_sec: 0,
@@ -122,8 +120,6 @@ pub struct LoggerConfig {
     pub max_queue_bytes: usize,
     #[serde(default = "default_flush_interval")]
     pub flush_interval_ms: u64,
-    #[serde(default = "default_drain_timeout")]
-    pub shutdown_drain_timeout_ms: u64,
 }
 
 fn default_true() -> bool {
@@ -141,9 +137,6 @@ fn default_queue_bytes() -> usize {
 fn default_flush_interval() -> u64 {
     1000
 }
-fn default_drain_timeout() -> u64 {
-    5000
-}
 
 impl Default for LoggerConfig {
     fn default() -> Self {
@@ -153,7 +146,6 @@ impl Default for LoggerConfig {
             max_queue_records: default_queue_records(),
             max_queue_bytes: default_queue_bytes(),
             flush_interval_ms: default_flush_interval(),
-            shutdown_drain_timeout_ms: default_drain_timeout(),
         }
     }
 }
@@ -212,17 +204,12 @@ impl Default for MatcherConfig {
 pub struct HealthConfig {
     #[serde(default = "default_stale_after")]
     pub stale_after_ms: u64,
-    #[serde(default = "default_heartbeat_interval")]
-    pub heartbeat_interval_ms: u64,
     #[serde(default = "default_heartbeat_timeout")]
     pub heartbeat_timeout_ms: u64,
 }
 
 fn default_stale_after() -> u64 {
     1000
-}
-fn default_heartbeat_interval() -> u64 {
-    250
 }
 fn default_heartbeat_timeout() -> u64 {
     1500
@@ -232,7 +219,6 @@ impl Default for HealthConfig {
     fn default() -> Self {
         Self {
             stale_after_ms: default_stale_after(),
-            heartbeat_interval_ms: default_heartbeat_interval(),
             heartbeat_timeout_ms: default_heartbeat_timeout(),
         }
     }
@@ -248,8 +234,6 @@ pub struct DisplayConfig {
     pub visible_seconds: u64,
     #[serde(default = "default_visible_ticks")]
     pub visible_ticks: usize,
-    #[serde(default = "default_false")]
-    pub always_on_top: bool,
 }
 
 fn default_repaint_hz() -> u32 {
@@ -264,9 +248,6 @@ fn default_visible_seconds() -> u64 {
 fn default_visible_ticks() -> usize {
     1200
 }
-fn default_false() -> bool {
-    false
-}
 
 impl Default for DisplayConfig {
     fn default() -> Self {
@@ -275,7 +256,6 @@ impl Default for DisplayConfig {
             timeframe_ms: default_timeframe_ms(),
             visible_seconds: default_visible_seconds(),
             visible_ticks: default_visible_ticks(),
-            always_on_top: default_false(),
         }
     }
 }
@@ -290,8 +270,6 @@ pub struct SlotRetention {
 pub struct HistoryConfig {
     #[serde(default = "default_slots")]
     pub retentions: Vec<SlotRetention>,
-    #[serde(default = "default_ring_records")]
-    pub max_tick_ring_records: usize,
     #[serde(default = "default_ledger_cap")]
     pub ledger_capacity: usize,
 }
@@ -304,9 +282,6 @@ fn default_slots() -> Vec<SlotRetention> {
         SlotRetention { period_ms: 60000, slots: 10 },
     ]
 }
-fn default_ring_records() -> usize {
-    120_000
-}
 fn default_ledger_cap() -> usize {
     16_384
 }
@@ -315,7 +290,6 @@ impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
             retentions: default_slots(),
-            max_tick_ring_records: default_ring_records(),
             ledger_capacity: default_ledger_cap(),
         }
     }
@@ -375,7 +349,6 @@ impl Default for AppConfig {
                     host: "127.0.0.1".to_string(),
                     port: 39001,
                     symbol: "USDJPY".to_string(),
-                    digits: 3,
                     point_size: 0.001,
                     pip_size: 0.01,
                     utc_offset_sec: 0,
@@ -388,7 +361,6 @@ impl Default for AppConfig {
                     host: "127.0.0.1".to_string(),
                     port: 39002,
                     symbol: "USDJPY.pro".to_string(),
-                    digits: 3,
                     point_size: 0.001,
                     pip_size: 0.01,
                     utc_offset_sec: 0,
@@ -429,9 +401,6 @@ impl AppConfig {
             }
             if !self.mt5.auto_deploy && !seen_ports.insert(b.port) {
                 return Err(format!("Duplicate broker port: {}", b.port));
-            }
-            if b.digits == 0 || b.digits > 8 {
-                return Err(format!("Broker {} digits invalid: {}", b.id, b.digits));
             }
             if b.point_size <= 0.0 {
                 return Err(format!("Broker {} point_size must be positive", b.id));

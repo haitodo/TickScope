@@ -13,7 +13,6 @@ name = "OANDA"
 host = "127.0.0.1"
 port = 39001
 symbol = "USDJPY.cl"
-digits = 3
 point_size = 0.001
 pip_size = 0.01
 utc_offset_sec = 0
@@ -27,7 +26,6 @@ name = "Axiory"
 host = "127.0.0.1"
 port = 39002
 symbol = "USDJPY"
-digits = 3
 point_size = 0.001
 pip_size = 0.01
 utc_offset_sec = 0
@@ -41,7 +39,6 @@ name = "JFX"
 host = "127.0.0.1"
 port = 39003
 symbol = "USDJPY_MT"
-digits = 3
 point_size = 0.001
 pip_size = 0.01
 utc_offset_sec = 0
@@ -64,7 +61,6 @@ log_dir = "data/logs"
 max_queue_records = 1024
 max_queue_bytes = 33554432
 flush_interval_ms = 1000
-shutdown_drain_timeout_ms = 5000
 
 [matcher]
 trigger_move_points = 2.0
@@ -76,7 +72,6 @@ max_quote_skew_ms = 100
 
 [health]
 stale_after_ms = 1000
-heartbeat_interval_ms = 250
 heartbeat_timeout_ms = 1500
 
 [display]
@@ -85,10 +80,8 @@ timeframe_ms = 60000
 visible_seconds = 60
 # Tick count X-axis mode keeps this many most recent chart updates.
 visible_ticks = 1200
-always_on_top = false
 
 [history]
-max_tick_ring_records = 120000
 ledger_capacity = 16384
 retentions = [
     { period_ms = 1000, slots = 60 },

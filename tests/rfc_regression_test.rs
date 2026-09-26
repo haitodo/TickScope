@@ -55,7 +55,6 @@ fn make_5_broker_config() -> AppConfig {
             host: "127.0.0.1".to_string(),
             port: 39000 + id as u16,
             symbol: "USDJPY".to_string(),
-            digits: 3,
             point_size: 0.001,
             pip_size: 0.01,
             utc_offset_sec: 0,

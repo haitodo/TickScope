@@ -47,6 +47,7 @@ fn send_test_tick(stream: &mut TcpStream, broker_id: BrokerId, seq: Sequence, ti
 fn test_ti01_multi_broker_end_to_end_pipeline() {
     let mut config = AppConfig::default();
     config.logger.enabled = false; // In-memory for integration test
+    config.mt5.auto_deploy = false;
     config.display.repaint_hz = 100;
 
     // 3 Brokers
@@ -57,7 +58,6 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             host: "127.0.0.1".to_string(),
             port: 39201,
             symbol: "USDJPY".to_string(),
-            digits: 3,
             point_size: 0.001,
             pip_size: 0.01,
             utc_offset_sec: 0,
@@ -70,7 +70,6 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             host: "127.0.0.1".to_string(),
             port: 39202,
             symbol: "USDJPY.pro".to_string(),
-            digits: 3,
             point_size: 0.001,
             pip_size: 0.01,
             utc_offset_sec: 0,
@@ -83,7 +82,6 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             host: "127.0.0.1".to_string(),
             port: 39203,
             symbol: "USDJPY#".to_string(),
-            digits: 3,
             point_size: 0.001,
             pip_size: 0.01,
             utc_offset_sec: 0,
