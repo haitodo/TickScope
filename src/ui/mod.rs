@@ -3,8 +3,10 @@
 pub mod chart;
 pub mod dashboard;
 pub mod fonts;
+pub mod settings;
 
 pub use chart::*;
 pub use dashboard::*;
 pub use fonts::*;
+pub use settings::*;
 

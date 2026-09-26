@@ -5,8 +5,9 @@ use crate::contracts::models::{
 use crate::contracts::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
 use crate::metrics::{EventCluster, MoveBreadth, ObservedBrokerConsensus, StageLatencySummary};
 use egui::{Color32, Pos2, Rect, Stroke};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum BottomMetric {
     #[default]
     MidDiff,
@@ -198,7 +199,7 @@ fn format_price_delta(value: f64) -> String {
     format!("{value:+.5}")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ChartXAxisMode {
     #[default]
     ReceiveTime,

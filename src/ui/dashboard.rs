@@ -7,8 +7,12 @@ use crate::ui::chart::{
     ChartTheme, ChartXAxisMode,
 };
 use crate::ui::fonts::setup_fonts;
+use crate::ui::settings::{
+    save_ui_state, UiState, WindowGeometryState, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
+};
 use eframe::egui;
 use egui::{Color32, RichText};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub struct DashboardApp {
@@ -28,6 +32,9 @@ pub struct DashboardApp {
     pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
     fonts_configured: bool,
     show_broker_overview: bool,
+    ui_state_path: Option<PathBuf>,
+    window_geometry: WindowGeometryState,
+    state_dirty: bool,
 }
 
 impl DashboardApp {
@@ -52,7 +59,53 @@ impl DashboardApp {
             pair_selection_handler: None,
             fonts_configured: false,
             show_broker_overview: false,
+            ui_state_path: None,
+            window_geometry: WindowGeometryState::default(),
+            state_dirty: false,
         }
+    }
+
+    pub fn with_ui_state(mut self, state: &UiState) -> Self {
+        self.selected_broker_a = state.active_pair.0;
+        self.selected_broker_b = state.active_pair.1;
+        self.show_candle_context = state.show_candle_context;
+        self.selected_timeframe_ms = state.selected_timeframe_ms;
+        self.x_axis_mode = state.x_axis_mode;
+        self.bottom_metric = state.bottom_metric;
+        self.show_broker_overview = state.show_broker_overview;
+        self.window_geometry = state.window.clone();
+        self
+    }
+
+    pub fn with_ui_state_path(mut self, path: PathBuf) -> Self {
+        self.ui_state_path = Some(path);
+        self
+    }
+
+    pub fn current_ui_state(&self) -> UiState {
+        UiState {
+            active_pair: (self.selected_broker_a, self.selected_broker_b),
+            show_candle_context: self.show_candle_context,
+            selected_timeframe_ms: self.selected_timeframe_ms,
+            x_axis_mode: self.x_axis_mode,
+            bottom_metric: self.bottom_metric,
+            show_broker_overview: self.show_broker_overview,
+            window: self.window_geometry.clone(),
+        }
+    }
+
+    pub fn save_state(&mut self) {
+        if let Some(path) = &self.ui_state_path {
+            let state = self.current_ui_state();
+            if let Err(e) = save_ui_state(path, &state) {
+                eprintln!("Warning: Failed to persist UI state: {}", e);
+            }
+        }
+        self.state_dirty = false;
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.state_dirty = true;
     }
 
     pub fn mark_fonts_configured(&mut self) {
@@ -69,7 +122,10 @@ impl DashboardApp {
     }
 
     pub fn set_show_broker_overview(&mut self, show: bool) {
-        self.show_broker_overview = show;
+        if self.show_broker_overview != show {
+            self.show_broker_overview = show;
+            self.state_dirty = true;
+        }
     }
 
     pub fn with_pip_size(mut self, pip_size: f64) -> Self {
@@ -107,6 +163,7 @@ impl DashboardApp {
         }
         self.selected_broker_a = a;
         self.selected_broker_b = b;
+        self.state_dirty = true;
         if let Some(handler) = &self.pair_selection_handler {
             handler((a, b));
         }
@@ -165,10 +222,19 @@ impl DashboardApp {
     }
 
     pub fn set_bottom_metric(&mut self, metric: BottomMetric) {
-        self.bottom_metric = metric;
+        if self.bottom_metric != metric {
+            self.bottom_metric = metric;
+            self.state_dirty = true;
+        }
     }
 
     pub fn render_ui(&mut self, ctx: &egui::Context) {
+        let prev_candle = self.show_candle_context;
+        let prev_timeframe = self.selected_timeframe_ms;
+        let prev_xaxis = self.x_axis_mode;
+        let prev_overview = self.show_broker_overview;
+        let prev_metric = self.bottom_metric;
+
         if !self.fonts_configured {
             setup_fonts(ctx);
             self.fonts_configured = true;
@@ -731,8 +797,59 @@ impl DashboardApp {
             }
         });
 
+        // Check if any interactive UI settings changed during this frame
+        if self.show_candle_context != prev_candle
+            || self.selected_timeframe_ms != prev_timeframe
+            || self.x_axis_mode != prev_xaxis
+            || self.show_broker_overview != prev_overview
+            || self.bottom_metric != prev_metric
+        {
+            self.state_dirty = true;
+        }
+
+        // Track window geometry and close request
+        ctx.input(|i| {
+            let vp = i.viewport();
+            if let Some(maximized) = vp.maximized {
+                if self.window_geometry.maximized != maximized {
+                    self.window_geometry.maximized = maximized;
+                    self.state_dirty = true;
+                }
+            }
+            if !self.window_geometry.maximized {
+                if let Some(rect) = vp.inner_rect {
+                    let size = [rect.width(), rect.height()];
+                    if size[0] >= MIN_WINDOW_WIDTH && size[1] >= MIN_WINDOW_HEIGHT {
+                        if (self.window_geometry.inner_size[0] - size[0]).abs() > 1.0
+                            || (self.window_geometry.inner_size[1] - size[1]).abs() > 1.0
+                        {
+                            self.window_geometry.inner_size = size;
+                            self.state_dirty = true;
+                        }
+                    }
+                }
+                if let Some(rect) = vp.outer_rect {
+                    let pos = [rect.min.x, rect.min.y];
+                    if self.window_geometry.position != Some(pos) {
+                        self.window_geometry.position = Some(pos);
+                        self.state_dirty = true;
+                    }
+                }
+            }
+        });
+
+        if self.state_dirty || ctx.input(|i| i.viewport().close_requested()) {
+            self.save_state();
+        }
+
         // Repaint at 60 Hz
         ctx.request_repaint();
+    }
+}
+
+impl Drop for DashboardApp {
+    fn drop(&mut self) {
+        self.save_state();
     }
 }
 

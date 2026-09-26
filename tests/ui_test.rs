@@ -462,3 +462,80 @@ fn test_all_bottom_metrics_render_headless() {
         assert_eq!(app.bottom_metric(), metric);
     }
 }
+
+#[test]
+fn test_ui_settings_persistence_lifecycle() {
+    use tick_compare::contracts::config::BrokerConfig;
+    use tick_compare::ui::chart::BottomMetric;
+    use tick_compare::ui::settings::load_ui_state;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let state_file = temp_dir.path().join("ui_state.json");
+
+    let snap = Arc::new(UiSnapshot::default());
+    let exchange = Arc::new(SnapshotExchange::new(snap));
+
+    // 1. First session: change settings and drop
+    {
+        let mut app = DashboardApp::new(exchange.clone(), (1, 2))
+            .with_ui_state_path(state_file.clone());
+
+        app.set_selected_pair(2, 3);
+        app.set_bottom_metric(BottomMetric::SpreadDiff);
+        app.set_show_broker_overview(true);
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_ui(ctx);
+        });
+
+        // Mutate additional settings
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::pos2(50.0, 50.0),
+            egui::vec2(1200.0, 800.0),
+        ));
+        let _ = ctx.run(input, |ctx| {
+            // Emulate selecting S10
+            egui::CentralPanel::default().show(ctx, |_ui| {
+                app.set_bottom_metric(BottomMetric::LeadLag);
+            });
+            app.render_ui(ctx);
+        });
+        // Drops here, executing save_state via Drop
+    }
+
+    // 2. Verify state file was saved
+    assert!(state_file.exists());
+    let mut loaded = load_ui_state(&state_file).expect("UI state should load");
+    assert_eq!(loaded.active_pair, (2, 3));
+    assert_eq!(loaded.bottom_metric, BottomMetric::LeadLag);
+    assert!(loaded.show_broker_overview);
+
+    // 3. Second session: reconcile with brokers and restore into new app instance
+    let brokers = vec![
+        BrokerConfig { id: 1, name: "A".to_string(), ..Default::default() },
+        BrokerConfig { id: 2, name: "B".to_string(), ..Default::default() },
+        BrokerConfig { id: 3, name: "C".to_string(), ..Default::default() },
+    ];
+    loaded.reconcile_with_brokers(&brokers, (1, 2));
+
+    {
+        let app = DashboardApp::new(exchange.clone(), (1, 2))
+            .with_ui_state(&loaded)
+            .with_ui_state_path(state_file.clone());
+
+        assert_eq!(app.selected_pair(), (2, 3));
+        assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
+        assert!(app.show_broker_overview());
+    }
+
+    // 4. Test broker disappearance fallback
+    let brokers_missing_c = vec![
+        BrokerConfig { id: 1, name: "A".to_string(), ..Default::default() },
+        BrokerConfig { id: 2, name: "B".to_string(), ..Default::default() },
+    ];
+    loaded.reconcile_with_brokers(&brokers_missing_c, (1, 2));
+    assert_eq!(loaded.active_pair, (1, 2));
+}
+
