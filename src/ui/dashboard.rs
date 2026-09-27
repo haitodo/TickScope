@@ -820,14 +820,6 @@ impl DashboardApp {
                             },
                         );
                     }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            RichText::new("Keys: [1-7] Metric, [P] Pair, [B] Brokers, [S] Settings")
-                                .color(Color32::from_gray(120))
-                                .small(),
-                        );
-                    });
                 });
             });
 
