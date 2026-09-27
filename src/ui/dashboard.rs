@@ -1,5 +1,6 @@
-use crate::contracts::ports::SnapshotExchangePort;
+use crate::contracts::ports::{ClockPort, SnapshotExchangePort};
 use crate::contracts::types::*;
+use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::ui::chart::{
     draw_bid_ask_diff_chart, draw_candlestick_chart_multi, draw_lead_lag_view, draw_mid_diff_chart,
     draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
@@ -15,6 +16,7 @@ use eframe::egui;
 use egui::{Color32, RichText};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 pub struct DashboardApp {
     exchange: Arc<dyn SnapshotExchangePort>,
@@ -32,6 +34,9 @@ pub struct DashboardApp {
     visible_ticks: usize,
     x_axis_mode: ChartXAxisMode,
     pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
+    diagnostics: Option<DiagnosticsHandle>,
+    diagnostics_clock: Option<Arc<dyn ClockPort>>,
+    last_diagnostics_snapshot_revision: u64,
     fonts_configured: bool,
     show_broker_overview: bool,
     ui_state_path: Option<PathBuf>,
@@ -60,6 +65,9 @@ impl DashboardApp {
             visible_ticks: 1200,
             x_axis_mode: ChartXAxisMode::default(),
             pair_selection_handler: None,
+            diagnostics: None,
+            diagnostics_clock: None,
+            last_diagnostics_snapshot_revision: 0,
             fonts_configured: false,
             show_broker_overview: false,
             ui_state_path: None,
@@ -158,6 +166,16 @@ impl DashboardApp {
         self
     }
 
+    pub fn with_diagnostics(
+        mut self,
+        diagnostics: DiagnosticsHandle,
+        clock: Arc<dyn ClockPort>,
+    ) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self.diagnostics_clock = Some(clock);
+        self
+    }
+
     pub fn selected_pair(&self) -> (BrokerId, BrokerId) {
         (self.selected_broker_a, self.selected_broker_b)
     }
@@ -245,6 +263,7 @@ impl DashboardApp {
     }
 
     pub fn render_ui(&mut self, ctx: &egui::Context) {
+        let ui_render_start = self.diagnostics.as_ref().map(|_| Instant::now());
         let prev_candle = self.show_candle_context;
         let prev_timeframe = self.selected_timeframe_ms;
         let prev_candle_bar_width = self.candle_bar_width;
@@ -258,6 +277,19 @@ impl DashboardApp {
         }
 
         let snapshot = self.exchange.load_latest();
+        if let (Some(diagnostics), Some(clock)) = (&self.diagnostics, &self.diagnostics_clock) {
+            if snapshot.snapshot_revision != self.last_diagnostics_snapshot_revision {
+                diagnostics.record_ns(
+                    DiagnosticStage::SnapshotToUi,
+                    clock
+                        .sample()
+                        .mono_ns
+                        .saturating_sub(snapshot.built_mono_ns)
+                        .0,
+                );
+                self.last_diagnostics_snapshot_revision = snapshot.snapshot_revision;
+            }
+        }
         let name_a = snapshot
             .broker_overviews
             .iter()
@@ -825,6 +857,9 @@ impl DashboardApp {
                         ));
                         ui.label(format!("Display UTC: {}", snapshot.display_now_utc.0));
                         ui.separator();
+                        if self.diagnostics.is_some() {
+                            ui.label("Detailed one-second summaries are saved under data/diagnostics.");
+                        }
                         ui.label("Recent Diagnostics:");
                         for d in snapshot.diagnostics.iter().rev().take(10) {
                             ui.label(format!("[{}] {}: {}", d.severity as u8, d.code, d.message));
@@ -877,6 +912,10 @@ impl DashboardApp {
 
         if self.state_dirty || ctx.input(|i| i.viewport().close_requested()) {
             self.save_state();
+        }
+
+        if let (Some(diagnostics), Some(start)) = (&self.diagnostics, ui_render_start) {
+            diagnostics.record_duration(DiagnosticStage::UiRenderWork, start.elapsed());
         }
 
         // Repaint at 60 Hz
@@ -975,4 +1014,3 @@ mod tests {
         assert!(!app.show_broker_overview());
     }
 }
-

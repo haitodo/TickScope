@@ -66,6 +66,15 @@ fn main() -> eframe::Result<()> {
             std::process::exit(1);
         }
     };
+    if cli.record_raw {
+        config.logger.enabled = true;
+    }
+    if config.logger.enabled {
+        log::info!(
+            "Raw frame capture enabled (directory: {})",
+            config.logger.log_dir
+        );
+    }
 
     let ui_state_path = resolve_ui_state_path(exe_dir, &cwd);
     let mut ui_state = load_ui_state(&ui_state_path).unwrap_or_default();
@@ -78,7 +87,10 @@ fn main() -> eframe::Result<()> {
     let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
     let visible_seconds = config.display.visible_seconds;
     let visible_ticks = config.display.visible_ticks;
-    let mut coordinator = match RuntimeCoordinator::new(config) {
+    let mut coordinator = match RuntimeCoordinator::new_with_diagnostics(
+        config,
+        cli.diagnostics,
+    ) {
         Ok(coord) => coord,
         Err(e) => {
             log::error!("Fatal error starting RuntimeCoordinator: {}", e);
@@ -108,6 +120,11 @@ fn main() -> eframe::Result<()> {
         .with_ui_state(&ui_state)
         .with_ui_state_path(ui_state_path)
         .with_pair_selection_handler(coordinator.pair_selection_handler());
+    let app = if let Some(diagnostics) = coordinator.diagnostics_handle() {
+        app.with_diagnostics(diagnostics, coordinator.clock.clone())
+    } else {
+        app
+    };
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("TickScope - Multi-Broker Real-time FX Tick Scope")

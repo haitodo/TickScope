@@ -110,7 +110,8 @@ impl Default for IngressConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoggerConfig {
-    #[serde(default = "default_true")]
+    /// Opt-in raw-frame persistence. Defaults off for normal low-latency runs.
+    #[serde(default = "default_false")]
     pub enabled: bool,
     #[serde(default = "default_log_dir")]
     pub log_dir: String,
@@ -124,6 +125,9 @@ pub struct LoggerConfig {
 
 fn default_true() -> bool {
     true
+}
+fn default_false() -> bool {
+    false
 }
 fn default_log_dir() -> String {
     "data/logs".to_string()
@@ -141,7 +145,7 @@ fn default_flush_interval() -> u64 {
 impl Default for LoggerConfig {
     fn default() -> Self {
         Self {
-            enabled: default_true(),
+            enabled: default_false(),
             log_dir: default_log_dir(),
             max_queue_records: default_queue_records(),
             max_queue_bytes: default_queue_bytes(),

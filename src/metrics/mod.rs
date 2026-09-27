@@ -2,6 +2,7 @@
 
 pub mod burst;
 pub mod consensus;
+pub mod diagnostics;
 pub mod fingerprint;
 pub mod hypothesis;
 pub mod latency;
@@ -11,6 +12,7 @@ pub mod spread;
 
 pub use burst::*;
 pub use consensus::*;
+pub use diagnostics::*;
 pub use fingerprint::*;
 pub use hypothesis::*;
 pub use latency::*;

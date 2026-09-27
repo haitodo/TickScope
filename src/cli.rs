@@ -8,6 +8,10 @@ use std::path::PathBuf;
 pub struct CliArgs {
     /// Whether to attach/allocate a console window and enable log output.
     pub console: bool,
+    /// Whether to enable bounded, asynchronous performance diagnostics.
+    pub diagnostics: bool,
+    /// Whether to persist raw protocol frames for offline investigation.
+    pub record_raw: bool,
     /// Optional explicit path to a configuration file.
     pub config_path: Option<PathBuf>,
     /// Optional log level filter specified via CLI.
@@ -22,6 +26,8 @@ impl Default for CliArgs {
     fn default() -> Self {
         Self {
             console: false,
+            diagnostics: false,
+            record_raw: false,
             config_path: None,
             log_level: None,
             show_help: false,
@@ -52,6 +58,12 @@ impl CliArgs {
             match arg.as_str() {
                 "-c" | "--console" => {
                     cli.console = true;
+                }
+                "-d" | "--diagnostics" => {
+                    cli.diagnostics = true;
+                }
+                "-r" | "--record-raw" => {
+                    cli.record_raw = true;
                 }
                 "-h" | "--help" => {
                     cli.show_help = true;
@@ -122,6 +134,8 @@ impl CliArgs {
             "    <CONFIG_PATH>           Path to custom TOML configuration file (optional)\n\n",
             "OPTIONS:\n",
             "    -c, --console           Attach or allocate a console window and enable log output\n",
+            "    -d, --diagnostics       Measure pipeline latency and write one-second summaries\n",
+            "    -r, --record-raw        Persist raw protocol frames for offline investigation\n",
             "    -l, --log-level <LVL>   Set log level (error, warn, info, debug, trace) [default: info]\n",
             "        --config <PATH>     Alternative way to specify custom configuration file path\n",
             "    -V, --version           Print version information and exit\n",

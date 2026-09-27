@@ -6,9 +6,9 @@ use crate::contracts::models::*;
 use crate::contracts::types::*;
 use crate::metrics::burst::MultiBrokerBurstDetector;
 use crate::metrics::consensus::ConsensusCalculator;
+use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::metrics::fingerprint::{BrokerFingerprintTracker, QuotePersistenceTracker, RepricingPersistenceTracker};
 use crate::metrics::hypothesis::HypothesisEngine;
-use crate::metrics::latency::LatencyMetrics;
 use crate::metrics::lead_lag::SignificantMidMoveDetector;
 use crate::metrics::price_diff::PairDifferenceTracker;
 use crate::metrics::spread::SpreadTracker;
@@ -16,6 +16,7 @@ use crate::tick::candle::CandleBook;
 use crate::tick::matcher::OneToOneEventMatcher;
 use crate::tick::normalize::{normalize_tick, round_to_hourly_offset};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::Instant;
 
 const MAX_DIAGNOSTICS: usize = 2_048;
 
@@ -60,7 +61,8 @@ pub struct TickEngine {
     pub repricing_persistence: HashMap<BrokerId, RepricingPersistenceTracker>,
     pub fingerprint_trackers: HashMap<BrokerId, BrokerFingerprintTracker>,
     pub hypothesis_engine: HypothesisEngine,
-    pub latency_metrics: LatencyMetrics,
+    performance_diagnostics: Option<DiagnosticsHandle>,
+    processing_mono_ns: MonoNs,
     pub realtime_quote_history: VecDeque<RealtimeQuotePoint>,
 }
 
@@ -145,7 +147,6 @@ impl TickEngine {
         let consensus_calc = ConsensusCalculator::new(config.health.stale_after_ms);
         let burst_detector = MultiBrokerBurstDetector::new(config.matcher.matching_window_ms, 2);
         let hypothesis_engine = HypothesisEngine::default();
-        let latency_metrics = LatencyMetrics::default();
         let realtime_quote_history = VecDeque::with_capacity(config.display.visible_ticks);
 
         Self {
@@ -169,9 +170,15 @@ impl TickEngine {
             repricing_persistence,
             fingerprint_trackers,
             hypothesis_engine,
-            latency_metrics,
+            performance_diagnostics: None,
+            processing_mono_ns: MonoNs::ZERO,
             realtime_quote_history,
         }
+    }
+
+    pub fn with_diagnostics(mut self, diagnostics: DiagnosticsHandle) -> Self {
+        self.performance_diagnostics = Some(diagnostics);
+        self
     }
 
     fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
@@ -204,6 +211,11 @@ impl TickEngine {
     }
 
     pub fn on_ingress_item(&mut self, item: IngressItem) {
+        self.on_ingress_item_at(item, MonoNs::ZERO);
+    }
+
+    pub fn on_ingress_item_at(&mut self, item: IngressItem, processing_mono_ns: MonoNs) {
+        self.processing_mono_ns = processing_mono_ns;
         let broker_id = item.broker_id();
         let mut close_diagnostic = None;
         let is_disconnected = {
@@ -235,7 +247,7 @@ impl TickEngine {
                         ch.watermark = rf.rx_mono_ns;
                     }
                     ch.pending_frame_bytes = ch.pending_frame_bytes
-                        .saturating_add(rf.raw_wire_bytes.len());
+                        .saturating_add(rf.wire_len());
                     ch.pending_frames.push_back(rf);
                 }
                 IngressItem::End { generation, reason, .. } => {
@@ -329,14 +341,14 @@ impl TickEngine {
         let frame = channel.pending_frames.pop_front()?;
         channel.pending_frame_bytes = channel
             .pending_frame_bytes
-            .saturating_sub(frame.raw_wire_bytes.len());
+            .saturating_sub(frame.wire_len());
         Some(frame)
     }
 
     /// The merge watermark normally preserves a deterministic multi-feed
     /// ordering. If one feed is delayed long enough to exhaust its explicitly
     /// configured budget, preserving raw observations takes precedence over
-    /// holding unbounded memory: process the oldest durable frame and expose
+    /// holding unbounded memory: process the oldest queued frame and expose
     /// the overload condition in health/diagnostics.
     fn force_drain_overflow(&mut self, broker_id: BrokerId) {
         let mut forced = 0_u64;
@@ -367,12 +379,16 @@ impl TickEngine {
                 sequence_range: None,
                 known_count: Some(forced),
                 detail_value: 0,
-                message: "Merge wait budget exhausted; processed durable frames out of watermark order".to_string(),
+                message: "Merge wait budget exhausted; processed queued frames out of watermark order".to_string(),
             });
         }
     }
 
     fn process_frame(&mut self, rf: ReceivedFrame) {
+        let frame_process_start = self
+            .performance_diagnostics
+            .as_ref()
+            .map(|_| Instant::now());
         let broker_id = rf.frame.header.broker_id;
         let mut sequence_gaps = Vec::new();
 
@@ -631,6 +647,25 @@ impl TickEngine {
         }
 
         self.projection_revision += 1;
+
+        let frame_processing_elapsed = frame_process_start.map(|start| start.elapsed());
+        if let Some(diagnostics) = &self.performance_diagnostics {
+            let rx_mono_ns = rf.rx_mono_ns;
+            let processing_mono_ns = self.processing_mono_ns;
+            let is_tick_batch = matches!(&rf.frame.payload, FramePayload::TickBatch(_));
+            if is_tick_batch
+                && processing_mono_ns.0 >= rx_mono_ns.0
+                && processing_mono_ns.0 > 0
+            {
+                diagnostics.record_ns(
+                    DiagnosticStage::IngressToEngine,
+                    processing_mono_ns.saturating_sub(rx_mono_ns).0,
+                );
+            }
+            if let Some(elapsed) = frame_processing_elapsed {
+                diagnostics.record_duration(DiagnosticStage::EngineFrameProcessing, elapsed);
+            }
+        }
     }
 
     pub fn make_projection(&self, current_utc_now: UtcMs) -> EngineProjection {
@@ -773,8 +808,8 @@ impl TickEngine {
             hypotheses.extend(broker_hypotheses);
         }
 
-        // 4. Latency Summary
-        let latency_summary = self.latency_metrics.compute_summary();
+        // Detailed latency data is aggregated asynchronously only in -d mode.
+        let latency_summary = crate::metrics::StageLatencySummary::default();
 
         // 5. Realtime Quote History
         let realtime_quote_points: Vec<RealtimeQuotePoint> = self.realtime_quote_history.iter().cloned().collect();

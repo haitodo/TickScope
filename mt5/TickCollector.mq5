@@ -18,6 +18,7 @@ input uint   InpBatchCount          = 256;            // CopyTicks batch size
 input uint   InpMaxSameMsScanTicks  = 65536;          // Max scan ticks in single millisecond
 input uint   InpSocketTimeoutMs     = 10;             // Socket timeout (ms)
 input uint   InpHeartbeatIntervalMs = 250;            // Heartbeat interval (ms)
+input uint   InpCollectionIntervalMs = 10;            // ACK/history polling (MT5 timer resolution is about 10-16 ms)
 
 //--- Runtime State
 CSocketClient g_socket;
@@ -41,6 +42,7 @@ long          g_last_tick_time_msc     = 0;
 ulong         g_last_heartbeat_us      = 0;
 bool          g_warmup_done            = false;
 bool          g_warmup_started         = false;
+bool          g_collection_caught_up   = false;
 
 // Exactly one complete tick batch may be outstanding.  This is deliberately a
 // stop-and-wait ledger: it keeps source memory bounded and makes the cursor
@@ -181,6 +183,7 @@ void SendHeartbeat()
 //+------------------------------------------------------------------+
 bool CollectAndStreamTicks(bool is_warmup)
 {
+   g_collection_caught_up = false;
    // Never advance CopyTicks cursor or sequence while a batch has not been
    // acknowledged.  This bounds the resend ledger to one frame and prevents
    // a socket disconnect from becoming an irreversible source-data gap.
@@ -200,9 +203,18 @@ bool CollectAndStreamTicks(bool is_warmup)
       return false;
    }
 
+   ResetLastError();
    int copied = CopyTicks(Symbol(), g_tick_buffer, COPY_TICKS_ALL, g_cursor_time_msc, request_count);
-   if(copied <= 0)
+   int copy_error = GetLastError();
+   if(copied < 0 || copy_error != 0)
    {
+      // History synchronization/timeout is not evidence of being caught up.
+      // Retry from the unchanged cursor, including partially returned results.
+      return false;
+   }
+   if(copied == 0)
+   {
+      g_collection_caught_up = true;
       return false;
    }
 
@@ -214,6 +226,7 @@ bool CollectAndStreamTicks(bool is_warmup)
       if(start_index >= copied)
       {
          // No new ticks yet beyond the cursor
+         g_collection_caught_up = true;
          return false;
       }
    }
@@ -483,7 +496,7 @@ void DriveReliableCollection()
 
    // No pending batch and no more history means warmup is complete.  Queueing
    // failures leave g_pending_batch true, so they cannot cause a false LIVE.
-   if(is_warmup)
+   if(is_warmup && g_collection_caught_up)
    {
       g_current_phase = PHASE_LIVE;
       g_warmup_done = true;
@@ -510,7 +523,7 @@ int OnInit()
 
    // The timer is also the connection supervisor. It keeps retrying when
    // TickScope was not running yet, so launch order is irrelevant.
-   if(!EventSetMillisecondTimer(InpHeartbeatIntervalMs))
+   if(!EventSetMillisecondTimer((int)MathMax(1, InpCollectionIntervalMs)))
    {
       int timer_error = GetLastError();
       PrintFormat("[TickCollector] Failed to start millisecond timer, error: %d. Falling back to 1-second timer.", timer_error);

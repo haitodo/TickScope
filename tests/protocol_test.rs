@@ -4,6 +4,62 @@ use tick_compare::contracts::types::*;
 use tick_compare::protocol::codec::*;
 use tick_compare::protocol::packet::*;
 
+fn ack_wire(sequence_end: u64) -> Vec<u8> {
+    encode_frame(&Frame {
+        header: Header {
+            magic: MAGIC_TICK, protocol_version: PROTOCOL_VERSION,
+            message_type: MSG_TYPE_BATCH_ACK, header_length: HEADER_LENGTH,
+            header_flags: 0, broker_id: 1, session_id: 1,
+            sequence_start: 0, tick_count: 0,
+            payload_length: BATCH_ACK_PAYLOAD_LENGTH as u32,
+        },
+        payload: FramePayload::BatchAck(BatchAckPayload { sequence_end }),
+    }).unwrap()
+}
+
+#[test]
+fn burst_decode_preserves_every_frame_across_compaction_and_partial_tail() {
+    let mut decoder = StreamingDecoder::new(1_048_576, 65_536);
+    let mut wire = Vec::new();
+    for sequence in 0..10_000 {
+        wire.extend_from_slice(&ack_wire(sequence));
+    }
+    let mut expected = 0;
+    // Deliberately unaligned with the 48-byte frame size.
+    for chunk in wire.chunks(8191) {
+        decoder.push(chunk).unwrap();
+        while let Some(frame) = decoder.next_frame().unwrap() {
+            assert_eq!(*frame.raw_wire_bytes, ack_wire(expected));
+            assert!(matches!(frame.frame.payload, FramePayload::BatchAck(a) if a.sequence_end == expected));
+            expected += 1;
+        }
+    }
+    assert_eq!(expected, 10_000);
+    assert_eq!(decoder.buffer_len(), 0);
+}
+
+#[test]
+fn configured_payload_limit_is_enforced_before_waiting_for_body() {
+    let wire = ack_wire(1);
+    let mut decoder = StreamingDecoder::new(4, 64);
+    decoder.push(&wire[..HEADER_LENGTH as usize]).unwrap();
+    assert_eq!(decoder.next_frame(), Err(ProtocolError::PayloadLengthExceedsMax(8)));
+}
+
+#[test]
+fn resync_after_consumed_frame_preserves_next_frame() {
+    let mut decoder = StreamingDecoder::new(1024, 64);
+    let mut wire = ack_wire(1);
+    wire.extend_from_slice(&[0xFF; 7]);
+    wire.extend_from_slice(&ack_wire(2));
+    decoder.push(&wire).unwrap();
+    assert!(decoder.next_frame().unwrap().is_some());
+    assert!(decoder.next_frame().is_err());
+    assert!(decoder.try_resync());
+    assert_eq!(*decoder.next_frame().unwrap().unwrap().raw_wire_bytes, ack_wire(2));
+    assert_eq!(decoder.buffer_len(), 0);
+}
+
 #[test]
 fn test_tw01_golden_vectors() {
     let mut decoder = StreamingDecoder::new(1_048_576, 65_536);

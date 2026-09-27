@@ -4,13 +4,14 @@
 use crate::contracts::config::BrokerConfig;
 use crate::contracts::ports::{ClockPort, LogSinkPort, RawIngressSink, SubmitResult};
 use crate::contracts::types::*;
+use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::protocol::codec::{encode_frame, StreamingDecoder};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct TransportReceiver {
     broker_config: BrokerConfig,
@@ -18,10 +19,91 @@ pub struct TransportReceiver {
     clock: Arc<dyn ClockPort>,
     ingress_sink: Arc<dyn RawIngressSink>,
     log_sink: Option<Arc<dyn LogSinkPort>>,
+    diagnostics: Option<DiagnosticsHandle>,
     max_payload_length: usize,
     debug_resync_limit: usize,
     progress_interval: Duration,
     running: Arc<AtomicBool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contracts::ports::AppendResult;
+    use std::sync::{Mutex, atomic::AtomicU64};
+
+    struct TestClock(AtomicU64);
+    impl ClockPort for TestClock {
+        fn sample(&self) -> ClockReading {
+            ClockReading {
+                run_id: RunId([1; 16]),
+                mono_ns: MonoNs(self.0.load(Ordering::SeqCst)),
+                unix_ns: None,
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct Ingress(Mutex<Vec<IngressItem>>);
+    impl RawIngressSink for Ingress {
+        fn try_submit(&self, item: IngressItem) -> SubmitResult<IngressItem> {
+            self.0.lock().unwrap().push(item);
+            SubmitResult::Accepted
+        }
+    }
+
+    struct SlowLog(Arc<TestClock>);
+    impl LogSinkPort for SlowLog {
+        fn try_append(&self, _: Arc<LogRecord>) -> AppendResult<Arc<LogRecord>> {
+            // Model time spent persisting a frame without wall-clock sleeps.
+            self.0.0.fetch_add(1_000_000, Ordering::SeqCst);
+            AppendResult::Accepted
+        }
+        fn flush(&self) -> Result<(), String> { Ok(()) }
+    }
+
+    #[test]
+    fn coalesced_frames_keep_read_timestamp_despite_storage_delay() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let frame = Frame {
+            header: Header {
+                magic: MAGIC_TICK, protocol_version: PROTOCOL_VERSION,
+                message_type: MSG_TYPE_BATCH_ACK, header_length: HEADER_LENGTH,
+                header_flags: 0, broker_id: 1, session_id: 1,
+                sequence_start: 0, tick_count: 0,
+                payload_length: BATCH_ACK_PAYLOAD_LENGTH as u32,
+            },
+            payload: FramePayload::BatchAck(BatchAckPayload { sequence_end: 1 }),
+        };
+        let bytes = encode_frame(&frame).unwrap().repeat(2);
+        client.write_all(&bytes).unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+
+        // Ensure both frames are available before the receiver starts reading.
+        let mut peek = [0; 96];
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        server.set_nonblocking(true).unwrap();
+        while server.peek(&mut peek).unwrap_or(0) < bytes.len() {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        let clock = Arc::new(TestClock(AtomicU64::new(100)));
+        let ingress = Arc::new(Ingress::default());
+        let config = crate::contracts::config::AppConfig::default().brokers[0].clone();
+        let receiver = TransportReceiver::new_with_limits(
+            config, "off".into(), 1_048_576, 65_536, 1,
+            Some(Arc::new(SlowLog(clock.clone()))), clock, ingress.clone(),
+        );
+        assert!(receiver.handle_connection(server, 1).contains("clean EOF"));
+        let items = ingress.0.lock().unwrap();
+        let times: Vec<_> = items.iter().filter_map(|item| match item {
+            IngressItem::Frame(frame) => Some(frame.rx_mono_ns),
+            _ => None,
+        }).collect();
+        assert_eq!(times, vec![MonoNs(100), MonoNs(100)]);
+    }
 }
 
 impl TransportReceiver {
@@ -60,11 +142,17 @@ impl TransportReceiver {
             clock,
             ingress_sink,
             log_sink,
+            diagnostics: None,
             max_payload_length,
             debug_resync_limit,
             progress_interval: Duration::from_millis(progress_interval_ms.max(1)),
             running: Arc::new(AtomicBool::new(true)),
         }
+    }
+
+    pub fn with_diagnostics(mut self, diagnostics: DiagnosticsHandle) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
     }
 
     pub fn stop(&self) {
@@ -167,7 +255,19 @@ impl TransportReceiver {
     }
 
     fn handle_connection(&self, mut stream: TcpStream, generation: u64) -> String {
-        let mut decoder = StreamingDecoder::new(self.max_payload_length, self.debug_resync_limit);
+        // Wait in the socket so arriving data wakes us immediately, rather than
+        // waiting for a polling sleep (especially costly on Windows).
+        if let Err(error) = stream.set_nonblocking(false)
+            .and_then(|_| stream.set_read_timeout(Some(self.progress_interval)))
+            .and_then(|_| stream.set_write_timeout(Some(Duration::from_secs(1))))
+        {
+            return format!("Socket configuration failed: {error}");
+        }
+        let mut decoder = StreamingDecoder::new_with_raw_capture(
+            self.max_payload_length,
+            self.debug_resync_limit,
+            self.log_sink.is_some(),
+        );
         let mut read_buf = [0u8; 8192];
         let mut frame_index: u64 = 0;
         let mut last_progress = std::time::Instant::now();
@@ -179,6 +279,9 @@ impl TransportReceiver {
                     return "Client closed connection (clean EOF)".to_string();
                 }
                 Ok(n) => {
+                    // All frames completed by this read share its observation
+                    // time; decoding and durable writes must not skew it.
+                    let clk = self.clock.sample();
                     if let Err(e) = decoder.push(&read_buf[..n]) {
                         log::error!(
                             "Decoder push error for broker {}: {}, terminating connection",
@@ -193,9 +296,13 @@ impl TransportReceiver {
                         match decoder.next_frame() {
                             Ok(Some(decoded)) => {
                                 frame_index += 1;
-                                let clk = self.clock.sample();
-
-                                let mut frame = decoded.frame.clone();
+                                let ack = if self.ack_mode != "off" && decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH {
+                                    Some((decoded.frame.header.session_id,
+                                        decoded.frame.header.sequence_start + decoded.frame.header.tick_count as u64 - 1))
+                                } else {
+                                    None
+                                };
+                                let mut frame = decoded.frame;
                                 frame.header.broker_id = self.broker_config.id;
 
                                 let rx_frame = ReceivedFrame {
@@ -208,26 +315,61 @@ impl TransportReceiver {
                                     frame_index,
                                 };
 
-                                if let Err(error) = self.persist_raw_frame(&rx_frame) {
-                                    return format!("Raw log durability failure: {error}");
+                                if self.log_sink.is_some() {
+                                    let persist_start =
+                                        self.diagnostics.as_ref().map(|_| Instant::now());
+                                    if let Err(error) = self.persist_raw_frame(&rx_frame) {
+                                        return format!("Raw log durability failure: {error}");
+                                    }
+                                    if let (Some(diagnostics), Some(start)) =
+                                        (&self.diagnostics, persist_start)
+                                    {
+                                        diagnostics.record_duration(
+                                            DiagnosticStage::RawPersistence,
+                                            start.elapsed(),
+                                        );
+                                    }
                                 }
 
                                 if !self.submit_ingress_item(IngressItem::Frame(rx_frame)) {
                                     return "Ingress closed before frame acceptance".to_string();
                                 }
+                                if let Some(diagnostics) = &self.diagnostics {
+                                    let accepted_mono = self.clock.sample().mono_ns;
+                                    diagnostics.record_ns(
+                                        DiagnosticStage::TcpReceiveToIngress,
+                                        accepted_mono.saturating_sub(clk.mono_ns).0,
+                                    );
+                                }
 
-                                // A batch is acknowledged only after its raw wire frame has
-                                // reached stable storage and the bounded ingress accepted it.
-                                if self.ack_mode != "off" && decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH {
-                                    let seq_end = decoded.frame.header.sequence_start
-                                        + decoded.frame.header.tick_count as u64
-                                        - 1;
+                                // In raw-capture mode, stable storage completes before the
+                                // bounded ingress accepts the frame. Otherwise ACK marks only
+                                // volatile ingress acceptance.
+                                if let Some((session_id, seq_end)) = ack {
+                                    let ack_write_start =
+                                        self.diagnostics.as_ref().map(|_| Instant::now());
                                     if let Err(error) = self.send_batch_ack(
                                         &mut stream,
-                                        decoded.frame.header.session_id,
+                                        session_id,
                                         seq_end,
                                     ) {
                                         return format!("Batch ACK write failed: {error}");
+                                    }
+                                    if let (Some(diagnostics), Some(start)) =
+                                        (&self.diagnostics, ack_write_start)
+                                    {
+                                        diagnostics.record_ns(
+                                            DiagnosticStage::TcpReceiveToAck,
+                                            self.clock
+                                                .sample()
+                                                .mono_ns
+                                                .saturating_sub(clk.mono_ns)
+                                                .0,
+                                        );
+                                        diagnostics.record_duration(
+                                            DiagnosticStage::BatchAckWrite,
+                                            start.elapsed(),
+                                        );
                                     }
                                 }
                             }
@@ -249,7 +391,7 @@ impl TransportReceiver {
                         return err_msg;
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(ref e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
                     if last_progress.elapsed() >= self.progress_interval {
                         let sample = self.clock.sample();
                         self.submit_ingress_item(IngressItem::Progress {
@@ -258,8 +400,8 @@ impl TransportReceiver {
                         });
                         last_progress = std::time::Instant::now();
                     }
-                    thread::sleep(Duration::from_micros(200));
                 }
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
                     // Socket error or disconnected
                     return format!("Socket read error: {}", e);

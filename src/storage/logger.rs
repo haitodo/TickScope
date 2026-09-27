@@ -429,6 +429,12 @@ impl AsyncLogger {
         }
 
         let bytes = queued_record_bytes(&record);
+        if bytes > self.max_queue_bytes {
+            return AppendResult::Fault(record, format!(
+                "Log record requires {bytes} bytes, exceeding logger byte capacity {}",
+                self.max_queue_bytes,
+            ));
+        }
         if !self.reserve_bytes(bytes) {
             return AppendResult::Full(record);
         }

@@ -3,7 +3,9 @@
 
 use crate::contracts::types::*;
 use crate::protocol::packet::*;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+static EMPTY_RAW_WIRE_BYTES: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecodedFrame {
@@ -14,21 +16,36 @@ pub struct DecodedFrame {
 
 pub struct StreamingDecoder {
     buffer: Vec<u8>,
+    consumed: usize,
     max_payload_length: usize,
     debug_resync_limit: usize,
+    capture_raw_wire_bytes: bool,
 }
 
 impl StreamingDecoder {
     pub fn new(max_payload_length: usize, debug_resync_limit: usize) -> Self {
+        Self::new_with_raw_capture(max_payload_length, debug_resync_limit, true)
+    }
+
+    /// Construct a decoder that can skip the per-frame raw-byte copy when raw
+    /// capture is disabled. The default constructor keeps the historical API
+    /// behaviour and retains raw bytes.
+    pub fn new_with_raw_capture(
+        max_payload_length: usize,
+        debug_resync_limit: usize,
+        capture_raw_wire_bytes: bool,
+    ) -> Self {
         Self {
             buffer: Vec::with_capacity(8192),
+            consumed: 0,
             max_payload_length,
             debug_resync_limit,
+            capture_raw_wire_bytes,
         }
     }
 
     pub fn buffer_len(&self) -> usize {
-        self.buffer.len()
+        self.buffer.len() - self.consumed
     }
 
     pub fn push(&mut self, data: &[u8]) -> Result<usize, ProtocolError> {
@@ -36,37 +53,51 @@ impl StreamingDecoder {
             .checked_add(self.max_payload_length)
             .ok_or(ProtocolError::ArithmeticOverflow)?;
         
-        if self.buffer.len() + data.len() > max_total * 2 {
+        let pending = self.buffer_len().checked_add(data.len())
+            .ok_or(ProtocolError::ArithmeticOverflow)?;
+        let max_buffer = max_total.checked_mul(2)
+            .ok_or(ProtocolError::ArithmeticOverflow)?;
+        if pending > max_buffer {
             return Err(ProtocolError::PayloadLengthExceedsMax(
-                (self.buffer.len() + data.len()) as u32,
+                pending.min(u32::MAX as usize) as u32,
             ));
         }
 
+        // Compact once per read, never once per decoded frame in a burst.
+        if self.consumed > 0 {
+            self.buffer.drain(..self.consumed);
+            self.consumed = 0;
+        }
         self.buffer.extend_from_slice(data);
         Ok(data.len())
     }
 
     pub fn next_frame(&mut self) -> Result<Option<DecodedFrame>, ProtocolError> {
-        if self.buffer.len() < HEADER_LENGTH as usize {
+        if self.buffer_len() < HEADER_LENGTH as usize {
             return Ok(None);
         }
 
-        let header = match decode_header(&self.buffer[..HEADER_LENGTH as usize]) {
+        let header = match decode_header(&self.buffer[self.consumed..self.consumed + HEADER_LENGTH as usize]) {
             Ok(hdr) => hdr,
             Err(ProtocolError::NeedMore { .. }) => return Ok(None),
             Err(e) => return Err(e),
         };
 
+        if header.payload_length as usize > self.max_payload_length {
+            return Err(ProtocolError::PayloadLengthExceedsMax(header.payload_length));
+        }
+
         let total_frame_len = (HEADER_LENGTH as usize)
             .checked_add(header.payload_length as usize)
             .ok_or(ProtocolError::ArithmeticOverflow)?;
 
-        if self.buffer.len() < total_frame_len {
+        if self.buffer_len() < total_frame_len {
             return Ok(None);
         }
 
-        let frame_bytes = self.buffer[..total_frame_len].to_vec();
-        let payload_slice = &frame_bytes[HEADER_LENGTH as usize..total_frame_len];
+        let frame_end = self.consumed + total_frame_len;
+        let payload_start = self.consumed + HEADER_LENGTH as usize;
+        let payload_slice = &self.buffer[payload_start..frame_end];
         let mut warnings = Vec::new();
 
         let payload = match header.message_type {
@@ -99,26 +130,39 @@ impl StreamingDecoder {
             _ => return Err(ProtocolError::UnknownMessageType(header.message_type)),
         };
 
-        self.buffer.drain(..total_frame_len);
+        let raw_wire_bytes = if self.capture_raw_wire_bytes {
+            Arc::new(self.buffer[self.consumed..frame_end].to_vec())
+        } else {
+            EMPTY_RAW_WIRE_BYTES
+                .get_or_init(|| Arc::new(Vec::new()))
+                .clone()
+        };
+
+        self.consumed = frame_end;
+        if self.consumed == self.buffer.len() {
+            self.buffer.clear();
+            self.consumed = 0;
+        }
 
         Ok(Some(DecodedFrame {
             frame: Frame {
                 header,
                 payload,
             },
-            raw_wire_bytes: Arc::new(frame_bytes),
+            raw_wire_bytes,
             warnings,
         }))
     }
 
     /// Attempt to scan forward for the magic bytes in case of debug resync.
     pub fn try_resync(&mut self) -> bool {
-        let limit = self.debug_resync_limit.min(self.buffer.len());
+        let limit = self.debug_resync_limit.min(self.buffer_len());
         for i in 1..limit {
-            if i + 4 <= self.buffer.len() {
-                let magic = u32::from_le_bytes(self.buffer[i..i + 4].try_into().unwrap());
+            if i + 4 <= self.buffer_len() {
+                let start = self.consumed + i;
+                let magic = u32::from_le_bytes(self.buffer[start..start + 4].try_into().unwrap());
                 if magic == MAGIC_TICK {
-                    self.buffer.drain(..i);
+                    self.consumed += i;
                     return true;
                 }
             }

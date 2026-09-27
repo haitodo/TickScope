@@ -188,6 +188,18 @@ pub struct ReceivedFrame {
     pub frame_index: u64,
 }
 
+impl ReceivedFrame {
+    /// Return the wire size even when raw capture omitted the retained bytes.
+    pub fn wire_len(&self) -> usize {
+        if self.raw_wire_bytes.is_empty() {
+            (self.frame.header.header_length as usize)
+                .saturating_add(self.frame.header.payload_length as usize)
+        } else {
+            self.raw_wire_bytes.len()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum IngressItem {
     Connected {

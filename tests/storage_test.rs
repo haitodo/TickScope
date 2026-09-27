@@ -2,6 +2,19 @@
 
 use std::io::Cursor;
 use std::sync::Arc;
+
+#[test]
+fn oversized_durable_record_fails_instead_of_retrying_forever() {
+    use tick_compare::contracts::ports::{AppendResult, LogSinkPort};
+    let dir = tempfile::tempdir().unwrap();
+    let logger = AsyncLogger::new(dir.path(), RunId([7; 16]), 4, 64, 100).unwrap();
+    let record = Arc::new(LogRecord::Metadata(LogMetadata {
+        config_epoch: 1, observed_mono_ns: MonoNs(0), toml_text: "too large".into(),
+    }));
+    assert!(matches!(logger.try_append(record.clone()), AppendResult::Fault(_, _)));
+    assert!(logger.append_durable(record).unwrap_err().contains("exceeding"));
+    logger.finish();
+}
 use tick_compare::contracts::types::*;
 use tick_compare::storage::logger::*;
 use tick_compare::storage::reader::*;

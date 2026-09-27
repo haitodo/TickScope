@@ -1,6 +1,7 @@
 use crate::contracts::config::AppConfig;
 use crate::contracts::ports::{AppendResult, ClockPort, LogSinkPort, RawIngressSink, SnapshotExchangePort, SubmitResult};
 use crate::contracts::types::*;
+use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle, DiagnosticsRuntime};
 
 use crate::state::snapshot::{SnapshotBuilder, SnapshotExchange};
 use crate::storage::logger::AsyncLogger;
@@ -74,17 +75,42 @@ pub struct RuntimeCoordinator {
     router: Option<Arc<TransportRouter>>,
     engine: Arc<Mutex<TickEngine>>,
     logger: Option<Arc<AsyncLogger>>,
+    diagnostics: Option<DiagnosticsRuntime>,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl RuntimeCoordinator {
     pub fn new(config: AppConfig) -> Result<Self, String> {
+        Self::new_with_diagnostics(config, false)
+    }
+
+    pub fn new_with_diagnostics(
+        config: AppConfig,
+        diagnostics_enabled: bool,
+    ) -> Result<Self, String> {
         config.validate()?;
 
         let run_id = RunId::new_random();
         log::info!("Initializing RuntimeCoordinator (run_id: {:?})", run_id);
         let clock = Arc::new(SystemClock::new(run_id));
         let running = Arc::new(AtomicBool::new(true));
+        let diagnostics = if diagnostics_enabled {
+            Some(DiagnosticsRuntime::start(
+                "data/diagnostics",
+                run_id,
+                config.logger.enabled,
+                &config.protocol.ack_mode,
+            )?)
+        } else {
+            None
+        };
+        let diagnostics_handle = diagnostics.as_ref().map(DiagnosticsRuntime::handle);
+        if let Some(diagnostics) = &diagnostics {
+            log::info!(
+                "Performance diagnostics enabled (file: {})",
+                diagnostics.output_path().display()
+            );
+        }
 
         // Logger setup
         let logger = if config.logger.enabled {
@@ -125,7 +151,11 @@ impl RuntimeCoordinator {
             .as_ref()
             .map(|l| l.clone() as Arc<dyn crate::contracts::ports::LogSinkPort>);
 
-        let engine = Arc::new(Mutex::new(TickEngine::new(config.clone())));
+        let mut tick_engine = TickEngine::new(config.clone());
+        if let Some(diagnostics) = &diagnostics_handle {
+            tick_engine = tick_engine.with_diagnostics(diagnostics.clone());
+        }
+        let engine = Arc::new(Mutex::new(tick_engine));
         let exchange = Arc::new(SnapshotExchange::new_empty(run_id));
 
         // Ingress channel
@@ -140,7 +170,7 @@ impl RuntimeCoordinator {
         // Build one broker receiver per configured source. Auto-deploy mode
         // routes all EA connections through one shared listener below.
         for b_cfg in &config.brokers {
-            let receiver = Arc::new(TransportReceiver::new_with_limits(
+            let receiver = TransportReceiver::new_with_limits(
                 b_cfg.clone(),
                 config.protocol.ack_mode.clone(),
                 config.protocol.max_payload_length as usize,
@@ -149,7 +179,13 @@ impl RuntimeCoordinator {
                 log_sink_port.clone(),
                 clock.clone(),
                 ingress_sink.clone(),
-            ));
+            );
+            let receiver = if let Some(diagnostics) = &diagnostics_handle {
+                receiver.with_diagnostics(diagnostics.clone())
+            } else {
+                receiver
+            };
+            let receiver = Arc::new(receiver);
             receivers.push(receiver.clone());
             routed_receivers.insert(b_cfg.id, receiver.clone());
 
@@ -182,8 +218,16 @@ impl RuntimeCoordinator {
         // 2. Spawn Engine Worker
         let eng_clone = engine.clone();
         let run_clone = running.clone();
+        let clk_engine = clock.clone();
+        let diagnostics_enabled = diagnostics_handle.is_some();
         let engine_handle = thread::spawn(move || {
-            Self::engine_worker_loop(ingress_rx, eng_clone, run_clone);
+            Self::engine_worker_loop(
+                ingress_rx,
+                eng_clone,
+                run_clone,
+                clk_engine,
+                diagnostics_enabled,
+            );
         });
         threads.push(engine_handle);
 
@@ -192,6 +236,7 @@ impl RuntimeCoordinator {
         let ex_pub = exchange.clone();
         let run_pub = running.clone();
         let clk_pub = clock.clone();
+        let diagnostics_pub = diagnostics_handle.clone();
         let repaint_hz = config.display.repaint_hz.max(1);
         let timeframe_ms = config.display.timeframe_ms;
 
@@ -200,18 +245,36 @@ impl RuntimeCoordinator {
             let interval = Duration::from_micros(1_000_000 / repaint_hz as u64);
 
             while run_pub.load(Ordering::SeqCst) {
+                let frame_start = Instant::now();
                 let clk_sample = clk_pub.sample();
                 let now_utc = UtcMs(clk_sample.unix_ns.unwrap_or(0) / 1_000_000);
 
+                let projection_start = diagnostics_pub.as_ref().map(|_| Instant::now());
                 let proj = {
                     let eng = eng_pub.lock();
                     eng.make_projection_at(now_utc, clk_sample.mono_ns)
                 };
+                if let (Some(diagnostics), Some(start)) =
+                    (&diagnostics_pub, projection_start)
+                {
+                    diagnostics.record_duration(
+                        DiagnosticStage::ProjectionBuild,
+                        start.elapsed(),
+                    );
+                }
 
+                let snapshot_start = diagnostics_pub.as_ref().map(|_| Instant::now());
                 let snap = builder.build(&proj, now_utc, clk_sample.mono_ns, timeframe_ms);
+                if let (Some(diagnostics), Some(start)) = (&diagnostics_pub, snapshot_start) {
+                    diagnostics.record_duration(
+                        DiagnosticStage::SnapshotBuild,
+                        start.elapsed(),
+                    );
+                }
                 ex_pub.publish(snap);
 
-                thread::sleep(interval);
+                // Projection/build time is part of the frame budget.
+                thread::sleep(interval.saturating_sub(frame_start.elapsed()));
             }
         });
         threads.push(pub_handle);
@@ -227,6 +290,7 @@ impl RuntimeCoordinator {
             router,
             engine,
             logger,
+            diagnostics,
             threads,
         })
     }
@@ -235,6 +299,8 @@ impl RuntimeCoordinator {
         rx: Receiver<IngressItem>,
         engine: Arc<Mutex<TickEngine>>,
         running: Arc<AtomicBool>,
+        clock: Arc<dyn ClockPort>,
+        diagnostics_enabled: bool,
     ) {
         // Once shutdown begins, receivers are stopped first and every frame
         // already accepted into ingress is processed before this worker exits.
@@ -242,7 +308,11 @@ impl RuntimeCoordinator {
             match rx.recv_timeout(Duration::from_millis(1)) {
                 Ok(item) => {
                     let mut eng = engine.lock();
-                    eng.on_ingress_item(item);
+                    if diagnostics_enabled {
+                        eng.on_ingress_item_at(item, clock.sample().mono_ns);
+                    } else {
+                        eng.on_ingress_item(item);
+                    }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     if !running.load(Ordering::SeqCst) && rx.is_empty() {
@@ -256,6 +326,12 @@ impl RuntimeCoordinator {
 
     pub fn set_active_pair(&self, pair: (BrokerId, BrokerId)) {
         self.engine.lock().set_active_pair(pair);
+    }
+
+    pub fn diagnostics_handle(&self) -> Option<DiagnosticsHandle> {
+        self.diagnostics
+            .as_ref()
+            .map(DiagnosticsRuntime::handle)
     }
 
     pub fn pair_selection_handler(&self) -> Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync> {
@@ -280,6 +356,9 @@ impl RuntimeCoordinator {
         }
         if let Some(logger) = &self.logger {
             logger.finish();
+        }
+        if let Some(diagnostics) = self.diagnostics {
+            diagnostics.finish();
         }
         log::info!("RuntimeCoordinator shutdown complete.");
     }

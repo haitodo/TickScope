@@ -56,7 +56,8 @@ max_bytes_per_broker = 8388608
 progress_interval_ms = 1
 
 [logger]
-enabled = true
+# Raw frame capture is opt-in; -r enables it for a run.
+enabled = false
 log_dir = "data/logs"
 max_queue_records = 1024
 max_queue_bytes = 33554432
