@@ -15,6 +15,24 @@ pub const MIN_WINDOW_HEIGHT: f32 = 500.0;
 pub const VALID_TIMEFRAMES_MS: [i64; 4] = [1000, 5000, 10000, 60000];
 pub const DEFAULT_CANDLE_BAR_WIDTH: f32 = 5.0;
 pub const VALID_CANDLE_BAR_WIDTHS: [f32; 5] = [3.0, 4.0, 5.0, 6.0, 8.0];
+pub const VALID_CANDLE_FIXED_PIPS: [f64; 4] = [5.0, 10.0, 20.0, 50.0];
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandlePriceScaleMode {
+    #[default]
+    Auto,
+    Fixed(f64),
+}
+
+impl CandlePriceScaleMode {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Auto => "Auto".to_string(),
+            Self::Fixed(pips) => format!("{:.0} pips", pips),
+        }
+    }
+}
 
 fn default_active_pair() -> (BrokerId, BrokerId) {
     (1, 2)
@@ -85,6 +103,8 @@ pub struct UiState {
     #[serde(default = "default_candle_bar_width")]
     pub candle_bar_width: f32,
     #[serde(default)]
+    pub candle_price_scale: CandlePriceScaleMode,
+    #[serde(default)]
     pub window: WindowGeometryState,
 }
 
@@ -95,6 +115,7 @@ impl Default for UiState {
             show_candle_context: false,
             selected_timeframe_ms: default_timeframe_ms(),
             candle_bar_width: default_candle_bar_width(),
+            candle_price_scale: CandlePriceScaleMode::default(),
             x_axis_mode: ChartXAxisMode::default(),
             bottom_metric: BottomMetric::default(),
             show_broker_overview: false,
@@ -111,6 +132,14 @@ impl UiState {
         }
         if !VALID_CANDLE_BAR_WIDTHS.iter().any(|&w| (w - self.candle_bar_width).abs() < 1e-4) {
             self.candle_bar_width = default_candle_bar_width();
+        }
+        match self.candle_price_scale {
+            CandlePriceScaleMode::Auto => {}
+            CandlePriceScaleMode::Fixed(pips) => {
+                if !VALID_CANDLE_FIXED_PIPS.iter().any(|&p| (p - pips).abs() < 1e-4) {
+                    self.candle_price_scale = CandlePriceScaleMode::Auto;
+                }
+            }
         }
         if self.active_pair.0 == self.active_pair.1 {
             self.active_pair = default_active_pair();
@@ -214,6 +243,7 @@ mod tests {
             show_candle_context: true,
             selected_timeframe_ms: 10000,
             candle_bar_width: 6.0,
+            candle_price_scale: CandlePriceScaleMode::Fixed(10.0),
             x_axis_mode: ChartXAxisMode::TickCount,
             bottom_metric: BottomMetric::SpreadDiff,
             show_broker_overview: true,
@@ -236,6 +266,7 @@ mod tests {
             show_candle_context: false,
             selected_timeframe_ms: 42000, // Invalid timeframe
             candle_bar_width: 99.0,       // Invalid width -> should sanitize to default
+            candle_price_scale: CandlePriceScaleMode::Fixed(99.0), // Invalid fixed pips -> should sanitize to Auto
             x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_metric: BottomMetric::MidDiff,
             show_broker_overview: false,
@@ -267,6 +298,8 @@ mod tests {
         assert_eq!(state.selected_timeframe_ms, 60000);
         // candle_bar_width should sanitize to default
         assert_eq!(state.candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
+        // candle_price_scale should sanitize to Auto
+        assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);
         // window size should sanitize to min/defaults
         assert_eq!(state.window.inner_size, [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]);
     }

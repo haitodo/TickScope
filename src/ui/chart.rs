@@ -4,6 +4,7 @@ use crate::contracts::models::{
 };
 use crate::contracts::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
 use crate::metrics::{EventCluster, MoveBreadth, ObservedBrokerConsensus, StageLatencySummary};
+use crate::ui::settings::CandlePriceScaleMode;
 use egui::{Color32, Pos2, Rect, Stroke};
 use serde::{Deserialize, Serialize};
 
@@ -160,6 +161,9 @@ pub fn draw_candlestick_chart(
     broker_a: BrokerId,
     broker_b: BrokerId,
     bar_width: f32,
+    scale_mode: CandlePriceScaleMode,
+    pip_size: f64,
+    chart_anchor: &mut Option<f64>,
     fallback_price: Option<f64>,
     theme: &ChartTheme,
 ) {
@@ -171,6 +175,9 @@ pub fn draw_candlestick_chart(
         &broker_ids,
         &[],
         bar_width,
+        scale_mode,
+        pip_size,
+        chart_anchor,
         fallback_price,
         theme,
     );
@@ -226,10 +233,19 @@ pub fn draw_candlestick_chart_multi(
     candle_view: Option<&CandleView>,
     broker_overviews: &[BrokerOverview],
     bar_width: f32,
+    scale_mode: CandlePriceScaleMode,
+    pip_size: f64,
+    chart_anchor: &mut Option<f64>,
     fallback_price: Option<f64>,
     theme: &ChartTheme,
 ) {
-    let broker_ids: Vec<BrokerId> = broker_overviews.iter().map(|b| b.broker_id).collect();
+    let mut broker_ids: Vec<BrokerId> = broker_overviews.iter().map(|b| b.broker_id).collect();
+    if broker_ids.is_empty() {
+        if let Some(view) = candle_view {
+            broker_ids = view.slots_by_broker.keys().copied().collect();
+            broker_ids.sort();
+        }
+    }
     draw_candlestick_chart_for_brokers(
         painter,
         rect,
@@ -237,6 +253,9 @@ pub fn draw_candlestick_chart_multi(
         &broker_ids,
         broker_overviews,
         bar_width,
+        scale_mode,
+        pip_size,
+        chart_anchor,
         fallback_price,
         theme,
     );
@@ -249,6 +268,9 @@ fn draw_candlestick_chart_for_brokers(
     broker_ids: &[BrokerId],
     broker_overviews: &[BrokerOverview],
     bar_width: f32,
+    scale_mode: CandlePriceScaleMode,
+    pip_size: f64,
+    chart_anchor: &mut Option<f64>,
     fallback_price: Option<f64>,
     theme: &ChartTheme,
 ) {
@@ -333,33 +355,76 @@ fn draw_candlestick_chart_for_brokers(
 
     let has_ohlc = min_price <= max_price && min_price < f64::MAX;
 
-    let (chart_min, chart_max) = if has_ohlc {
-        if (max_price - min_price).abs() < 1e-5 {
-            // Single price (High == Low): add a reasonable margin (e.g. ±0.025)
-            let margin = (min_price * 0.0005).max(0.025);
-            (min_price - margin, max_price + margin)
-        } else {
-            // Add 10% padding
-            let price_padding = (max_price - min_price) * 0.1;
-            (min_price - price_padding, max_price + price_padding)
+    let find_latest_price = || -> Option<f64> {
+        if total_slots > 0 {
+            for slot_idx in (0..total_slots).rev() {
+                for broker_id in &broker_ids {
+                    if let Some(slots) = view.slots_by_broker.get(broker_id) {
+                        if let Some(s) = slots.get(slot_idx) {
+                            if let Some(ohlc) = &s.ohlc {
+                                return Some(ohlc.close);
+                            }
+                        }
+                    }
+                }
+            }
         }
-    } else if let Some(fb) = fallback_price {
-        // No candle data yet, but have current quote: center around quote
-        let margin = (fb * 0.0005).max(0.025);
-        (fb - margin, fb + margin)
-    } else {
-        // Neither candle data nor quote available
-        painter.text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            "Waiting for Tick Data...",
-            egui::FontId::proportional(14.0),
-            Color32::GRAY,
-        );
-        return;
+        fallback_price
+    };
+
+    let (chart_min, chart_max) = match scale_mode {
+        CandlePriceScaleMode::Auto => {
+            *chart_anchor = None;
+            if has_ohlc {
+                if (max_price - min_price).abs() < 1e-5 {
+                    // Single price (High == Low): add a reasonable margin (e.g. ±0.025)
+                    let margin = (min_price * 0.0005).max(0.025);
+                    (min_price - margin, max_price + margin)
+                } else {
+                    // Add 10% padding
+                    let price_padding = (max_price - min_price) * 0.1;
+                    (min_price - price_padding, max_price + price_padding)
+                }
+            } else if let Some(fb) = fallback_price {
+                // No candle data yet, but have current quote: center around quote
+                let margin = (fb * 0.0005).max(0.025);
+                (fb - margin, fb + margin)
+            } else {
+                // Neither candle data nor quote available
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Waiting for Tick Data...",
+                    egui::FontId::proportional(14.0),
+                    Color32::GRAY,
+                );
+                return;
+            }
+        }
+        CandlePriceScaleMode::Fixed(span_pips) => {
+            let center_price = match find_latest_price() {
+                Some(p) => p,
+                None => {
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "Waiting for Tick Data...",
+                        egui::FontId::proportional(14.0),
+                        Color32::GRAY,
+                    );
+                    return;
+                }
+            };
+            let pip_size = pip_size.max(f64::EPSILON);
+            let half_span = (span_pips * pip_size / 2.0).max(f64::EPSILON);
+            // Unified rule: 10% top & bottom deadzone (central 80% stationary zone)
+            let anchor = advance_chart_anchor(chart_anchor, center_price, half_span, 0.10);
+            (anchor - half_span, anchor + half_span)
+        }
     };
 
     let price_range = (chart_max - chart_min).max(0.0001);
+    let price_decimals = price_decimals_for_pip(pip_size);
 
     let price_to_y = |p: f64| -> f32 {
         let normalized = (chart_max - p) / price_range;
@@ -381,9 +446,19 @@ fn draw_candlestick_chart_for_brokers(
         painter.text(
             Pos2::new(rect.right() - 4.0, y - 2.0),
             egui::Align2::RIGHT_BOTTOM,
-            format!("{:.3}", p),
+            format!("{:.*}", price_decimals, p),
             egui::FontId::monospace(11.0),
             Color32::from_gray(180),
+        );
+    }
+
+    if let CandlePriceScaleMode::Fixed(span) = scale_mode {
+        painter.text(
+            Pos2::new(rect.right() - PRICE_AXIS_WIDTH - 6.0, rect.top() + 6.0),
+            egui::Align2::RIGHT_TOP,
+            format!("Fixed: ±{:.1} pip", span / 2.0),
+            egui::FontId::monospace(11.0),
+            Color32::from_gray(190),
         );
     }
 

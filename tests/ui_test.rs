@@ -254,15 +254,40 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
         egui::CentralPanel::default().show(ctx, |ui| {
             let theme = ChartTheme::default();
 
-            // Test render on narrow rect (800x400) with 5px bar
+            // Test render on narrow rect (800x400) with 5px bar (Auto scale)
             let rect_narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 400.0));
             let painter_narrow = ui.painter_at(rect_narrow);
-            draw_candlestick_chart_multi(&painter_narrow, rect_narrow, Some(&view), &[], 5.0, None, &theme);
+            let mut anchor = None;
+            draw_candlestick_chart_multi(
+                &painter_narrow,
+                rect_narrow,
+                Some(&view),
+                &[],
+                5.0,
+                tick_compare::ui::settings::CandlePriceScaleMode::Auto,
+                0.01,
+                &mut anchor,
+                None,
+                &theme,
+            );
 
-            // Test render on wide rect (1600x400) with 8px bar
+            // Test render on wide rect (1600x400) with 8px bar (Fixed scale 10 pips)
             let rect_wide = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1600.0, 400.0));
             let painter_wide = ui.painter_at(rect_wide);
-            draw_candlestick_chart_multi(&painter_wide, rect_wide, Some(&view), &[], 8.0, None, &theme);
+            let mut fixed_anchor = None;
+            draw_candlestick_chart_multi(
+                &painter_wide,
+                rect_wide,
+                Some(&view),
+                &[],
+                8.0,
+                tick_compare::ui::settings::CandlePriceScaleMode::Fixed(10.0),
+                0.01,
+                &mut fixed_anchor,
+                None,
+                &theme,
+            );
+            assert!(fixed_anchor.is_some(), "Fixed scale should set chart anchor");
         });
     });
 }

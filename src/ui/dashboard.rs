@@ -9,8 +9,8 @@ use crate::ui::chart::{
 };
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
-    save_ui_state, UiState, WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, MIN_WINDOW_HEIGHT,
-    MIN_WINDOW_WIDTH, VALID_CANDLE_BAR_WIDTHS,
+    save_ui_state, CandlePriceScaleMode, UiState, WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH,
+    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, VALID_CANDLE_BAR_WIDTHS, VALID_CANDLE_FIXED_PIPS,
 };
 use eframe::egui;
 use egui::{Color32, RichText};
@@ -28,6 +28,8 @@ pub struct DashboardApp {
     theme: ChartTheme,
     show_candle_context: bool,
     candle_bar_width: f32,
+    candle_price_scale: CandlePriceScaleMode,
+    candle_chart_anchor: Option<f64>,
     chart_anchor: Option<f64>,
     pip_size: f64,
     visible_seconds: u64,
@@ -59,6 +61,8 @@ impl DashboardApp {
             theme: ChartTheme::default(),
             show_candle_context: false,
             candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
+            candle_price_scale: CandlePriceScaleMode::default(),
+            candle_chart_anchor: None,
             chart_anchor: None,
             pip_size: 0.01,
             visible_seconds: 60,
@@ -82,6 +86,7 @@ impl DashboardApp {
         self.show_candle_context = state.show_candle_context;
         self.selected_timeframe_ms = state.selected_timeframe_ms;
         self.candle_bar_width = state.candle_bar_width;
+        self.candle_price_scale = state.candle_price_scale;
         self.x_axis_mode = state.x_axis_mode;
         self.bottom_metric = state.bottom_metric;
         self.show_broker_overview = state.show_broker_overview;
@@ -100,6 +105,7 @@ impl DashboardApp {
             show_candle_context: self.show_candle_context,
             selected_timeframe_ms: self.selected_timeframe_ms,
             candle_bar_width: self.candle_bar_width,
+            candle_price_scale: self.candle_price_scale,
             x_axis_mode: self.x_axis_mode,
             bottom_metric: self.bottom_metric,
             show_broker_overview: self.show_broker_overview,
@@ -262,11 +268,24 @@ impl DashboardApp {
         }
     }
 
+    pub fn candle_price_scale(&self) -> CandlePriceScaleMode {
+        self.candle_price_scale
+    }
+
+    pub fn set_candle_price_scale(&mut self, mode: CandlePriceScaleMode) {
+        if self.candle_price_scale != mode {
+            self.candle_price_scale = mode;
+            self.candle_chart_anchor = None;
+            self.state_dirty = true;
+        }
+    }
+
     pub fn render_ui(&mut self, ctx: &egui::Context) {
         let ui_render_start = self.diagnostics.as_ref().map(|_| Instant::now());
         let prev_candle = self.show_candle_context;
         let prev_timeframe = self.selected_timeframe_ms;
         let prev_candle_bar_width = self.candle_bar_width;
+        let prev_candle_scale = self.candle_price_scale;
         let prev_xaxis = self.x_axis_mode;
         let prev_overview = self.show_broker_overview;
         let prev_metric = self.bottom_metric;
@@ -333,6 +352,32 @@ impl DashboardApp {
                                     format!("{:.0}px", w)
                                 };
                                 ui.selectable_value(&mut self.candle_bar_width, w, label);
+                            }
+                        });
+
+                    ui.label("Scale:");
+                    let current_scale_label = self.candle_price_scale.label();
+                    egui::ComboBox::from_id_salt("candle_price_scale_combo")
+                        .selected_text(current_scale_label)
+                        .show_ui(ui, |ui| {
+                            let was_auto = self.candle_price_scale == CandlePriceScaleMode::Auto;
+                            if ui
+                                .selectable_label(was_auto, "Auto (Default)")
+                                .clicked()
+                                && !was_auto
+                            {
+                                self.set_candle_price_scale(CandlePriceScaleMode::Auto);
+                            }
+                            for &pips in &VALID_CANDLE_FIXED_PIPS {
+                                let is_selected = self.candle_price_scale == CandlePriceScaleMode::Fixed(pips);
+                                let label = format!("Fixed: {:.0} pips", pips);
+                                if ui
+                                    .selectable_label(is_selected, label)
+                                    .clicked()
+                                    && !is_selected
+                                {
+                                    self.set_candle_price_scale(CandlePriceScaleMode::Fixed(pips));
+                                }
                             }
                         });
                 }
@@ -648,6 +693,9 @@ impl DashboardApp {
                     candle_view,
                     &snapshot.broker_overviews,
                     self.candle_bar_width,
+                    self.candle_price_scale,
+                    self.pip_size,
+                    &mut self.candle_chart_anchor,
                     fallback_price,
                     &self.theme,
                 );
@@ -872,10 +920,14 @@ impl DashboardApp {
         if self.show_candle_context != prev_candle
             || self.selected_timeframe_ms != prev_timeframe
             || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
+            || self.candle_price_scale != prev_candle_scale
             || self.x_axis_mode != prev_xaxis
             || self.show_broker_overview != prev_overview
             || self.bottom_metric != prev_metric
         {
+            if self.candle_price_scale != prev_candle_scale {
+                self.candle_chart_anchor = None;
+            }
             self.state_dirty = true;
         }
 
