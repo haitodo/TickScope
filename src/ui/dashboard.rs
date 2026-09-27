@@ -45,6 +45,7 @@ pub struct DashboardApp {
     last_diagnostics_snapshot_revision: u64,
     fonts_configured: bool,
     show_broker_overview: bool,
+    show_quick_settings: bool,
     ui_state_path: Option<PathBuf>,
     window_geometry: WindowGeometryState,
     state_dirty: bool,
@@ -81,6 +82,7 @@ impl DashboardApp {
             last_diagnostics_snapshot_revision: 0,
             fonts_configured: false,
             show_broker_overview: false,
+            show_quick_settings: false,
             ui_state_path: None,
             window_geometry: WindowGeometryState::default(),
             state_dirty: false,
@@ -159,6 +161,14 @@ impl DashboardApp {
             self.show_broker_overview = show;
             self.state_dirty = true;
         }
+    }
+
+    pub fn show_quick_settings(&self) -> bool {
+        self.show_quick_settings
+    }
+
+    pub fn set_show_quick_settings(&mut self, show: bool) {
+        self.show_quick_settings = show;
     }
 
     pub fn with_pip_size(mut self, pip_size: f64) -> Self {
@@ -352,109 +362,60 @@ impl DashboardApp {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(
-                    RichText::new("TickScope")
-                        .strong()
-                        .color(Color32::from_rgb(0, 200, 255)),
-                );
-                ui.separator();
-
-                // Timeframe selector
-                ui.checkbox(&mut self.show_candle_context, "Candle context");
+                // 1. Left Zone: Context Controls (操作ゾーン)
+                ui.checkbox(&mut self.show_candle_context, "Candle");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 60000, "M1");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 10000, "S10");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 5000, "S5");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 1000, "S1");
 
-                if self.show_candle_context {
-                    ui.separator();
-                    ui.label("Width:");
-                    let current_width_label = format!("{:.0}px", self.candle_bar_width);
-                    egui::ComboBox::from_id_salt("candle_bar_width_combo")
-                        .selected_text(current_width_label)
-                        .show_ui(ui, |ui| {
-                            for &w in &VALID_CANDLE_BAR_WIDTHS {
-                                let label = if (w - DEFAULT_CANDLE_BAR_WIDTH).abs() < 1e-4 {
-                                    format!("{:.0}px (Default)", w)
-                                } else {
-                                    format!("{:.0}px", w)
-                                };
-                                ui.selectable_value(&mut self.candle_bar_width, w, label);
-                            }
-                        });
+                ui.separator();
 
-                    ui.label("Scale:");
-                    let current_scale_label = self.candle_price_scale.label();
-                    egui::ComboBox::from_id_salt("candle_price_scale_combo")
-                        .selected_text(current_scale_label)
-                        .show_ui(ui, |ui| {
-                            let was_auto = self.candle_price_scale == CandlePriceScaleMode::Auto;
-                            if ui
-                                .selectable_label(was_auto, "Auto (Default)")
-                                .clicked()
-                                && !was_auto
-                            {
-                                self.set_candle_price_scale(CandlePriceScaleMode::Auto);
-                            }
-                            for &pips in &VALID_CANDLE_FIXED_PIPS {
-                                let is_selected = self.candle_price_scale == CandlePriceScaleMode::Fixed(pips);
-                                let label = format!("Fixed: {:.0} pips", pips);
-                                if ui
-                                    .selectable_label(is_selected, label)
-                                    .clicked()
-                                    && !is_selected
-                                {
-                                    self.set_candle_price_scale(CandlePriceScaleMode::Fixed(pips));
-                                }
-                            }
-                        });
-
-                    if let CandlePriceScaleMode::Fixed(_) = self.candle_price_scale {
-                        ui.label("Follow:");
-                        egui::ComboBox::from_id_salt("candle_follow_criteria_combo")
-                            .selected_text(self.candle_follow_criteria.label())
-                            .show_ui(ui, |ui| {
-                                let is_median = self.candle_follow_criteria == CandleFollowCriteria::Median;
-                                if ui
-                                    .selectable_label(is_median, "Median (中央値)")
-                                    .clicked()
-                                    && !is_median
-                                {
-                                    self.set_candle_follow_criteria(CandleFollowCriteria::Median);
-                                }
-                                let is_edge = self.candle_follow_criteria == CandleFollowCriteria::MarginEdge;
-                                if ui
-                                    .selectable_label(is_edge, "Margin Edge (余白端)")
-                                    .clicked()
-                                    && !is_edge
-                                {
-                                    self.set_candle_follow_criteria(CandleFollowCriteria::MarginEdge);
-                                }
-                            });
+                // 2. Center Zone: Live Telemetry HUD (監視HUD)
+                // (A) Observed Lead/Lag Badge with pair context
+                if let Some(comp) = &snapshot.active_pair_comparison {
+                    if let Some(m) = &comp.latest_match {
+                        let leader_name = snapshot
+                            .broker_overviews
+                            .iter()
+                            .find(|b| b.broker_id == m.leader)
+                            .map(|b| b.name.as_str())
+                            .unwrap_or("Leader");
+                        let ema_text = comp
+                            .ema_lead_lag_ms
+                            .map(|e| format!(" (EMA {:+.1}ms)", e))
+                            .unwrap_or_default();
+                        let badge = format!(
+                            "⚡ {} +{:.1}ms{}",
+                            leader_name,
+                            m.raw_delta_ms.abs(),
+                            ema_text
+                        );
+                        let lead_label = ui.label(
+                            RichText::new(badge)
+                                .strong()
+                                .color(Color32::from_rgb(255, 215, 0)),
+                        );
+                        lead_label.on_hover_text(format!(
+                            "Lead/Lag Match:\nPair: {} vs {}\nLeader: {}\nRaw Lead: {:.2} ms\nEMA Lead: {}\n\n(Key: [P] Cycle pair)",
+                            name_a,
+                            name_b,
+                            leader_name,
+                            m.raw_delta_ms.abs(),
+                            comp.ema_lead_lag_ms
+                                .map(|e| format!("{:+.2} ms", e))
+                                .unwrap_or_else(|| "N/A".to_string())
+                        ));
+                    } else {
+                        let none_label = ui.label(
+                            RichText::new(format!("⚡ Lead [{} vs {}]: None", name_a, name_b))
+                                .color(Color32::GRAY),
+                        );
+                        none_label.on_hover_text("No synchronous tick match detected yet.");
                     }
                 }
 
-                ui.separator();
-
-                ui.label("X:");
-                egui::ComboBox::from_id_salt("chart_x_axis_mode")
-                    .selected_text(self.x_axis_mode.label())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.x_axis_mode,
-                            ChartXAxisMode::ReceiveTime,
-                            ChartXAxisMode::ReceiveTime.label(),
-                        );
-                        ui.selectable_value(
-                            &mut self.x_axis_mode,
-                            ChartXAxisMode::TickCount,
-                            ChartXAxisMode::TickCount.label(),
-                        );
-                    });
-
-                ui.separator();
-
-                // Broker Overview Collapsing Toggle
+                // (B) Broker Overview Collapsing Toggle
                 let total_brokers = snapshot.broker_overviews.len();
                 let live_brokers = snapshot
                     .broker_overviews
@@ -466,9 +427,11 @@ impl DashboardApp {
                     .count();
 
                 let overview_arrow = if self.show_broker_overview { "▲" } else { "▼" };
-                let overview_text = format!("{} Brokers ({}/{})", overview_arrow, live_brokers, total_brokers);
-                let overview_color = if live_brokers > 0 {
+                let overview_text = format!("{} ● {}/{} Live", overview_arrow, live_brokers, total_brokers);
+                let overview_color = if live_brokers == total_brokers && total_brokers > 0 {
                     Color32::from_rgb(0, 220, 140)
+                } else if live_brokers > 0 {
+                    Color32::from_rgb(255, 200, 60)
                 } else {
                     Color32::from_rgb(255, 120, 120)
                 };
@@ -481,44 +444,46 @@ impl DashboardApp {
                     self.show_broker_overview = !self.show_broker_overview;
                 }
 
-                ui.separator();
-
-                // Observed Lead/Lag Badge with pair context
-                if let Some(comp) = &snapshot.active_pair_comparison {
-                    if let Some(m) = &comp.latest_match {
-                        let leader_name = snapshot
-                            .broker_overviews
-                            .iter()
-                            .find(|b| b.broker_id == m.leader)
-                            .map(|b| b.name.as_str())
-                            .unwrap_or("Leader");
-                        let ema_text = comp
-                            .ema_lead_lag_ms
-                            .map(|e| format!(" (EMA: {:+.1} ms)", e))
-                            .unwrap_or_default();
-                        let badge = format!(
-                            "Lead [{} vs {}]: {} ({:.1} ms){}",
-                            name_a,
-                            name_b,
-                            leader_name,
-                            m.raw_delta_ms.abs(),
-                            ema_text
-                        );
-                        ui.label(
-                            RichText::new(badge)
-                                .strong()
-                                .color(Color32::from_rgb(255, 215, 0)),
-                        );
-                    } else {
-                        ui.label(
-                            RichText::new(format!("Lead [{} vs {}]: None", name_a, name_b))
-                                .color(Color32::GRAY),
-                        );
-                    }
-                }
-
+                // 3. Right Zone: Utility & Settings (設定・ツール)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.checkbox(&mut self.show_debug_overlay, "Debug");
+
+                    let settings_btn = ui.selectable_label(
+                        self.show_quick_settings,
+                        RichText::new("⚙ Settings").strong(),
+                    );
+                    if settings_btn.on_hover_text("Open Quick Settings flyout [Key: S]").clicked() {
+                        self.show_quick_settings = !self.show_quick_settings;
+                    }
+
+                    if self.show_candle_context {
+                        let scale_label = match self.candle_price_scale {
+                            CandlePriceScaleMode::Auto => "Auto".to_string(),
+                            CandlePriceScaleMode::Fixed(p) => match self.candle_follow_criteria {
+                                CandleFollowCriteria::Median => format!("{:.0}p/Med", p),
+                                CandleFollowCriteria::MarginEdge => format!("{:.0}p/Edge", p),
+                            },
+                        };
+                        let badge_text = format!("[{:.0}px | {}]", self.candle_bar_width, scale_label);
+                        let badge_btn = ui.small_button(
+                            RichText::new(badge_text).color(Color32::from_rgb(180, 220, 255)),
+                        );
+                        if badge_btn.on_hover_text("Current Candle bar width & scale.\nClick to adjust settings [Key: S]").clicked() {
+                            self.show_quick_settings = true;
+                        }
+                    } else {
+                        let x_label = match self.x_axis_mode {
+                            ChartXAxisMode::ReceiveTime => "Time",
+                            ChartXAxisMode::TickCount => "Ticks",
+                        };
+                        let badge_text = format!("[X: {}]", x_label);
+                        let badge_btn = ui.small_button(
+                            RichText::new(badge_text).color(Color32::from_gray(180)),
+                        );
+                        if badge_btn.on_hover_text("Current X-axis mode.\nClick to adjust settings [Key: S]").clicked() {
+                            self.show_quick_settings = true;
+                        }
+                    }
                 });
             });
         });
@@ -706,6 +671,14 @@ impl DashboardApp {
                 self.cycle_pair(&broker_ids, !i.modifiers.shift);
             } else if i.key_pressed(egui::Key::B) {
                 self.show_broker_overview = !self.show_broker_overview;
+            } else if i.key_pressed(egui::Key::S) || i.key_pressed(egui::Key::Comma) {
+                self.show_quick_settings = !self.show_quick_settings;
+            } else if i.key_pressed(egui::Key::Escape) {
+                if self.show_quick_settings {
+                    self.show_quick_settings = false;
+                } else if self.show_broker_overview {
+                    self.show_broker_overview = false;
+                }
             }
         });
 
@@ -850,7 +823,7 @@ impl DashboardApp {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            RichText::new("Keys: [1-7] Metric, [P] Pair, [B] Brokers")
+                            RichText::new("Keys: [1-7] Metric, [P] Pair, [B] Brokers, [S] Settings")
                                 .color(Color32::from_gray(120))
                                 .small(),
                         );
@@ -946,6 +919,113 @@ impl DashboardApp {
                         &self.theme,
                     );
                 }
+            }
+
+            // Quick Settings Popover
+            if self.show_quick_settings {
+                let mut is_open = true;
+                egui::Window::new("⚙ Quick Settings")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 32.0))
+                    .default_width(320.0)
+                    .open(&mut is_open)
+                    .show(ctx, |ui| {
+                        ui.spacing_mut().item_spacing.y = 6.0;
+
+                        // 1. Candlestick Settings
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Candlestick Display")
+                                    .strong()
+                                    .color(Color32::from_rgb(180, 220, 255)),
+                            );
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Bar Width:");
+                            for &w in &VALID_CANDLE_BAR_WIDTHS {
+                                let is_sel = (self.candle_bar_width - w).abs() < 1e-4;
+                                let label = format!("{:.0}px", w);
+                                if ui.selectable_label(is_sel, label).clicked() {
+                                    self.set_candle_bar_width(w);
+                                }
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Price Scale:");
+                            let is_auto = self.candle_price_scale == CandlePriceScaleMode::Auto;
+                            if ui.selectable_label(is_auto, "Auto").clicked() {
+                                self.set_candle_price_scale(CandlePriceScaleMode::Auto);
+                            }
+                            for &pips in &VALID_CANDLE_FIXED_PIPS {
+                                let is_sel =
+                                    self.candle_price_scale == CandlePriceScaleMode::Fixed(pips);
+                                let label = format!("{:.0}p", pips);
+                                if ui.selectable_label(is_sel, label).clicked() {
+                                    self.set_candle_price_scale(CandlePriceScaleMode::Fixed(pips));
+                                }
+                            }
+                        });
+
+                        if let CandlePriceScaleMode::Fixed(_) = self.candle_price_scale {
+                            ui.horizontal(|ui| {
+                                ui.label("Follow Mode:");
+                                let is_med =
+                                    self.candle_follow_criteria == CandleFollowCriteria::Median;
+                                if ui.selectable_label(is_med, "Median (中央値)").clicked() {
+                                    self.set_candle_follow_criteria(CandleFollowCriteria::Median);
+                                }
+                                let is_edge =
+                                    self.candle_follow_criteria == CandleFollowCriteria::MarginEdge;
+                                if ui.selectable_label(is_edge, "Margin Edge (余白端)").clicked() {
+                                    self.set_candle_follow_criteria(
+                                        CandleFollowCriteria::MarginEdge,
+                                    );
+                                }
+                            });
+                        }
+
+                        ui.separator();
+
+                        // 2. Chart Axes & Timeline
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Chart Axes & Timeline")
+                                    .strong()
+                                    .color(Color32::from_rgb(180, 220, 255)),
+                            );
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("X-Axis Mode:");
+                            let is_time = self.x_axis_mode == ChartXAxisMode::ReceiveTime;
+                            if ui.selectable_label(is_time, "Receive Time").clicked() {
+                                self.x_axis_mode = ChartXAxisMode::ReceiveTime;
+                                self.state_dirty = true;
+                            }
+                            let is_ticks = self.x_axis_mode == ChartXAxisMode::TickCount;
+                            if ui.selectable_label(is_ticks, "Tick Count").clicked() {
+                                self.x_axis_mode = ChartXAxisMode::TickCount;
+                                self.state_dirty = true;
+                            }
+                        });
+
+                        ui.separator();
+
+                        // 3. Shortcuts Guide
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(
+                                    "Keys: [S] Settings, [B] Brokers, [P] Pair, [1-7] Metric, [Esc] Close",
+                                )
+                                .color(Color32::from_gray(140))
+                                .small(),
+                            );
+                        });
+                    });
+                self.show_quick_settings = is_open;
             }
 
             // Debug Overlay
@@ -1125,5 +1205,70 @@ mod tests {
 
         app.set_show_broker_overview(false);
         assert!(!app.show_broker_overview());
+    }
+
+    #[test]
+    fn test_show_quick_settings_toggle() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        // Default should be closed (false)
+        assert!(!app.show_quick_settings());
+
+        app.set_show_quick_settings(true);
+        assert!(app.show_quick_settings());
+
+        app.set_show_quick_settings(false);
+        assert!(!app.show_quick_settings());
+    }
+
+    #[test]
+    fn test_quick_settings_keyboard_shortcuts() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        let ctx = egui::Context::default();
+
+        // 1. Press S -> should open quick settings
+        let mut input_s = egui::RawInput::default();
+        input_s.events.push(egui::Event::Key {
+            key: egui::Key::S,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run(input_s, |ctx| {
+            app.render_ui(ctx);
+        });
+        assert!(app.show_quick_settings());
+
+        // 2. Press Escape -> should close quick settings
+        let mut input_esc = egui::RawInput::default();
+        input_esc.events.push(egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run(input_esc, |ctx| {
+            app.render_ui(ctx);
+        });
+        assert!(!app.show_quick_settings());
+
+        // 3. Press Comma -> should open quick settings
+        let mut input_comma = egui::RawInput::default();
+        input_comma.events.push(egui::Event::Key {
+            key: egui::Key::Comma,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run(input_comma, |ctx| {
+            app.render_ui(ctx);
+        });
+        assert!(app.show_quick_settings());
     }
 }
