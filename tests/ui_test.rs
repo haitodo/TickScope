@@ -258,6 +258,7 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
             let rect_narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 400.0));
             let painter_narrow = ui.painter_at(rect_narrow);
             let mut anchor = None;
+            let mut latch_narrow = None;
             draw_candlestick_chart_multi(
                 &painter_narrow,
                 rect_narrow,
@@ -265,9 +266,13 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
                 &[],
                 5.0,
                 tick_compare::ui::settings::CandlePriceScaleMode::Auto,
+                tick_compare::ui::settings::CandleFollowCriteria::Median,
                 0.01,
                 &mut anchor,
-                None,
+                &mut latch_narrow,
+                Some(150.0),
+                1000,
+                tick_compare::contracts::MonoNs(0),
                 &theme,
             );
 
@@ -275,6 +280,7 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
             let rect_wide = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1600.0, 400.0));
             let painter_wide = ui.painter_at(rect_wide);
             let mut fixed_anchor = None;
+            let mut latch_wide = None;
             draw_candlestick_chart_multi(
                 &painter_wide,
                 rect_wide,
@@ -282,9 +288,13 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
                 &[],
                 8.0,
                 tick_compare::ui::settings::CandlePriceScaleMode::Fixed(10.0),
+                tick_compare::ui::settings::CandleFollowCriteria::Median,
                 0.01,
                 &mut fixed_anchor,
-                None,
+                &mut latch_wide,
+                Some(150.0),
+                1000,
+                tick_compare::contracts::MonoNs(0),
                 &theme,
             );
             assert!(fixed_anchor.is_some(), "Fixed scale should set chart anchor");

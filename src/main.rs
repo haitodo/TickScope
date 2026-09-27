@@ -87,6 +87,7 @@ fn main() -> eframe::Result<()> {
     let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
     let visible_seconds = config.display.visible_seconds;
     let visible_ticks = config.display.visible_ticks;
+    let chart_max_quote_age_ms = config.display.chart_max_quote_age_ms;
     let mut coordinator = match RuntimeCoordinator::new_with_diagnostics(
         config,
         cli.diagnostics,
@@ -117,6 +118,7 @@ fn main() -> eframe::Result<()> {
         .with_pip_size(pip_size)
         .with_visible_seconds(visible_seconds)
         .with_visible_ticks(visible_ticks)
+        .with_chart_max_quote_age_ms(chart_max_quote_age_ms)
         .with_ui_state(&ui_state)
         .with_ui_state_path(ui_state_path)
         .with_pair_selection_handler(coordinator.pair_selection_handler());

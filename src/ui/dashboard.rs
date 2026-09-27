@@ -5,12 +5,13 @@ use crate::ui::chart::{
     draw_bid_ask_diff_chart, draw_candlestick_chart_multi, draw_lead_lag_view, draw_mid_diff_chart,
     draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
     draw_realtime_quote_path_chart, draw_spread_diff_chart, draw_state_ribbon, BottomMetric,
-    ChartTheme, ChartXAxisMode,
+    ChartTheme, ChartXAxisMode, MarginEdgeLatchSide,
 };
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
-    save_ui_state, CandlePriceScaleMode, UiState, WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH,
-    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, VALID_CANDLE_BAR_WIDTHS, VALID_CANDLE_FIXED_PIPS,
+    save_ui_state, CandleFollowCriteria, CandlePriceScaleMode, UiState, WindowGeometryState,
+    DEFAULT_CANDLE_BAR_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, VALID_CANDLE_BAR_WIDTHS,
+    VALID_CANDLE_FIXED_PIPS,
 };
 use eframe::egui;
 use egui::{Color32, RichText};
@@ -29,11 +30,14 @@ pub struct DashboardApp {
     show_candle_context: bool,
     candle_bar_width: f32,
     candle_price_scale: CandlePriceScaleMode,
+    candle_follow_criteria: CandleFollowCriteria,
     candle_chart_anchor: Option<f64>,
+    candle_margin_edge_latch: Option<MarginEdgeLatchSide>,
     chart_anchor: Option<f64>,
     pip_size: f64,
     visible_seconds: u64,
     visible_ticks: usize,
+    chart_max_quote_age_ms: u64,
     x_axis_mode: ChartXAxisMode,
     pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
     diagnostics: Option<DiagnosticsHandle>,
@@ -62,11 +66,14 @@ impl DashboardApp {
             show_candle_context: false,
             candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
             candle_price_scale: CandlePriceScaleMode::default(),
+            candle_follow_criteria: CandleFollowCriteria::default(),
             candle_chart_anchor: None,
+            candle_margin_edge_latch: None,
             chart_anchor: None,
             pip_size: 0.01,
             visible_seconds: 60,
             visible_ticks: 1200,
+            chart_max_quote_age_ms: 1000,
             x_axis_mode: ChartXAxisMode::default(),
             pair_selection_handler: None,
             diagnostics: None,
@@ -87,10 +94,16 @@ impl DashboardApp {
         self.selected_timeframe_ms = state.selected_timeframe_ms;
         self.candle_bar_width = state.candle_bar_width;
         self.candle_price_scale = state.candle_price_scale;
+        self.candle_follow_criteria = state.candle_follow_criteria;
         self.x_axis_mode = state.x_axis_mode;
         self.bottom_metric = state.bottom_metric;
         self.show_broker_overview = state.show_broker_overview;
         self.window_geometry = state.window.clone();
+        self
+    }
+
+    pub fn with_chart_max_quote_age_ms(mut self, age: u64) -> Self {
+        self.chart_max_quote_age_ms = age;
         self
     }
 
@@ -106,6 +119,7 @@ impl DashboardApp {
             selected_timeframe_ms: self.selected_timeframe_ms,
             candle_bar_width: self.candle_bar_width,
             candle_price_scale: self.candle_price_scale,
+            candle_follow_criteria: self.candle_follow_criteria,
             x_axis_mode: self.x_axis_mode,
             bottom_metric: self.bottom_metric,
             show_broker_overview: self.show_broker_overview,
@@ -276,6 +290,19 @@ impl DashboardApp {
         if self.candle_price_scale != mode {
             self.candle_price_scale = mode;
             self.candle_chart_anchor = None;
+            self.candle_margin_edge_latch = None;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn candle_follow_criteria(&self) -> CandleFollowCriteria {
+        self.candle_follow_criteria
+    }
+
+    pub fn set_candle_follow_criteria(&mut self, criteria: CandleFollowCriteria) {
+        if self.candle_follow_criteria != criteria {
+            self.candle_follow_criteria = criteria;
+            self.candle_margin_edge_latch = None;
             self.state_dirty = true;
         }
     }
@@ -286,6 +313,7 @@ impl DashboardApp {
         let prev_timeframe = self.selected_timeframe_ms;
         let prev_candle_bar_width = self.candle_bar_width;
         let prev_candle_scale = self.candle_price_scale;
+        let prev_candle_follow = self.candle_follow_criteria;
         let prev_xaxis = self.x_axis_mode;
         let prev_overview = self.show_broker_overview;
         let prev_metric = self.bottom_metric;
@@ -380,6 +408,30 @@ impl DashboardApp {
                                 }
                             }
                         });
+
+                    if let CandlePriceScaleMode::Fixed(_) = self.candle_price_scale {
+                        ui.label("Follow:");
+                        egui::ComboBox::from_id_salt("candle_follow_criteria_combo")
+                            .selected_text(self.candle_follow_criteria.label())
+                            .show_ui(ui, |ui| {
+                                let is_median = self.candle_follow_criteria == CandleFollowCriteria::Median;
+                                if ui
+                                    .selectable_label(is_median, "Median (中央値)")
+                                    .clicked()
+                                    && !is_median
+                                {
+                                    self.set_candle_follow_criteria(CandleFollowCriteria::Median);
+                                }
+                                let is_edge = self.candle_follow_criteria == CandleFollowCriteria::MarginEdge;
+                                if ui
+                                    .selectable_label(is_edge, "Margin Edge (余白端)")
+                                    .clicked()
+                                    && !is_edge
+                                {
+                                    self.set_candle_follow_criteria(CandleFollowCriteria::MarginEdge);
+                                }
+                            });
+                    }
                 }
 
                 ui.separator();
@@ -694,9 +746,13 @@ impl DashboardApp {
                     &snapshot.broker_overviews,
                     self.candle_bar_width,
                     self.candle_price_scale,
+                    self.candle_follow_criteria,
                     self.pip_size,
                     &mut self.candle_chart_anchor,
+                    &mut self.candle_margin_edge_latch,
                     fallback_price,
+                    self.chart_max_quote_age_ms,
+                    snapshot.built_mono_ns,
                     &self.theme,
                 );
             } else {
@@ -921,12 +977,17 @@ impl DashboardApp {
             || self.selected_timeframe_ms != prev_timeframe
             || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
             || self.candle_price_scale != prev_candle_scale
+            || self.candle_follow_criteria != prev_candle_follow
             || self.x_axis_mode != prev_xaxis
             || self.show_broker_overview != prev_overview
             || self.bottom_metric != prev_metric
         {
             if self.candle_price_scale != prev_candle_scale {
                 self.candle_chart_anchor = None;
+                self.candle_margin_edge_latch = None;
+            }
+            if self.candle_follow_criteria != prev_candle_follow {
+                self.candle_margin_edge_latch = None;
             }
             self.state_dirty = true;
         }

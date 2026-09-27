@@ -81,6 +81,9 @@ timeframe_ms = 60000
 visible_seconds = 60
 # Tick count X-axis mode keeps this many most recent chart updates.
 visible_ticks = 1200
+# Maximum quote age in milliseconds for candle chart fixed-scale follow calculation.
+# Defaults to 1000ms. Can be reduced (e.g. 200-500ms) for high-frequency ECN scalping.
+chart_max_quote_age_ms = 1000
 
 [history]
 ledger_capacity = 16384

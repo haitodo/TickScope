@@ -238,6 +238,8 @@ pub struct DisplayConfig {
     pub visible_seconds: u64,
     #[serde(default = "default_visible_ticks")]
     pub visible_ticks: usize,
+    #[serde(default = "default_chart_max_quote_age")]
+    pub chart_max_quote_age_ms: u64,
 }
 
 fn default_repaint_hz() -> u32 {
@@ -252,6 +254,9 @@ fn default_visible_seconds() -> u64 {
 fn default_visible_ticks() -> usize {
     1200
 }
+fn default_chart_max_quote_age() -> u64 {
+    1000
+}
 
 impl Default for DisplayConfig {
     fn default() -> Self {
@@ -260,6 +265,7 @@ impl Default for DisplayConfig {
             timeframe_ms: default_timeframe_ms(),
             visible_seconds: default_visible_seconds(),
             visible_ticks: default_visible_ticks(),
+            chart_max_quote_age_ms: default_chart_max_quote_age(),
         }
     }
 }
@@ -488,6 +494,9 @@ impl AppConfig {
         }
         if self.display.visible_ticks == 0 {
             return Err("display.visible_ticks must be positive".to_string());
+        }
+        if self.display.chart_max_quote_age_ms < 50 {
+            return Err("display.chart_max_quote_age_ms must be at least 50 ms".to_string());
         }
 
         Ok(())

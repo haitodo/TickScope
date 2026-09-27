@@ -34,6 +34,23 @@ impl CandlePriceScaleMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandleFollowCriteria {
+    #[default]
+    Median,
+    MarginEdge,
+}
+
+impl CandleFollowCriteria {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Median => "Median",
+            Self::MarginEdge => "Margin Edge",
+        }
+    }
+}
+
 fn default_active_pair() -> (BrokerId, BrokerId) {
     (1, 2)
 }
@@ -105,6 +122,8 @@ pub struct UiState {
     #[serde(default)]
     pub candle_price_scale: CandlePriceScaleMode,
     #[serde(default)]
+    pub candle_follow_criteria: CandleFollowCriteria,
+    #[serde(default)]
     pub window: WindowGeometryState,
 }
 
@@ -116,6 +135,7 @@ impl Default for UiState {
             selected_timeframe_ms: default_timeframe_ms(),
             candle_bar_width: default_candle_bar_width(),
             candle_price_scale: CandlePriceScaleMode::default(),
+            candle_follow_criteria: CandleFollowCriteria::default(),
             x_axis_mode: ChartXAxisMode::default(),
             bottom_metric: BottomMetric::default(),
             show_broker_overview: false,
@@ -244,6 +264,7 @@ mod tests {
             selected_timeframe_ms: 10000,
             candle_bar_width: 6.0,
             candle_price_scale: CandlePriceScaleMode::Fixed(10.0),
+            candle_follow_criteria: CandleFollowCriteria::MarginEdge,
             x_axis_mode: ChartXAxisMode::TickCount,
             bottom_metric: BottomMetric::SpreadDiff,
             show_broker_overview: true,
@@ -267,6 +288,7 @@ mod tests {
             selected_timeframe_ms: 42000, // Invalid timeframe
             candle_bar_width: 99.0,       // Invalid width -> should sanitize to default
             candle_price_scale: CandlePriceScaleMode::Fixed(99.0), // Invalid fixed pips -> should sanitize to Auto
+            candle_follow_criteria: CandleFollowCriteria::Median,
             x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_metric: BottomMetric::MidDiff,
             show_broker_overview: false,
