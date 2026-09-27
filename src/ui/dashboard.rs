@@ -5,7 +5,7 @@ use crate::ui::chart::{
     draw_bid_ask_diff_chart, draw_candlestick_chart_multi, draw_lead_lag_view, draw_mid_diff_chart,
     draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
     draw_realtime_quote_path_chart, draw_spread_diff_chart, draw_state_ribbon, BottomMetric,
-    ChartTheme, ChartXAxisMode, MarginEdgeLatchSide,
+    BottomMetricCategory, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide,
 };
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
@@ -34,11 +34,13 @@ pub struct DashboardApp {
     candle_chart_anchor: Option<f64>,
     candle_margin_edge_latch: Option<MarginEdgeLatchSide>,
     chart_anchor: Option<f64>,
+    bottom_chart_anchor: Option<f64>,
     pip_size: f64,
     visible_seconds: u64,
     visible_ticks: usize,
     chart_max_quote_age_ms: u64,
-    x_axis_mode: ChartXAxisMode,
+    top_x_axis_mode: ChartXAxisMode,
+    bottom_x_axis_mode: ChartXAxisMode,
     pair_selection_handler: Option<Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>>,
     diagnostics: Option<DiagnosticsHandle>,
     diagnostics_clock: Option<Arc<dyn ClockPort>>,
@@ -71,11 +73,13 @@ impl DashboardApp {
             candle_chart_anchor: None,
             candle_margin_edge_latch: None,
             chart_anchor: None,
+            bottom_chart_anchor: None,
             pip_size: 0.01,
             visible_seconds: 60,
             visible_ticks: 1200,
             chart_max_quote_age_ms: 1000,
-            x_axis_mode: ChartXAxisMode::default(),
+            top_x_axis_mode: ChartXAxisMode::default(),
+            bottom_x_axis_mode: ChartXAxisMode::default(),
             pair_selection_handler: None,
             diagnostics: None,
             diagnostics_clock: None,
@@ -97,7 +101,8 @@ impl DashboardApp {
         self.candle_bar_width = state.candle_bar_width;
         self.candle_price_scale = state.candle_price_scale;
         self.candle_follow_criteria = state.candle_follow_criteria;
-        self.x_axis_mode = state.x_axis_mode;
+        self.top_x_axis_mode = state.top_x_axis_mode;
+        self.bottom_x_axis_mode = state.bottom_x_axis_mode;
         self.bottom_metric = state.bottom_metric;
         self.show_broker_overview = state.show_broker_overview;
         self.window_geometry = state.window.clone();
@@ -122,7 +127,8 @@ impl DashboardApp {
             candle_bar_width: self.candle_bar_width,
             candle_price_scale: self.candle_price_scale,
             candle_follow_criteria: self.candle_follow_criteria,
-            x_axis_mode: self.x_axis_mode,
+            top_x_axis_mode: self.top_x_axis_mode,
+            bottom_x_axis_mode: self.bottom_x_axis_mode,
             bottom_metric: self.bottom_metric,
             show_broker_overview: self.show_broker_overview,
             window: self.window_geometry.clone(),
@@ -317,6 +323,36 @@ impl DashboardApp {
         }
     }
 
+    pub fn top_x_axis_mode(&self) -> ChartXAxisMode {
+        self.top_x_axis_mode
+    }
+
+    pub fn set_top_x_axis_mode(&mut self, mode: ChartXAxisMode) {
+        if self.top_x_axis_mode != mode {
+            self.top_x_axis_mode = mode;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn bottom_x_axis_mode(&self) -> ChartXAxisMode {
+        self.bottom_x_axis_mode
+    }
+
+    pub fn set_bottom_x_axis_mode(&mut self, mode: ChartXAxisMode) {
+        if self.bottom_x_axis_mode != mode {
+            self.bottom_x_axis_mode = mode;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn x_axis_mode(&self) -> ChartXAxisMode {
+        self.top_x_axis_mode
+    }
+
+    pub fn set_x_axis_mode(&mut self, mode: ChartXAxisMode) {
+        self.set_top_x_axis_mode(mode);
+    }
+
     pub fn render_ui(&mut self, ctx: &egui::Context) {
         let ui_render_start = self.diagnostics.as_ref().map(|_| Instant::now());
         let prev_candle = self.show_candle_context;
@@ -324,7 +360,8 @@ impl DashboardApp {
         let prev_candle_bar_width = self.candle_bar_width;
         let prev_candle_scale = self.candle_price_scale;
         let prev_candle_follow = self.candle_follow_criteria;
-        let prev_xaxis = self.x_axis_mode;
+        let prev_top_xaxis = self.top_x_axis_mode;
+        let prev_bottom_xaxis = self.bottom_x_axis_mode;
         let prev_overview = self.show_broker_overview;
         let prev_metric = self.bottom_metric;
 
@@ -472,16 +509,19 @@ impl DashboardApp {
                             self.show_quick_settings = true;
                         }
                     } else {
-                        let x_label = match self.x_axis_mode {
+                        let x_label = match self.top_x_axis_mode {
                             ChartXAxisMode::ReceiveTime => "Time",
                             ChartXAxisMode::TickCount => "Ticks",
                         };
-                        let badge_text = format!("[X: {}]", x_label);
+                        let badge_text = format!("[Top X: {}]", x_label);
                         let badge_btn = ui.small_button(
                             RichText::new(badge_text).color(Color32::from_gray(180)),
                         );
-                        if badge_btn.on_hover_text("Current X-axis mode.\nClick to adjust settings [Key: S]").clicked() {
-                            self.show_quick_settings = true;
+                        if badge_btn.on_hover_text("Current Top X-axis mode.\nClick to toggle mode [Key: S]").clicked() {
+                            self.set_top_x_axis_mode(match self.top_x_axis_mode {
+                                ChartXAxisMode::ReceiveTime => ChartXAxisMode::TickCount,
+                                ChartXAxisMode::TickCount => ChartXAxisMode::ReceiveTime,
+                            });
                         }
                     }
                 });
@@ -656,6 +696,8 @@ impl DashboardApp {
                 self.bottom_metric = BottomMetric::MoveBreadthView;
             } else if i.key_pressed(egui::Key::Num7) {
                 self.bottom_metric = BottomMetric::QuotePersistence;
+            } else if i.key_pressed(egui::Key::Num8) {
+                self.bottom_metric = BottomMetric::QuotePath;
             } else if i.key_pressed(egui::Key::Tab) {
                 if i.modifiers.shift {
                     self.bottom_metric = self.bottom_metric.prev();
@@ -735,7 +777,7 @@ impl DashboardApp {
                     &snapshot.realtime_quote_points,
                     &snapshot.broker_overviews,
                     self.selected_pair(),
-                    self.x_axis_mode,
+                    self.top_x_axis_mode,
                     snapshot.built_mono_ns,
                     self.visible_seconds,
                     self.visible_ticks,
@@ -748,6 +790,7 @@ impl DashboardApp {
             }
 
             // 2. Bottom Metric Selector Toolbar
+            let toolbar_height = 24.0;
             let toolbar_rect = egui::Rect::from_min_size(
                 egui::Pos2::new(available_rect.left(), candle_rect.bottom() + 4.0),
                 egui::Vec2::new(available_rect.width(), toolbar_height),
@@ -755,34 +798,74 @@ impl DashboardApp {
 
             ui.allocate_new_ui(egui::UiBuilder::new().max_rect(toolbar_rect), |ui| {
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+
+                    // 1. Left Zone: Indicator Selector (ComboBox + Prev/Next buttons)
                     ui.label(
                         RichText::new("Indicator:")
                             .color(Color32::from_rgb(180, 200, 220))
                             .strong(),
                     );
 
-                    for &m in &BottomMetric::ALL {
-                        let is_active = self.bottom_metric == m;
-                        let text = RichText::new(m.label());
-                        let rich = if is_active {
-                            text.strong().color(Color32::from_rgb(0, 220, 255))
-                        } else {
-                            text.color(Color32::from_gray(160))
-                        };
-                        if ui.selectable_label(is_active, rich).clicked() {
-                            self.bottom_metric = m;
-                        }
+                    let prev_btn = ui.small_button("◀");
+                    if prev_btn
+                        .on_hover_text(format!(
+                            "Previous metric: {} [Shift+Tab]",
+                            self.bottom_metric.prev().label()
+                        ))
+                        .clicked()
+                    {
+                        self.bottom_metric = self.bottom_metric.prev();
                     }
 
-                    let is_pair_metric = matches!(
-                        self.bottom_metric,
-                        BottomMetric::MidDiff
-                            | BottomMetric::BidAskDiff
-                            | BottomMetric::SpreadDiff
-                            | BottomMetric::LeadLag
-                    );
+                    egui::ComboBox::from_id_salt("bottom_metric_combobox")
+                        .selected_text(
+                            RichText::new(self.bottom_metric.label())
+                                .strong()
+                                .color(Color32::from_rgb(0, 220, 255)),
+                        )
+                        .width(155.0)
+                        .show_ui(ui, |ui| {
+                            for &category in &BottomMetricCategory::ALL {
+                                ui.label(
+                                    RichText::new(category.title())
+                                        .small()
+                                        .strong()
+                                        .color(Color32::from_rgb(180, 200, 220)),
+                                );
+                                for &m in category.metrics() {
+                                    let is_active = self.bottom_metric == m;
+                                    let text = RichText::new(m.label());
+                                    let rich = if is_active {
+                                        text.strong().color(Color32::from_rgb(0, 220, 255))
+                                    } else {
+                                        text.color(Color32::WHITE)
+                                    };
+                                    let resp = ui.selectable_label(is_active, rich);
+                                    if resp
+                                        .on_hover_text(format!("{} [Key: {}]", m.title(), m.key_number()))
+                                        .clicked()
+                                    {
+                                        self.bottom_metric = m;
+                                    }
+                                }
+                                ui.separator();
+                            }
+                        });
 
-                    if is_pair_metric {
+                    let next_btn = ui.small_button("▶");
+                    if next_btn
+                        .on_hover_text(format!(
+                            "Next metric: {} [Tab]",
+                            self.bottom_metric.next().label()
+                        ))
+                        .clicked()
+                    {
+                        self.bottom_metric = self.bottom_metric.next();
+                    }
+
+                    // 2. Center Zone: Pair Selector (Pair系指標 1〜4 のみ表示)
+                    if self.bottom_metric.is_pair_metric() {
                         ui.separator();
                         ui.label(RichText::new("Pair:").color(Color32::from_gray(160)).small());
 
@@ -820,6 +903,19 @@ impl DashboardApp {
                             },
                         );
                     }
+
+                    // 3. Right Zone: Bottom X-Axis Mode (右寄せ)
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let is_b_ticks = self.bottom_x_axis_mode == ChartXAxisMode::TickCount;
+                        if ui.selectable_label(is_b_ticks, "Ticks").clicked() {
+                            self.set_bottom_x_axis_mode(ChartXAxisMode::TickCount);
+                        }
+                        let is_b_time = self.bottom_x_axis_mode == ChartXAxisMode::ReceiveTime;
+                        if ui.selectable_label(is_b_time, "Time").clicked() {
+                            self.set_bottom_x_axis_mode(ChartXAxisMode::ReceiveTime);
+                        }
+                        ui.label(RichText::new("Bottom X:").color(Color32::from_gray(160)).small());
+                    });
                 });
             });
 
@@ -842,7 +938,7 @@ impl DashboardApp {
                         bottom_rect,
                         series,
                         comparison,
-                        self.x_axis_mode,
+                        self.bottom_x_axis_mode,
                         snapshot.built_mono_ns,
                         self.visible_seconds,
                         self.visible_ticks,
@@ -855,7 +951,7 @@ impl DashboardApp {
                         bottom_rect,
                         series,
                         comparison,
-                        self.x_axis_mode,
+                        self.bottom_x_axis_mode,
                         snapshot.built_mono_ns,
                         self.visible_seconds,
                         self.visible_ticks,
@@ -868,7 +964,7 @@ impl DashboardApp {
                         bottom_rect,
                         series,
                         comparison,
-                        self.x_axis_mode,
+                        self.bottom_x_axis_mode,
                         snapshot.built_mono_ns,
                         self.visible_seconds,
                         self.visible_ticks,
@@ -908,6 +1004,24 @@ impl DashboardApp {
                         &bottom_painter,
                         bottom_rect,
                         &snapshot.broker_overviews,
+                        &self.theme,
+                    );
+                }
+                BottomMetric::QuotePath => {
+                    draw_realtime_quote_path_chart(
+                        &bottom_painter,
+                        bottom_rect,
+                        &snapshot.realtime_quote_points,
+                        &snapshot.broker_overviews,
+                        self.selected_pair(),
+                        self.bottom_x_axis_mode,
+                        snapshot.built_mono_ns,
+                        self.visible_seconds,
+                        self.visible_ticks,
+                        self.pip_size,
+                        5.0,
+                        0.4,
+                        &mut self.bottom_chart_anchor,
                         &self.theme,
                     );
                 }
@@ -991,16 +1105,26 @@ impl DashboardApp {
                         });
 
                         ui.horizontal(|ui| {
-                            ui.label("X-Axis Mode:");
-                            let is_time = self.x_axis_mode == ChartXAxisMode::ReceiveTime;
+                            ui.label("Top X-Axis:");
+                            let is_time = self.top_x_axis_mode == ChartXAxisMode::ReceiveTime;
                             if ui.selectable_label(is_time, "Receive Time").clicked() {
-                                self.x_axis_mode = ChartXAxisMode::ReceiveTime;
-                                self.state_dirty = true;
+                                self.set_top_x_axis_mode(ChartXAxisMode::ReceiveTime);
                             }
-                            let is_ticks = self.x_axis_mode == ChartXAxisMode::TickCount;
+                            let is_ticks = self.top_x_axis_mode == ChartXAxisMode::TickCount;
                             if ui.selectable_label(is_ticks, "Tick Count").clicked() {
-                                self.x_axis_mode = ChartXAxisMode::TickCount;
-                                self.state_dirty = true;
+                                self.set_top_x_axis_mode(ChartXAxisMode::TickCount);
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Bottom X-Axis:");
+                            let is_time = self.bottom_x_axis_mode == ChartXAxisMode::ReceiveTime;
+                            if ui.selectable_label(is_time, "Receive Time").clicked() {
+                                self.set_bottom_x_axis_mode(ChartXAxisMode::ReceiveTime);
+                            }
+                            let is_ticks = self.bottom_x_axis_mode == ChartXAxisMode::TickCount;
+                            if ui.selectable_label(is_ticks, "Tick Count").clicked() {
+                                self.set_bottom_x_axis_mode(ChartXAxisMode::TickCount);
                             }
                         });
 
@@ -1010,7 +1134,7 @@ impl DashboardApp {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(
-                                    "Keys: [S] Settings, [B] Brokers, [P] Pair, [1-7] Metric, [Esc] Close",
+                                    "Keys: [S] Settings, [B] Brokers, [P] Pair, [1-8] Metric, [Esc] Close",
                                 )
                                 .color(Color32::from_gray(140))
                                 .small(),
@@ -1050,7 +1174,8 @@ impl DashboardApp {
             || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
             || self.candle_price_scale != prev_candle_scale
             || self.candle_follow_criteria != prev_candle_follow
-            || self.x_axis_mode != prev_xaxis
+            || self.top_x_axis_mode != prev_top_xaxis
+            || self.bottom_x_axis_mode != prev_bottom_xaxis
             || self.show_broker_overview != prev_overview
             || self.bottom_metric != prev_metric
         {

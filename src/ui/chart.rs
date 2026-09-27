@@ -50,10 +50,11 @@ pub enum BottomMetric {
     MidDispersion,
     MoveBreadthView,
     QuotePersistence,
+    QuotePath,
 }
 
 impl BottomMetric {
-    pub const ALL: [BottomMetric; 7] = [
+    pub const ALL: [BottomMetric; 8] = [
         BottomMetric::MidDiff,
         BottomMetric::BidAskDiff,
         BottomMetric::SpreadDiff,
@@ -61,6 +62,7 @@ impl BottomMetric {
         BottomMetric::MidDispersion,
         BottomMetric::MoveBreadthView,
         BottomMetric::QuotePersistence,
+        BottomMetric::QuotePath,
     ];
 
     pub fn key_number(&self) -> u32 {
@@ -72,6 +74,7 @@ impl BottomMetric {
             BottomMetric::MidDispersion => 5,
             BottomMetric::MoveBreadthView => 6,
             BottomMetric::QuotePersistence => 7,
+            BottomMetric::QuotePath => 8,
         }
     }
 
@@ -84,6 +87,7 @@ impl BottomMetric {
             BottomMetric::MidDispersion => "5: Dispersion",
             BottomMetric::MoveBreadthView => "6: Breadth",
             BottomMetric::QuotePersistence => "7: Persistence",
+            BottomMetric::QuotePath => "8: Quote Path",
         }
     }
 
@@ -96,6 +100,7 @@ impl BottomMetric {
             BottomMetric::MidDispersion => "Mid Dispersion (Deviation from Broker Median)",
             BottomMetric::MoveBreadthView => "Directional Move Breadth",
             BottomMetric::QuotePersistence => "Quote Freshness / Age per Broker",
+            BottomMetric::QuotePath => "Realtime Multi-Broker Quote Path",
         }
     }
 
@@ -107,19 +112,21 @@ impl BottomMetric {
             BottomMetric::LeadLag => BottomMetric::MidDispersion,
             BottomMetric::MidDispersion => BottomMetric::MoveBreadthView,
             BottomMetric::MoveBreadthView => BottomMetric::QuotePersistence,
-            BottomMetric::QuotePersistence => BottomMetric::MidDiff,
+            BottomMetric::QuotePersistence => BottomMetric::QuotePath,
+            BottomMetric::QuotePath => BottomMetric::MidDiff,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            BottomMetric::MidDiff => BottomMetric::QuotePersistence,
+            BottomMetric::MidDiff => BottomMetric::QuotePath,
             BottomMetric::BidAskDiff => BottomMetric::MidDiff,
             BottomMetric::SpreadDiff => BottomMetric::BidAskDiff,
             BottomMetric::LeadLag => BottomMetric::SpreadDiff,
             BottomMetric::MidDispersion => BottomMetric::LeadLag,
             BottomMetric::MoveBreadthView => BottomMetric::MidDispersion,
             BottomMetric::QuotePersistence => BottomMetric::MoveBreadthView,
+            BottomMetric::QuotePath => BottomMetric::QuotePersistence,
         }
     }
 
@@ -132,7 +139,64 @@ impl BottomMetric {
             5 => Some(BottomMetric::MidDispersion),
             6 => Some(BottomMetric::MoveBreadthView),
             7 => Some(BottomMetric::QuotePersistence),
+            8 => Some(BottomMetric::QuotePath),
             _ => None,
+        }
+    }
+
+    pub fn category(&self) -> BottomMetricCategory {
+        match self {
+            Self::MidDiff | Self::BidAskDiff | Self::SpreadDiff | Self::LeadLag => {
+                BottomMetricCategory::PairDiff
+            }
+            Self::MidDispersion | Self::MoveBreadthView | Self::QuotePersistence => {
+                BottomMetricCategory::MarketConsensus
+            }
+            Self::QuotePath => BottomMetricCategory::RawQuotes,
+        }
+    }
+
+    pub fn is_pair_metric(&self) -> bool {
+        matches!(self.category(), BottomMetricCategory::PairDiff)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BottomMetricCategory {
+    PairDiff,
+    MarketConsensus,
+    RawQuotes,
+}
+
+impl BottomMetricCategory {
+    pub const ALL: [BottomMetricCategory; 3] = [
+        BottomMetricCategory::PairDiff,
+        BottomMetricCategory::MarketConsensus,
+        BottomMetricCategory::RawQuotes,
+    ];
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::PairDiff => "Pair Differentials (2社比較)",
+            Self::MarketConsensus => "Market Consensus (市場統計)",
+            Self::RawQuotes => "Raw Quotes / Ticks (リアルタイム価格)",
+        }
+    }
+
+    pub fn metrics(&self) -> &'static [BottomMetric] {
+        match self {
+            Self::PairDiff => &[
+                BottomMetric::MidDiff,
+                BottomMetric::BidAskDiff,
+                BottomMetric::SpreadDiff,
+                BottomMetric::LeadLag,
+            ],
+            Self::MarketConsensus => &[
+                BottomMetric::MidDispersion,
+                BottomMetric::MoveBreadthView,
+                BottomMetric::QuotePersistence,
+            ],
+            Self::RawQuotes => &[BottomMetric::QuotePath],
         }
     }
 }

@@ -111,8 +111,10 @@ pub struct UiState {
     pub show_candle_context: bool,
     #[serde(default = "default_timeframe_ms")]
     pub selected_timeframe_ms: i64,
+    #[serde(default, alias = "x_axis_mode")]
+    pub top_x_axis_mode: ChartXAxisMode,
     #[serde(default)]
-    pub x_axis_mode: ChartXAxisMode,
+    pub bottom_x_axis_mode: ChartXAxisMode,
     #[serde(default)]
     pub bottom_metric: BottomMetric,
     #[serde(default)]
@@ -136,7 +138,8 @@ impl Default for UiState {
             candle_bar_width: default_candle_bar_width(),
             candle_price_scale: CandlePriceScaleMode::default(),
             candle_follow_criteria: CandleFollowCriteria::default(),
-            x_axis_mode: ChartXAxisMode::default(),
+            top_x_axis_mode: ChartXAxisMode::default(),
+            bottom_x_axis_mode: ChartXAxisMode::default(),
             bottom_metric: BottomMetric::default(),
             show_broker_overview: false,
             window: WindowGeometryState::default(),
@@ -265,7 +268,8 @@ mod tests {
             candle_bar_width: 6.0,
             candle_price_scale: CandlePriceScaleMode::Fixed(10.0),
             candle_follow_criteria: CandleFollowCriteria::MarginEdge,
-            x_axis_mode: ChartXAxisMode::TickCount,
+            top_x_axis_mode: ChartXAxisMode::TickCount,
+            bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_metric: BottomMetric::SpreadDiff,
             show_broker_overview: true,
             window: WindowGeometryState {
@@ -281,6 +285,21 @@ mod tests {
     }
 
     #[test]
+    fn test_legacy_ui_state_deserialization() {
+        let legacy_json = r#"{
+            "active_pair": [1, 2],
+            "show_candle_context": false,
+            "x_axis_mode": "TickCount",
+            "bottom_metric": "MidDiff"
+        }"#;
+
+        let state: UiState = serde_json::from_str(legacy_json).expect("should deserialize legacy json");
+        assert_eq!(state.top_x_axis_mode, ChartXAxisMode::TickCount);
+        assert_eq!(state.bottom_x_axis_mode, ChartXAxisMode::ReceiveTime);
+        assert_eq!(state.bottom_metric, BottomMetric::MidDiff);
+    }
+
+    #[test]
     fn test_ui_state_sanitize_and_reconcile() {
         let mut state = UiState {
             active_pair: (99, 100),
@@ -289,7 +308,8 @@ mod tests {
             candle_bar_width: 99.0,       // Invalid width -> should sanitize to default
             candle_price_scale: CandlePriceScaleMode::Fixed(99.0), // Invalid fixed pips -> should sanitize to Auto
             candle_follow_criteria: CandleFollowCriteria::Median,
-            x_axis_mode: ChartXAxisMode::ReceiveTime,
+            top_x_axis_mode: ChartXAxisMode::ReceiveTime,
+            bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_metric: BottomMetric::MidDiff,
             show_broker_overview: false,
             window: WindowGeometryState {

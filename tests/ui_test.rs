@@ -313,9 +313,11 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     assert_eq!(BottomMetric::LeadLag.next(), BottomMetric::MidDispersion);
     assert_eq!(BottomMetric::MidDispersion.next(), BottomMetric::MoveBreadthView);
     assert_eq!(BottomMetric::MoveBreadthView.next(), BottomMetric::QuotePersistence);
-    assert_eq!(BottomMetric::QuotePersistence.next(), BottomMetric::MidDiff);
+    assert_eq!(BottomMetric::QuotePersistence.next(), BottomMetric::QuotePath);
+    assert_eq!(BottomMetric::QuotePath.next(), BottomMetric::MidDiff);
 
-    assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::QuotePersistence);
+    assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::QuotePath);
+    assert_eq!(BottomMetric::QuotePath.prev(), BottomMetric::QuotePersistence);
     assert_eq!(BottomMetric::QuotePersistence.prev(), BottomMetric::MoveBreadthView);
     assert_eq!(BottomMetric::MoveBreadthView.prev(), BottomMetric::MidDispersion);
     assert_eq!(BottomMetric::MidDispersion.prev(), BottomMetric::LeadLag);
@@ -331,6 +333,7 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     assert_eq!(BottomMetric::from_key_number(5), Some(BottomMetric::MidDispersion));
     assert_eq!(BottomMetric::from_key_number(6), Some(BottomMetric::MoveBreadthView));
     assert_eq!(BottomMetric::from_key_number(7), Some(BottomMetric::QuotePersistence));
+    assert_eq!(BottomMetric::from_key_number(8), Some(BottomMetric::QuotePath));
 
     // 3. UI Key input event simulation
     let run_id = RunId([3u8; 16]);
@@ -428,6 +431,20 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         app.render_ui(ctx);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
+
+    // Simulate pressing Key 8 (Num8) -> should switch to QuotePath
+    let mut input8 = egui::RawInput::default();
+    input8.events.push(egui::Event::Key {
+        key: egui::Key::Num8,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input8, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::QuotePath);
 }
 
 #[test]
@@ -637,3 +654,41 @@ fn test_ui_settings_persistence_lifecycle() {
     assert_eq!(loaded.active_pair, (1, 2));
 }
 
+#[test]
+fn test_independent_top_and_bottom_x_axis_mode() {
+    use tick_compare::ui::chart::ChartXAxisMode;
+    use tick_compare::ui::settings::load_ui_state;
+
+    let dir = tempfile::tempdir().unwrap();
+    let state_file = dir.path().join("ui_state.json");
+    let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+
+    let mut app = DashboardApp::new(exchange.clone(), (1, 2))
+        .with_ui_state_path(state_file.clone());
+
+    // Initial defaults
+    assert_eq!(app.top_x_axis_mode(), ChartXAxisMode::ReceiveTime);
+    assert_eq!(app.bottom_x_axis_mode(), ChartXAxisMode::ReceiveTime);
+
+    // Set Top to TickCount while Bottom remains ReceiveTime
+    app.set_top_x_axis_mode(ChartXAxisMode::TickCount);
+    assert_eq!(app.top_x_axis_mode(), ChartXAxisMode::TickCount);
+    assert_eq!(app.bottom_x_axis_mode(), ChartXAxisMode::ReceiveTime);
+
+    // Set Bottom to TickCount, Top to ReceiveTime
+    app.set_bottom_x_axis_mode(ChartXAxisMode::TickCount);
+    app.set_top_x_axis_mode(ChartXAxisMode::ReceiveTime);
+    assert_eq!(app.top_x_axis_mode(), ChartXAxisMode::ReceiveTime);
+    assert_eq!(app.bottom_x_axis_mode(), ChartXAxisMode::TickCount);
+
+    // Save and verify persistence
+    app.save_state();
+    let loaded = load_ui_state(&state_file).expect("UI state should load");
+    assert_eq!(loaded.top_x_axis_mode, ChartXAxisMode::ReceiveTime);
+    assert_eq!(loaded.bottom_x_axis_mode, ChartXAxisMode::TickCount);
+
+    // Restore in new app instance
+    let restored = DashboardApp::new(exchange, (1, 2)).with_ui_state(&loaded);
+    assert_eq!(restored.top_x_axis_mode(), ChartXAxisMode::ReceiveTime);
+    assert_eq!(restored.bottom_x_axis_mode(), ChartXAxisMode::TickCount);
+}
