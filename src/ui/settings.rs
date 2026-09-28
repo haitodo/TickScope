@@ -2,6 +2,7 @@
 //! Saves and restores UI interactive state and window geometry across application sessions.
 
 use crate::contracts::config::BrokerConfig;
+use crate::contracts::models::PriceMode;
 use crate::contracts::types::BrokerId;
 use crate::ui::chart::{BottomMetric, ChartXAxisMode};
 use serde::{Deserialize, Serialize};
@@ -14,8 +15,32 @@ pub const MIN_WINDOW_WIDTH: f32 = 800.0;
 pub const MIN_WINDOW_HEIGHT: f32 = 500.0;
 pub const VALID_TIMEFRAMES_MS: [i64; 4] = [1000, 5000, 10000, 60000];
 pub const DEFAULT_CANDLE_BAR_WIDTH: f32 = 5.0;
-pub const VALID_CANDLE_BAR_WIDTHS: [f32; 5] = [3.0, 4.0, 5.0, 6.0, 8.0];
-pub const VALID_CANDLE_FIXED_PIPS: [f64; 4] = [5.0, 10.0, 20.0, 50.0];
+pub const VALID_CANDLE_BAR_WIDTHS: [f32; 6] = [3.0, 4.0, 5.0, 6.0, 8.0, 10.0];
+pub const VALID_CANDLE_FIXED_PIPS: [f64; 5] = [2.5, 5.0, 10.0, 25.0, 50.0];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandlePriceMode {
+    #[default]
+    Bid,
+    Mid,
+}
+
+impl CandlePriceMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bid => "Bid",
+            Self::Mid => "Mid",
+        }
+    }
+
+    pub fn price_mode(self) -> PriceMode {
+        match self {
+            Self::Bid => PriceMode::Bid,
+            Self::Mid => PriceMode::Mid,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -29,7 +54,13 @@ impl CandlePriceScaleMode {
     pub fn label(&self) -> String {
         match self {
             Self::Auto => "Auto".to_string(),
-            Self::Fixed(pips) => format!("{:.0} pips", pips),
+            Self::Fixed(pips) => {
+                if (pips.fract()).abs() < 1e-4 {
+                    format!("{:.0} pips", pips)
+                } else {
+                    format!("{:.1} pips", pips)
+                }
+            }
         }
     }
 }
@@ -124,6 +155,8 @@ pub struct UiState {
     #[serde(default)]
     pub candle_price_scale: CandlePriceScaleMode,
     #[serde(default)]
+    pub candle_price_mode: CandlePriceMode,
+    #[serde(default)]
     pub candle_follow_criteria: CandleFollowCriteria,
     #[serde(default)]
     pub window: WindowGeometryState,
@@ -137,6 +170,7 @@ impl Default for UiState {
             selected_timeframe_ms: default_timeframe_ms(),
             candle_bar_width: default_candle_bar_width(),
             candle_price_scale: CandlePriceScaleMode::default(),
+            candle_price_mode: CandlePriceMode::default(),
             candle_follow_criteria: CandleFollowCriteria::default(),
             top_x_axis_mode: ChartXAxisMode::default(),
             bottom_x_axis_mode: ChartXAxisMode::default(),
@@ -267,6 +301,7 @@ mod tests {
             selected_timeframe_ms: 10000,
             candle_bar_width: 6.0,
             candle_price_scale: CandlePriceScaleMode::Fixed(10.0),
+            candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::MarginEdge,
             top_x_axis_mode: ChartXAxisMode::TickCount,
             bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
@@ -307,6 +342,7 @@ mod tests {
             selected_timeframe_ms: 42000, // Invalid timeframe
             candle_bar_width: 99.0,       // Invalid width -> should sanitize to default
             candle_price_scale: CandlePriceScaleMode::Fixed(99.0), // Invalid fixed pips -> should sanitize to Auto
+            candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::Median,
             top_x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
@@ -353,5 +389,32 @@ mod tests {
         fs::write(&path, "invalid json").unwrap();
 
         assert!(load_ui_state(&path).is_none());
+    }
+
+    #[test]
+    fn test_candle_scale_and_width_options() {
+        assert!(VALID_CANDLE_BAR_WIDTHS.contains(&10.0));
+        assert!(VALID_CANDLE_FIXED_PIPS.contains(&2.5));
+        assert!(VALID_CANDLE_FIXED_PIPS.contains(&25.0));
+        assert!(!VALID_CANDLE_FIXED_PIPS.contains(&20.0));
+
+        assert_eq!(CandlePriceScaleMode::Auto.label(), "Auto");
+        assert_eq!(CandlePriceScaleMode::Fixed(2.5).label(), "2.5 pips");
+        assert_eq!(CandlePriceScaleMode::Fixed(5.0).label(), "5 pips");
+        assert_eq!(CandlePriceScaleMode::Fixed(10.0).label(), "10 pips");
+        assert_eq!(CandlePriceScaleMode::Fixed(25.0).label(), "25 pips");
+        assert_eq!(CandlePriceScaleMode::Fixed(50.0).label(), "50 pips");
+
+        let mut state = UiState::default();
+        state.candle_bar_width = 10.0;
+        state.candle_price_scale = CandlePriceScaleMode::Fixed(2.5);
+        state.sanitize();
+        assert_eq!(state.candle_bar_width, 10.0);
+        assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Fixed(2.5));
+
+        // 20.0 is no longer valid, should sanitize to Auto
+        state.candle_price_scale = CandlePriceScaleMode::Fixed(20.0);
+        state.sanitize();
+        assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);
     }
 }

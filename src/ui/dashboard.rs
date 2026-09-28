@@ -2,14 +2,17 @@ use crate::contracts::ports::{ClockPort, SnapshotExchangePort};
 use crate::contracts::types::*;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::ui::chart::{
-    draw_bid_ask_diff_chart, draw_candlestick_chart_multi, draw_lead_lag_view, draw_mid_diff_chart,
+    draw_bid_ask_diff_chart, draw_candlestick_chart_multi_with_mode, draw_lead_lag_view,
+    draw_mid_diff_chart,
     draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
     draw_realtime_quote_path_chart, draw_spread_diff_chart, draw_state_ribbon, BottomMetric,
     BottomMetricCategory, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide,
 };
 use crate::ui::fonts::setup_fonts;
+use crate::ui::style;
 use crate::ui::settings::{
-    save_ui_state, CandleFollowCriteria, CandlePriceScaleMode, UiState, WindowGeometryState,
+    save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, UiState,
+    WindowGeometryState,
     DEFAULT_CANDLE_BAR_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, VALID_CANDLE_BAR_WIDTHS,
     VALID_CANDLE_FIXED_PIPS,
 };
@@ -30,6 +33,7 @@ pub struct DashboardApp {
     show_candle_context: bool,
     candle_bar_width: f32,
     candle_price_scale: CandlePriceScaleMode,
+    candle_price_mode: CandlePriceMode,
     candle_follow_criteria: CandleFollowCriteria,
     candle_chart_anchor: Option<f64>,
     candle_margin_edge_latch: Option<MarginEdgeLatchSide>,
@@ -46,6 +50,7 @@ pub struct DashboardApp {
     diagnostics_clock: Option<Arc<dyn ClockPort>>,
     last_diagnostics_snapshot_revision: u64,
     fonts_configured: bool,
+    style_configured: bool,
     show_broker_overview: bool,
     show_quick_settings: bool,
     ui_state_path: Option<PathBuf>,
@@ -69,6 +74,7 @@ impl DashboardApp {
             show_candle_context: false,
             candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
             candle_price_scale: CandlePriceScaleMode::default(),
+            candle_price_mode: CandlePriceMode::default(),
             candle_follow_criteria: CandleFollowCriteria::default(),
             candle_chart_anchor: None,
             candle_margin_edge_latch: None,
@@ -85,6 +91,7 @@ impl DashboardApp {
             diagnostics_clock: None,
             last_diagnostics_snapshot_revision: 0,
             fonts_configured: false,
+            style_configured: false,
             show_broker_overview: false,
             show_quick_settings: false,
             ui_state_path: None,
@@ -100,6 +107,7 @@ impl DashboardApp {
         self.selected_timeframe_ms = state.selected_timeframe_ms;
         self.candle_bar_width = state.candle_bar_width;
         self.candle_price_scale = state.candle_price_scale;
+        self.candle_price_mode = state.candle_price_mode;
         self.candle_follow_criteria = state.candle_follow_criteria;
         self.top_x_axis_mode = state.top_x_axis_mode;
         self.bottom_x_axis_mode = state.bottom_x_axis_mode;
@@ -126,6 +134,7 @@ impl DashboardApp {
             selected_timeframe_ms: self.selected_timeframe_ms,
             candle_bar_width: self.candle_bar_width,
             candle_price_scale: self.candle_price_scale,
+            candle_price_mode: self.candle_price_mode,
             candle_follow_criteria: self.candle_follow_criteria,
             top_x_axis_mode: self.top_x_axis_mode,
             bottom_x_axis_mode: self.bottom_x_axis_mode,
@@ -311,6 +320,19 @@ impl DashboardApp {
         }
     }
 
+    pub fn candle_price_mode(&self) -> CandlePriceMode {
+        self.candle_price_mode
+    }
+
+    pub fn set_candle_price_mode(&mut self, mode: CandlePriceMode) {
+        if self.candle_price_mode != mode {
+            self.candle_price_mode = mode;
+            self.candle_chart_anchor = None;
+            self.candle_margin_edge_latch = None;
+            self.state_dirty = true;
+        }
+    }
+
     pub fn candle_follow_criteria(&self) -> CandleFollowCriteria {
         self.candle_follow_criteria
     }
@@ -369,6 +391,10 @@ impl DashboardApp {
             setup_fonts(ctx);
             self.fonts_configured = true;
         }
+        if !self.style_configured {
+            style::configure(ctx);
+            self.style_configured = true;
+        }
 
         let snapshot = self.exchange.load_latest();
         if let (Some(diagnostics), Some(clock)) = (&self.diagnostics, &self.diagnostics_clock) {
@@ -405,6 +431,24 @@ impl DashboardApp {
                 ui.selectable_value(&mut self.selected_timeframe_ms, 10000, "S10");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 5000, "S5");
                 ui.selectable_value(&mut self.selected_timeframe_ms, 1000, "S1");
+
+                if self.show_candle_context {
+                    ui.separator();
+                    ui.label("Price:");
+                    if ui
+                        .selectable_label(self.candle_price_mode == CandlePriceMode::Bid, "Bid")
+                        .clicked()
+                    {
+                        self.set_candle_price_mode(CandlePriceMode::Bid);
+                    }
+                    if ui
+                        .selectable_label(self.candle_price_mode == CandlePriceMode::Mid, "Mid")
+                        .clicked()
+                    {
+                        self.set_candle_price_mode(CandlePriceMode::Mid);
+                    }
+
+                }
 
                 ui.separator();
 
@@ -496,16 +540,31 @@ impl DashboardApp {
                     if self.show_candle_context {
                         let scale_label = match self.candle_price_scale {
                             CandlePriceScaleMode::Auto => "Auto".to_string(),
-                            CandlePriceScaleMode::Fixed(p) => match self.candle_follow_criteria {
-                                CandleFollowCriteria::Median => format!("{:.0}p/Med", p),
-                                CandleFollowCriteria::MarginEdge => format!("{:.0}p/Edge", p),
-                            },
+                            CandlePriceScaleMode::Fixed(p) => {
+                                let p_str = if (p.fract()).abs() < 1e-4 {
+                                    format!("{:.0}p", p)
+                                } else {
+                                    format!("{:.1}p", p)
+                                };
+                                match self.candle_follow_criteria {
+                                    CandleFollowCriteria::Median => format!("{}/Med", p_str),
+                                    CandleFollowCriteria::MarginEdge => format!("{}/Edge", p_str),
+                                }
+                            }
                         };
-                        let badge_text = format!("[{:.0}px | {}]", self.candle_bar_width, scale_label);
-                        let badge_btn = ui.small_button(
-                            RichText::new(badge_text).color(Color32::from_rgb(180, 220, 255)),
+                        let badge_text = format!(
+                            "[{} | {:.0}px | {}]",
+                            self.candle_price_mode.label().to_uppercase(),
+                            self.candle_bar_width,
+                            scale_label
                         );
-                        if badge_btn.on_hover_text("Current Candle bar width & scale.\nClick to adjust settings [Key: S]").clicked() {
+                        let badge_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(badge_text).color(Color32::from_rgb(180, 220, 255)),
+                            )
+                            .wrap_mode(egui::TextWrapMode::Extend),
+                        );
+                        if badge_btn.on_hover_text("Current Candle price, bar width & scale.\nClick to adjust settings [Key: S]").clicked() {
                             self.show_quick_settings = true;
                         }
                     } else {
@@ -514,8 +573,11 @@ impl DashboardApp {
                             ChartXAxisMode::TickCount => "Ticks",
                         };
                         let badge_text = format!("[Top X: {}]", x_label);
-                        let badge_btn = ui.small_button(
-                            RichText::new(badge_text).color(Color32::from_gray(180)),
+                        let badge_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(badge_text).color(Color32::from_gray(180)),
+                            )
+                            .wrap_mode(egui::TextWrapMode::Extend),
                         );
                         if badge_btn.on_hover_text("Current Top X-axis mode.\nClick to toggle mode [Key: S]").clicked() {
                             self.set_top_x_axis_mode(match self.top_x_axis_mode {
@@ -545,6 +607,8 @@ impl DashboardApp {
                     .show(ui, |ui| {
                         egui::Grid::new("broker_overview_grid")
                             .striped(true)
+                            .spacing(egui::vec2(16.0, 8.0))
+                            .min_row_height(26.0)
                             .show(ui, |ui| {
                                 for header in [
                                     "Focus",
@@ -557,17 +621,17 @@ impl DashboardApp {
                                     "Feed",
                                     "Ticks/s",
                                 ] {
-                                    ui.strong(header);
+                                    ui.label(RichText::new(header).small().color(style::MUTED));
                                 }
                                 ui.end_row();
                                 for b in &snapshot.broker_overviews {
                                     let (status, status_color) = match b.health.connection {
-                                        ConnectionState::Disconnected => ("DISCONNECTED", Color32::RED),
-                                        ConnectionState::Connecting => ("CONNECTING", Color32::YELLOW),
+                                        ConnectionState::Disconnected => ("DISCONNECTED", style::ERROR),
+                                        ConnectionState::Connecting => ("CONNECTING", style::WARNING),
                                         ConnectionState::Connected => match b.health.data_freshness {
-                                            FreshnessState::Live => ("LIVE", Color32::GREEN),
-                                            FreshnessState::Stale => ("STALE", Color32::YELLOW),
-                                            FreshnessState::Unknown => ("WARMING", Color32::GRAY),
+                                            FreshnessState::Live => ("LIVE", style::LIVE),
+                                            FreshnessState::Stale => ("STALE", style::WARNING),
+                                            FreshnessState::Unknown => ("WARMING", style::MUTED),
                                         },
                                     };
                                     let quote_is_live = b.health.connection
@@ -738,10 +802,13 @@ impl DashboardApp {
                 egui::Vec2::new(available_rect.width(), candle_height),
             );
             let painter = ui.painter_at(candle_rect);
-            let candle_view = snapshot
-                .candle_views
-                .get(&self.selected_timeframe_ms)
-                .or(snapshot.active_candles.as_ref());
+            let candle_view = match self.candle_price_mode {
+                CandlePriceMode::Bid => snapshot
+                    .candle_views
+                    .get(&self.selected_timeframe_ms)
+                    .or(snapshot.active_candles.as_ref()),
+                CandlePriceMode::Mid => snapshot.mid_candle_views.get(&self.selected_timeframe_ms),
+            };
             let fallback_price = snapshot
                 .consensus
                 .as_ref()
@@ -754,7 +821,7 @@ impl DashboardApp {
                 });
 
             if self.show_candle_context {
-                draw_candlestick_chart_multi(
+                draw_candlestick_chart_multi_with_mode(
                     &painter,
                     candle_rect,
                     candle_view,
@@ -768,6 +835,7 @@ impl DashboardApp {
                     fallback_price,
                     self.chart_max_quote_age_ms,
                     snapshot.built_mono_ns,
+                    self.candle_price_mode.price_mode(),
                     &self.theme,
                 );
             } else {
@@ -1049,6 +1117,35 @@ impl DashboardApp {
                         });
 
                         ui.horizontal(|ui| {
+                            ui.label("Price:");
+                            if ui
+                                .selectable_label(
+                                    self.candle_price_mode == CandlePriceMode::Bid,
+                                    "Bid",
+                                )
+                                .clicked()
+                            {
+                                self.set_candle_price_mode(CandlePriceMode::Bid);
+                            }
+                            if ui
+                                .selectable_label(
+                                    self.candle_price_mode == CandlePriceMode::Mid,
+                                    "Mid",
+                                )
+                                .clicked()
+                            {
+                                self.set_candle_price_mode(CandlePriceMode::Mid);
+                            }
+                            if self.candle_price_mode == CandlePriceMode::Mid {
+                                ui.label(
+                                    RichText::new("Reference price; not directly executable")
+                                        .small()
+                                        .color(Color32::from_gray(150)),
+                                );
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
                             ui.label("Bar Width:");
                             for &w in &VALID_CANDLE_BAR_WIDTHS {
                                 let is_sel = (self.candle_bar_width - w).abs() < 1e-4;
@@ -1068,7 +1165,11 @@ impl DashboardApp {
                             for &pips in &VALID_CANDLE_FIXED_PIPS {
                                 let is_sel =
                                     self.candle_price_scale == CandlePriceScaleMode::Fixed(pips);
-                                let label = format!("{:.0}p", pips);
+                                let label = if (pips.fract()).abs() < 1e-4 {
+                                    format!("{:.0}p", pips)
+                                } else {
+                                    format!("{:.1}p", pips)
+                                };
                                 if ui.selectable_label(is_sel, label).clicked() {
                                     self.set_candle_price_scale(CandlePriceScaleMode::Fixed(pips));
                                 }

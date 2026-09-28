@@ -153,7 +153,11 @@ pub struct EngineProjection {
     pub broker_overviews: Vec<BrokerOverview>,
     pub active_pair: (BrokerId, BrokerId),
     pub active_pair_comparison: Option<PairComparison>,
+    /// Bid OHLC views indexed by timeframe.
     pub candle_views: HashMap<i64, CandleView>,
+    /// Mid OHLC views built independently from each quote's Bid and Ask.
+    #[serde(default)]
+    pub mid_candle_views: HashMap<i64, CandleView>,
     pub global_diagnostics: Vec<Diagnostic>,
     pub consensus: Option<crate::metrics::ObservedBrokerConsensus>,
     pub active_clusters: Vec<crate::metrics::EventCluster>,
@@ -173,6 +177,7 @@ impl Default for EngineProjection {
             active_pair: (1, 2),
             active_pair_comparison: None,
             candle_views: HashMap::new(),
+            mid_candle_views: HashMap::new(),
             global_diagnostics: Vec::new(),
             consensus: None,
             active_clusters: Vec::new(),
@@ -200,7 +205,11 @@ pub struct UiSnapshot {
     pub broker_overviews: Vec<BrokerOverview>,
     pub active_pair_comparison: Option<PairComparison>,
     pub active_candles: Option<CandleView>,
+    /// Bid OHLC views indexed by timeframe.
     pub candle_views: HashMap<i64, CandleView>,
+    /// Mid OHLC views built independently from each quote's Bid and Ask.
+    #[serde(default)]
+    pub mid_candle_views: HashMap<i64, CandleView>,
     pub diagnostics: Vec<Diagnostic>,
     pub consensus: Option<crate::metrics::ObservedBrokerConsensus>,
     pub active_clusters: Vec<crate::metrics::EventCluster>,
@@ -226,6 +235,7 @@ impl Default for UiSnapshot {
             active_pair_comparison: None,
             active_candles: None,
             candle_views: HashMap::new(),
+            mid_candle_views: HashMap::new(),
             diagnostics: Vec::new(),
             consensus: None,
             active_clusters: Vec::new(),

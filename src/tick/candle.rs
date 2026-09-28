@@ -70,6 +70,9 @@ impl CandleBook {
             PriceMode::Ask => ask,
             PriceMode::Mid => (bid + ask) / 2.0,
         };
+        if !price.is_finite() || price <= 0.0 {
+            return;
+        }
 
         let broker_id = tick.observed.tick_id.broker_id;
         let seq = tick.observed.tick_id.sequence;

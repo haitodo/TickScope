@@ -1,6 +1,6 @@
 use crate::contracts::models::{
     BrokerOverview, CandleView, DiffPoint, MoveDirection, MoveQuality, Ohlc, PairComparison,
-    RealtimeQuotePoint, SlotState,
+    PriceMode, RealtimeQuotePoint, SlotState,
 };
 use crate::contracts::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
 use crate::metrics::{EventCluster, MoveBreadth, ObservedBrokerConsensus, StageLatencySummary};
@@ -18,6 +18,7 @@ pub enum MarginEdgeLatchSide {
 pub struct ValidQuoteCandidate {
     pub broker_id: BrokerId,
     pub broker_name: String,
+    /// Selected candle price; the public Bid extractor supplies Bid here.
     pub bid: f64,
     pub rx_mono_ns: MonoNs,
     pub age_ms: u64,
@@ -222,14 +223,14 @@ pub struct ChartTheme {
 impl Default for ChartTheme {
     fn default() -> Self {
         Self {
-            bg_color: Color32::from_rgb(20, 24, 30),
-            grid_color: Color32::from_rgba_unmultiplied(255, 255, 255, 28),
+            bg_color: crate::ui::style::BACKGROUND,
+            grid_color: Color32::from_rgba_unmultiplied(175, 195, 220, 24),
             // Neutral broker-identity colors (RFC §87: no green=buy/red=sell semantics)
             candle_up_a: Color32::from_rgb(80, 180, 220), // Light cyan for A (bright)
             candle_down_a: Color32::from_rgb(40, 100, 140), // Dark cyan for A (dim)
             candle_up_b: Color32::from_rgb(255, 165, 80), // Light orange for B (bright)
             candle_down_b: Color32::from_rgb(160, 100, 40), // Dark orange for B (dim)
-            diff_line: Color32::from_rgb(255, 215, 0),    // Gold for mid diff
+            diff_line: crate::ui::style::WARNING,        // Gold for mid diff
             bid_diff_line: Color32::from_rgb(0, 191, 255), // Deep Sky Blue for bid diff
             ask_diff_line: Color32::from_rgb(255, 105, 180), // Hot Pink for ask diff
             spread_diff_line: Color32::from_rgb(175, 125, 255), // Light Purple for spread diff
@@ -256,6 +257,22 @@ pub fn extract_valid_quote_candidates(
     chart_max_quote_age_ms: u64,
     now_mono: MonoNs,
 ) -> Vec<ValidQuoteCandidate> {
+    extract_valid_quote_candidates_for_mode(
+        broker_ids,
+        broker_overviews,
+        chart_max_quote_age_ms,
+        now_mono,
+        PriceMode::Bid,
+    )
+}
+
+fn extract_valid_quote_candidates_for_mode(
+    broker_ids: &[BrokerId],
+    broker_overviews: &[BrokerOverview],
+    chart_max_quote_age_ms: u64,
+    now_mono: MonoNs,
+    price_mode: PriceMode,
+) -> Vec<ValidQuoteCandidate> {
     let mut candidates = Vec::with_capacity(broker_ids.len());
     let max_age_ns = chart_max_quote_age_ms.saturating_mul(1_000_000);
 
@@ -276,12 +293,20 @@ pub fn extract_valid_quote_candidates(
             if !q.bid.is_finite() || q.bid <= 0.0 || !q.ask.is_finite() || q.ask < q.bid {
                 continue;
             }
+            let price = match price_mode {
+                PriceMode::Bid => q.bid,
+                PriceMode::Ask => q.ask,
+                PriceMode::Mid => q.mid,
+            };
+            if !price.is_finite() || price <= 0.0 {
+                continue;
+            }
             let age_ns = now_mono.0.saturating_sub(q.rx_mono_ns.0);
             if age_ns <= max_age_ns {
                 candidates.push(ValidQuoteCandidate {
                     broker_id: b.broker_id,
                     broker_name: b.name.clone(),
-                    bid: q.bid,
+                    bid: price,
                     rx_mono_ns: q.rx_mono_ns,
                     age_ms: age_ns / 1_000_000,
                 });
@@ -327,7 +352,11 @@ pub fn resolve_candle_follow_scale(
         CandleFollowCriteria::Median => {
             *margin_edge_latch = None;
             let mut sorted = candidates.to_vec();
-            sorted.sort_by(|a, b| a.bid.partial_cmp(&b.bid).unwrap_or(std::cmp::Ordering::Equal));
+            sorted.sort_by(|a, b| {
+                a.bid
+                    .partial_cmp(&b.bid)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             let len = sorted.len();
             let median_price = if len % 2 == 1 {
                 sorted[len / 2].bid
@@ -362,7 +391,7 @@ pub fn resolve_candle_follow_scale(
             )
         }
         CandleFollowCriteria::MarginEdge => {
-            // Find min and max bid candidates. Break ties deterministically by broker_id.
+            // Find minimum and maximum price candidates. Break ties by broker_id.
             let mut min_candidate = &candidates[0];
             let mut max_candidate = &candidates[0];
             for c in &candidates[1..] {
@@ -510,6 +539,7 @@ pub fn draw_candlestick_chart(
         fallback_price,
         1000,
         MonoNs(0),
+        PriceMode::Bid,
         theme,
     );
 }
@@ -574,6 +604,42 @@ pub fn draw_candlestick_chart_multi(
     now_mono: MonoNs,
     theme: &ChartTheme,
 ) {
+    draw_candlestick_chart_multi_with_mode(
+        painter,
+        rect,
+        candle_view,
+        broker_overviews,
+        bar_width,
+        scale_mode,
+        follow_criteria,
+        pip_size,
+        chart_anchor,
+        margin_edge_latch,
+        fallback_price,
+        chart_max_quote_age_ms,
+        now_mono,
+        PriceMode::Bid,
+        theme,
+    );
+}
+
+pub fn draw_candlestick_chart_multi_with_mode(
+    painter: &egui::Painter,
+    rect: Rect,
+    candle_view: Option<&CandleView>,
+    broker_overviews: &[BrokerOverview],
+    bar_width: f32,
+    scale_mode: CandlePriceScaleMode,
+    follow_criteria: CandleFollowCriteria,
+    pip_size: f64,
+    chart_anchor: &mut Option<f64>,
+    margin_edge_latch: &mut Option<MarginEdgeLatchSide>,
+    fallback_price: Option<f64>,
+    chart_max_quote_age_ms: u64,
+    now_mono: MonoNs,
+    price_mode: PriceMode,
+    theme: &ChartTheme,
+) {
     let mut broker_ids: Vec<BrokerId> = broker_overviews.iter().map(|b| b.broker_id).collect();
     if broker_ids.is_empty() {
         if let Some(view) = candle_view {
@@ -596,6 +662,7 @@ pub fn draw_candlestick_chart_multi(
         fallback_price,
         chart_max_quote_age_ms,
         now_mono,
+        price_mode,
         theme,
     );
 }
@@ -615,6 +682,7 @@ fn draw_candlestick_chart_for_brokers(
     fallback_price: Option<f64>,
     chart_max_quote_age_ms: u64,
     now_mono: MonoNs,
+    price_mode: PriceMode,
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
@@ -698,11 +766,12 @@ fn draw_candlestick_chart_for_brokers(
 
     let has_ohlc = min_price <= max_price && min_price < f64::MAX;
 
-    let candidates = extract_valid_quote_candidates(
+    let candidates = extract_valid_quote_candidates_for_mode(
         &broker_ids,
         broker_overviews,
         chart_max_quote_age_ms,
         now_mono,
+        price_mode,
     );
 
     let mut follow_status: Option<FollowStatusInfo> = None;
@@ -811,10 +880,17 @@ fn draw_candlestick_chart_for_brokers(
             Some(FollowStatusInfo::NoValidQuotes { .. }) => "(0 valid quotes - Hold)".to_string(),
             None => "".to_string(),
         };
+        let half_span_str = if (half_span.fract()).abs() < 1e-4 {
+            format!("{:.0}", half_span)
+        } else if ((half_span * 10.0).fract()).abs() < 1e-4 {
+            format!("{:.1}", half_span)
+        } else {
+            format!("{:.2}", half_span)
+        };
         painter.text(
             Pos2::new(rect.right() - PRICE_AXIS_WIDTH - 6.0, rect.top() + 6.0),
             egui::Align2::RIGHT_TOP,
-            format!("Fixed: ±{:.1} pip {}", half_span, detail_str),
+            format!("Fixed: ±{} pip {}", half_span_str, detail_str),
             egui::FontId::monospace(11.0),
             Color32::from_gray(190),
         );

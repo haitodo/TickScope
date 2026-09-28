@@ -210,10 +210,13 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
 #[test]
 fn test_candlestick_fixed_slot_width_and_responsive_slots() {
     use tick_compare::ui::chart::{draw_candlestick_chart_multi, ChartTheme};
-    use tick_compare::ui::settings::{DEFAULT_CANDLE_BAR_WIDTH, VALID_CANDLE_BAR_WIDTHS};
+    use tick_compare::ui::settings::{
+        DEFAULT_CANDLE_BAR_WIDTH, VALID_CANDLE_BAR_WIDTHS, VALID_CANDLE_FIXED_PIPS,
+    };
 
     assert_eq!(DEFAULT_CANDLE_BAR_WIDTH, 5.0);
-    assert_eq!(VALID_CANDLE_BAR_WIDTHS, [3.0, 4.0, 5.0, 6.0, 8.0]);
+    assert_eq!(VALID_CANDLE_BAR_WIDTHS, [3.0, 4.0, 5.0, 6.0, 8.0, 10.0]);
+    assert_eq!(VALID_CANDLE_FIXED_PIPS, [2.5, 5.0, 10.0, 25.0, 50.0]);
 
     let mut slots_by_broker = HashMap::new();
     let mut ohlc_slots = Vec::new();

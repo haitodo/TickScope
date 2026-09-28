@@ -42,6 +42,7 @@ pub struct TickEngine {
     config: AppConfig,
     channels: HashMap<BrokerId, BrokerChannelState>,
     candle_book: CandleBook,
+    mid_candle_book: CandleBook,
     spread_trackers: HashMap<BrokerId, SpreadTracker>,
     latest_quotes: HashMap<BrokerId, Quote>,
     health_states: HashMap<BrokerId, HealthState>,
@@ -74,6 +75,7 @@ impl TickEngine {
         let mut move_detectors = HashMap::new();
 
         let candle_book = CandleBook::with_retentions(&config.history.retentions);
+        let mid_candle_book = CandleBook::with_retentions(&config.history.retentions);
 
         let mut quote_persistence = HashMap::new();
         let mut repricing_persistence = HashMap::new();
@@ -153,6 +155,7 @@ impl TickEngine {
             config,
             channels,
             candle_book,
+            mid_candle_book,
             spread_trackers,
             latest_quotes: HashMap::new(),
             health_states,
@@ -485,6 +488,7 @@ impl TickEngine {
                         if quote.is_valid {
                             if let Ok(norm) = normalize_tick(&obs, utc_offset, utc_verified, 1) {
                                 self.candle_book.on_tick(&norm, PriceMode::Bid, norm.utc_ms);
+                                self.mid_candle_book.on_tick(&norm, PriceMode::Mid, norm.utc_ms);
                             }
                         }
 
@@ -760,11 +764,24 @@ impl TickEngine {
         });
 
         let mut candle_views = HashMap::new();
+        let mut mid_candle_views = HashMap::new();
         let broker_ids: Vec<BrokerId> = self.config.brokers.iter().map(|b| b.id).collect();
         for retention in &self.config.history.retentions {
             let period = retention.period_ms;
-            let cv = self.candle_book.get_candle_view(period, &broker_ids, retention.slots, current_utc_now);
+            let cv = self.candle_book.get_candle_view(
+                period,
+                &broker_ids,
+                retention.slots,
+                current_utc_now,
+            );
             candle_views.insert(period, cv);
+            let mid_cv = self.mid_candle_book.get_candle_view(
+                period,
+                &broker_ids,
+                retention.slots,
+                current_utc_now,
+            );
+            mid_candle_views.insert(period, mid_cv);
         }
 
         // 1. Observed Broker Consensus & Dispersion
@@ -821,6 +838,7 @@ impl TickEngine {
             active_pair: self.active_pair,
             active_pair_comparison,
             candle_views,
+            mid_candle_views,
             global_diagnostics: self.diagnostics.iter().cloned().collect(),
             consensus: Some(consensus),
             active_clusters,

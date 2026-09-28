@@ -44,6 +44,7 @@ impl SnapshotBuilder {
             active_pair_comparison: projection.active_pair_comparison.clone(),
             active_candles,
             candle_views: projection.candle_views.clone(),
+            mid_candle_views: projection.mid_candle_views.clone(),
             diagnostics: projection.global_diagnostics.clone(),
             consensus: projection.consensus.clone(),
             active_clusters: projection.active_clusters.clone(),
