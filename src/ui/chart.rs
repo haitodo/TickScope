@@ -43,7 +43,6 @@ pub enum FollowStatusInfo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum BottomMetric {
-    #[default]
     MidDiff,
     BidAskDiff,
     SpreadDiff,
@@ -51,11 +50,13 @@ pub enum BottomMetric {
     MidDispersion,
     MoveBreadthView,
     QuotePersistence,
+    #[default]
     QuotePath,
 }
 
 impl BottomMetric {
     pub const ALL: [BottomMetric; 8] = [
+        BottomMetric::QuotePath,
         BottomMetric::MidDiff,
         BottomMetric::BidAskDiff,
         BottomMetric::SpreadDiff,
@@ -63,32 +64,31 @@ impl BottomMetric {
         BottomMetric::MidDispersion,
         BottomMetric::MoveBreadthView,
         BottomMetric::QuotePersistence,
-        BottomMetric::QuotePath,
     ];
 
     pub fn key_number(&self) -> u32 {
         match self {
-            BottomMetric::MidDiff => 1,
-            BottomMetric::BidAskDiff => 2,
-            BottomMetric::SpreadDiff => 3,
-            BottomMetric::LeadLag => 4,
-            BottomMetric::MidDispersion => 5,
-            BottomMetric::MoveBreadthView => 6,
-            BottomMetric::QuotePersistence => 7,
-            BottomMetric::QuotePath => 8,
+            BottomMetric::MidDiff => 2,
+            BottomMetric::BidAskDiff => 3,
+            BottomMetric::SpreadDiff => 4,
+            BottomMetric::LeadLag => 5,
+            BottomMetric::MidDispersion => 6,
+            BottomMetric::MoveBreadthView => 7,
+            BottomMetric::QuotePersistence => 8,
+            BottomMetric::QuotePath => 1,
         }
     }
 
     pub fn label(&self) -> &'static str {
         match self {
-            BottomMetric::MidDiff => "1: Mid Diff",
-            BottomMetric::BidAskDiff => "2: Bid/Ask Diff",
-            BottomMetric::SpreadDiff => "3: Spread Diff",
-            BottomMetric::LeadLag => "4: Lead/Lag",
-            BottomMetric::MidDispersion => "5: Dispersion",
-            BottomMetric::MoveBreadthView => "6: Breadth",
-            BottomMetric::QuotePersistence => "7: Persistence",
-            BottomMetric::QuotePath => "8: Quote Path",
+            BottomMetric::MidDiff => "2: Mid Diff",
+            BottomMetric::BidAskDiff => "3: Bid/Ask Diff",
+            BottomMetric::SpreadDiff => "4: Spread Diff",
+            BottomMetric::LeadLag => "5: Lead/Lag",
+            BottomMetric::MidDispersion => "6: Dispersion",
+            BottomMetric::MoveBreadthView => "7: Breadth",
+            BottomMetric::QuotePersistence => "8: Persistence",
+            BottomMetric::QuotePath => "1: Quote Path",
         }
     }
 
@@ -133,14 +133,14 @@ impl BottomMetric {
 
     pub fn from_key_number(n: u32) -> Option<Self> {
         match n {
-            1 => Some(BottomMetric::MidDiff),
-            2 => Some(BottomMetric::BidAskDiff),
-            3 => Some(BottomMetric::SpreadDiff),
-            4 => Some(BottomMetric::LeadLag),
-            5 => Some(BottomMetric::MidDispersion),
-            6 => Some(BottomMetric::MoveBreadthView),
-            7 => Some(BottomMetric::QuotePersistence),
-            8 => Some(BottomMetric::QuotePath),
+            2 => Some(BottomMetric::MidDiff),
+            3 => Some(BottomMetric::BidAskDiff),
+            4 => Some(BottomMetric::SpreadDiff),
+            5 => Some(BottomMetric::LeadLag),
+            6 => Some(BottomMetric::MidDispersion),
+            7 => Some(BottomMetric::MoveBreadthView),
+            8 => Some(BottomMetric::QuotePersistence),
+            1 => Some(BottomMetric::QuotePath),
             _ => None,
         }
     }
@@ -171,9 +171,9 @@ pub enum BottomMetricCategory {
 
 impl BottomMetricCategory {
     pub const ALL: [BottomMetricCategory; 3] = [
+        BottomMetricCategory::RawQuotes,
         BottomMetricCategory::PairDiff,
         BottomMetricCategory::MarketConsensus,
-        BottomMetricCategory::RawQuotes,
     ];
 
     pub fn title(&self) -> &'static str {

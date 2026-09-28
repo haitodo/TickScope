@@ -746,21 +746,21 @@ impl DashboardApp {
             );
         });
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::Num1) {
+            if i.key_pressed(egui::Key::Num2) {
                 self.bottom_metric = BottomMetric::MidDiff;
-            } else if i.key_pressed(egui::Key::Num2) {
-                self.bottom_metric = BottomMetric::BidAskDiff;
             } else if i.key_pressed(egui::Key::Num3) {
-                self.bottom_metric = BottomMetric::SpreadDiff;
+                self.bottom_metric = BottomMetric::BidAskDiff;
             } else if i.key_pressed(egui::Key::Num4) {
-                self.bottom_metric = BottomMetric::LeadLag;
+                self.bottom_metric = BottomMetric::SpreadDiff;
             } else if i.key_pressed(egui::Key::Num5) {
-                self.bottom_metric = BottomMetric::MidDispersion;
+                self.bottom_metric = BottomMetric::LeadLag;
             } else if i.key_pressed(egui::Key::Num6) {
-                self.bottom_metric = BottomMetric::MoveBreadthView;
+                self.bottom_metric = BottomMetric::MidDispersion;
             } else if i.key_pressed(egui::Key::Num7) {
-                self.bottom_metric = BottomMetric::QuotePersistence;
+                self.bottom_metric = BottomMetric::MoveBreadthView;
             } else if i.key_pressed(egui::Key::Num8) {
+                self.bottom_metric = BottomMetric::QuotePersistence;
+            } else if i.key_pressed(egui::Key::Num1) {
                 self.bottom_metric = BottomMetric::QuotePath;
             } else if i.key_pressed(egui::Key::Tab) {
                 if i.modifiers.shift {

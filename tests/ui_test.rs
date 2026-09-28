@@ -329,14 +329,14 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     assert_eq!(BottomMetric::BidAskDiff.prev(), BottomMetric::MidDiff);
 
     // 2. Key mapping tests
-    assert_eq!(BottomMetric::from_key_number(1), Some(BottomMetric::MidDiff));
-    assert_eq!(BottomMetric::from_key_number(2), Some(BottomMetric::BidAskDiff));
-    assert_eq!(BottomMetric::from_key_number(3), Some(BottomMetric::SpreadDiff));
-    assert_eq!(BottomMetric::from_key_number(4), Some(BottomMetric::LeadLag));
-    assert_eq!(BottomMetric::from_key_number(5), Some(BottomMetric::MidDispersion));
-    assert_eq!(BottomMetric::from_key_number(6), Some(BottomMetric::MoveBreadthView));
-    assert_eq!(BottomMetric::from_key_number(7), Some(BottomMetric::QuotePersistence));
-    assert_eq!(BottomMetric::from_key_number(8), Some(BottomMetric::QuotePath));
+    assert_eq!(BottomMetric::from_key_number(2), Some(BottomMetric::MidDiff));
+    assert_eq!(BottomMetric::from_key_number(3), Some(BottomMetric::BidAskDiff));
+    assert_eq!(BottomMetric::from_key_number(4), Some(BottomMetric::SpreadDiff));
+    assert_eq!(BottomMetric::from_key_number(5), Some(BottomMetric::LeadLag));
+    assert_eq!(BottomMetric::from_key_number(6), Some(BottomMetric::MidDispersion));
+    assert_eq!(BottomMetric::from_key_number(7), Some(BottomMetric::MoveBreadthView));
+    assert_eq!(BottomMetric::from_key_number(8), Some(BottomMetric::QuotePersistence));
+    assert_eq!(BottomMetric::from_key_number(1), Some(BottomMetric::QuotePath));
 
     // 3. UI Key input event simulation
     let run_id = RunId([3u8; 16]);
@@ -360,14 +360,14 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     let exchange = Arc::new(SnapshotExchange::new(snap));
     let mut app = DashboardApp::new(exchange, (1, 2));
 
-    assert_eq!(app.bottom_metric(), BottomMetric::MidDiff);
+    assert_eq!(app.bottom_metric(), BottomMetric::QuotePath);
 
     let ctx = egui::Context::default();
 
-    // Simulate pressing Key 2 (Num2)
+    // Simulate pressing Key 3 (Num3)
     let mut input2 = egui::RawInput::default();
     input2.events.push(egui::Event::Key {
-        key: egui::Key::Num2,
+        key: egui::Key::Num3,
         physical_key: None,
         pressed: true,
         repeat: false,
@@ -378,10 +378,10 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     });
     assert_eq!(app.bottom_metric(), BottomMetric::BidAskDiff);
 
-    // Simulate pressing Key 3 (Num3)
+    // Simulate pressing Key 4 (Num4)
     let mut input3 = egui::RawInput::default();
     input3.events.push(egui::Event::Key {
-        key: egui::Key::Num3,
+        key: egui::Key::Num4,
         physical_key: None,
         pressed: true,
         repeat: false,
@@ -392,10 +392,10 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     });
     assert_eq!(app.bottom_metric(), BottomMetric::SpreadDiff);
 
-    // Simulate pressing Key 4 (Num4)
+    // Simulate pressing Key 5 (Num5)
     let mut input4 = egui::RawInput::default();
     input4.events.push(egui::Event::Key {
-        key: egui::Key::Num4,
+        key: egui::Key::Num5,
         physical_key: None,
         pressed: true,
         repeat: false,
@@ -435,10 +435,10 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     });
     assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
 
-    // Simulate pressing Key 8 (Num8) -> should switch to QuotePath
+    // Simulate pressing Key 1 (Num1) -> should switch to QuotePath
     let mut input8 = egui::RawInput::default();
     input8.events.push(egui::Event::Key {
-        key: egui::Key::Num8,
+        key: egui::Key::Num1,
         physical_key: None,
         pressed: true,
         repeat: false,
