@@ -1,6 +1,5 @@
-//! Low-level byte encoding and decoding for wire protocol messages.
-
 use crate::core::types::*;
+use super::wire::*;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq, Clone)]

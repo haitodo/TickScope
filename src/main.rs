@@ -106,11 +106,11 @@ fn main() -> eframe::Result<()> {
     // Deploy the connection map only after each listener has reserved its
     // actual OS-selected port. Every terminal then receives usable endpoints.
     if coordinator.config.mt5.auto_deploy {
-        let deploy_report = tick_scope::runtime::deploy_mt5_files_for_brokers(
+        let deploy_report = tick_scope::deploy::deploy_mt5_files_for_brokers(
             &coordinator.config.mt5,
             &coordinator.deployment_brokers,
         );
-        tick_scope::runtime::print_deploy_report(&deploy_report);
+        tick_scope::deploy::print_deploy_report(&deploy_report);
     }
 
     let exchange = coordinator.exchange.clone();

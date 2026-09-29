@@ -1,21 +1,20 @@
 pub mod broker_overview;
 pub mod charts_view;
-pub mod geometry;
 pub mod header;
-pub mod hotkeys;
+pub mod latency;
 pub mod quick_settings;
+pub mod ribbon;
 
-use self::geometry::track_window_geometry;
-use self::hotkeys::handle_hotkeys;
-use crate::core::models::BrokerOverview;
+use self::ribbon::draw_state_ribbon;
+use crate::core::models::{BrokerOverview, UiSnapshot};
 use crate::core::ports::{ClockPort, SnapshotExchangePort};
 use crate::core::types::*;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
-use crate::ui::chart::{draw_state_ribbon, BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide};
+use crate::ui::chart::{BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide};
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
     save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, UiState,
-    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH,
+    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
 };
 use crate::ui::style;
 use eframe::egui;
@@ -526,7 +525,7 @@ impl DashboardApp {
         });
 
         // 4. Keyboard Shortcuts
-        handle_hotkeys(self, ctx, &snapshot);
+        self.handle_hotkeys(ctx, &snapshot);
 
         // 5. Main Charts Area
         charts_view::render_charts_view(self, ctx, &snapshot, name_a, name_b);
@@ -553,7 +552,7 @@ impl DashboardApp {
         }
 
         // 6. Track window geometry and auto-persist state
-        track_window_geometry(self, ctx);
+        self.track_window_geometry(ctx);
 
         if let (Some(diagnostics), Some(start)) = (&self.diagnostics, ui_render_start) {
             diagnostics.record_duration(DiagnosticStage::UiRenderWork, start.elapsed());
@@ -563,6 +562,82 @@ impl DashboardApp {
         // immediately. For fallback (clock ticks, data freshness transitions),
         // request repaint after an idle timeout.
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    }
+
+    fn handle_hotkeys(&mut self, ctx: &egui::Context, snapshot: &UiSnapshot) {
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::Num2) {
+                self.bottom_metric = BottomMetric::MidDiff;
+            } else if i.key_pressed(egui::Key::Num3) {
+                self.bottom_metric = BottomMetric::BidAskDiff;
+            } else if i.key_pressed(egui::Key::Num4) {
+                self.bottom_metric = BottomMetric::SpreadDiff;
+            } else if i.key_pressed(egui::Key::Num5) {
+                self.bottom_metric = BottomMetric::LeadLag;
+            } else if i.key_pressed(egui::Key::Num6) {
+                self.bottom_metric = BottomMetric::MidDispersion;
+            } else if i.key_pressed(egui::Key::Num7) {
+                self.bottom_metric = BottomMetric::MoveBreadthView;
+            } else if i.key_pressed(egui::Key::Num8) {
+                self.bottom_metric = BottomMetric::QuotePersistence;
+            } else if i.key_pressed(egui::Key::Num1) {
+                self.bottom_metric = BottomMetric::QuotePath;
+            } else if i.key_pressed(egui::Key::Tab) {
+                if i.modifiers.shift {
+                    self.bottom_metric = self.bottom_metric.prev();
+                } else {
+                    self.bottom_metric = self.bottom_metric.next();
+                }
+            } else if i.key_pressed(egui::Key::P) {
+                let broker_ids: Vec<BrokerId> = self.visible_broker_ids(&snapshot.broker_overviews);
+                self.cycle_pair(&broker_ids, !i.modifiers.shift);
+            } else if i.key_pressed(egui::Key::B) {
+                self.show_broker_overview = !self.show_broker_overview;
+            } else if i.key_pressed(egui::Key::S) || i.key_pressed(egui::Key::Comma) {
+                self.show_quick_settings = !self.show_quick_settings;
+            } else if i.key_pressed(egui::Key::Escape) {
+                if self.show_quick_settings {
+                    self.show_quick_settings = false;
+                } else if self.show_broker_overview {
+                    self.show_broker_overview = false;
+                }
+            }
+        });
+    }
+
+    fn track_window_geometry(&mut self, ctx: &egui::Context) {
+        ctx.input(|i| {
+            let vp = i.viewport();
+            if let Some(maximized) = vp.maximized {
+                if self.window_geometry.maximized != maximized {
+                    self.window_geometry.maximized = maximized;
+                    self.state_dirty = true;
+                }
+            }
+            if !self.window_geometry.maximized {
+                if let Some(rect) = vp.inner_rect {
+                    let size = [rect.width(), rect.height()];
+                    if size[0] >= MIN_WINDOW_WIDTH && size[1] >= MIN_WINDOW_HEIGHT
+                        && ((self.window_geometry.inner_size[0] - size[0]).abs() > 1.0
+                            || (self.window_geometry.inner_size[1] - size[1]).abs() > 1.0)
+                    {
+                        self.window_geometry.inner_size = size;
+                        self.state_dirty = true;
+                    }
+                }
+                if let Some(rect) = vp.outer_rect {
+                    let pos = [rect.min.x, rect.min.y];
+                    if self.window_geometry.position != Some(pos) {
+                        self.window_geometry.position = Some(pos);
+                        self.state_dirty = true;
+                    }
+                }
+            }
+        });
+
+        if self.state_dirty || ctx.input(|i| i.viewport().close_requested()) {
+            self.save_state();
+        }
     }
 }
 

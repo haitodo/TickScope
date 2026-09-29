@@ -16,8 +16,7 @@ fn oversized_durable_record_fails_instead_of_retrying_forever() {
     logger.finish();
 }
 use tick_scope::core::types::*;
-use tick_scope::storage::logger::*;
-use tick_scope::storage::reader::*;
+use tick_scope::storage::*;
 
 #[test]
 fn test_tg01_roundtrip_all_record_kinds() {

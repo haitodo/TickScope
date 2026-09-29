@@ -74,8 +74,21 @@ pub struct ClockReading {
     pub unix_ns: Option<i64>,
 }
 
-/// Protocol wire definitions, re-exported for domain convenience.
-pub use crate::protocol::wire::*;
+/// 72-byte wire and core tick record representation.
+/// Float bits and reserved bytes are preserved verbatim.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TickRecord {
+    pub sequence: Sequence,
+    pub broker_time_msc: i64,
+    pub ea_elapsed_us: u64,
+    pub bid: f64,
+    pub ask: f64,
+    pub last: f64,
+    pub volume: u64,
+    pub volume_real: f64,
+    pub flags: u32,
+    pub reserved: u32,
+}
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

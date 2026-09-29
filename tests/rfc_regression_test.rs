@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tick_scope::config::{AppConfig, BrokerConfig};
 use tick_scope::core::models::*;
 use tick_scope::core::types::*;
+use tick_scope::protocol::*;
 use tick_scope::metrics::burst::{
     classify_quote_geometry, MultiBrokerBurstDetector, QuoteGeometry,
 };

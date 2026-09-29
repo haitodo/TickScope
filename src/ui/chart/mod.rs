@@ -6,7 +6,6 @@ pub mod bottom;
 pub mod candlestick;
 pub mod common;
 pub mod difference;
-pub mod microstructure;
 pub mod quote_path;
 pub mod scale;
 pub mod theme;

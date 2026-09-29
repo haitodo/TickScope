@@ -1,6 +1,7 @@
 //! Configuration schema and validation for TickScope.
 
 use crate::core::types::*;
+use crate::protocol::HEADER_LENGTH;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;

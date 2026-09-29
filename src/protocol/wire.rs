@@ -1,8 +1,8 @@
-//! Binary wire protocol types, headers, payload records, and constants.
-
 use crate::core::types::{BrokerId, MonoNs, RunId, Sequence, SessionId};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+pub use crate::core::types::TickRecord;
 
 pub const MAGIC_TICK: u32 = 0x5449434B; // 'K' 'C' 'I' 'T' in LE bytes: 4B 43 49 54
 pub const PROTOCOL_VERSION: u16 = 1;
@@ -36,21 +36,6 @@ pub const STATUS_CODE_DATA_LOSS: u16 = 5;
 pub const STATUS_CODE_UNCONFIRMED: u16 = 6;
 pub const STATUS_CODE_RECOVERY: u16 = 7;
 
-/// 72-byte wire record representation.
-/// Float bits and reserved bytes are preserved verbatim.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct TickRecord {
-    pub sequence: Sequence,
-    pub broker_time_msc: i64,
-    pub ea_elapsed_us: u64,
-    pub bid: f64,
-    pub ask: f64,
-    pub last: f64,
-    pub volume: u64,
-    pub volume_real: f64,
-    pub flags: u32,
-    pub reserved: u32,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Header {

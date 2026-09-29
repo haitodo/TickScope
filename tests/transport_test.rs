@@ -11,7 +11,7 @@ use std::time::Duration;
 use support::*;
 use tick_scope::config::BrokerConfig;
 use tick_scope::core::types::*;
-use tick_scope::protocol::codec::encode_frame;
+use tick_scope::protocol::*;
 use tick_scope::transport::tcp::TransportReceiver;
 
 #[test]

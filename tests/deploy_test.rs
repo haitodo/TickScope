@@ -1,5 +1,5 @@
 use tick_scope::config::{AppConfig, Mt5DeployConfig};
-use tick_scope::runtime::deploy::{
+use tick_scope::deploy::{
     deploy_mt5_files_for_brokers, discover_mt5_terminals, DeployFileStatus,
 };
 

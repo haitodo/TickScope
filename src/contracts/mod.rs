@@ -14,6 +14,9 @@ pub mod models {
 pub mod ports {
     pub use crate::core::ports::*;
 }
+pub mod protocol {
+    pub use crate::protocol::*;
+}
 pub mod types {
     pub use crate::core::types::*;
 }
@@ -22,4 +25,5 @@ pub use config::*;
 pub use crc32c::*;
 pub use models::*;
 pub use ports::*;
+pub use protocol::*;
 pub use types::*;

@@ -1,7 +1,5 @@
-//! Streaming frame decoder and encoder for binary protocol.
-
-use crate::core::types::*;
-use crate::protocol::packet::*;
+use super::packet::*;
+use super::wire::*;
 use std::sync::{Arc, OnceLock};
 
 static EMPTY_RAW_WIRE_BYTES: OnceLock<Arc<Vec<u8>>> = OnceLock::new();

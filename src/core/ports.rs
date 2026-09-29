@@ -2,6 +2,7 @@
 
 use super::models::*;
 use super::types::*;
+use crate::protocol::IngressItem;
 use std::sync::Arc;
 
 pub trait ClockPort: Send + Sync {

@@ -7,7 +7,7 @@ use std::time::Duration;
 use tick_scope::config::{AppConfig, BrokerConfig};
 use tick_scope::core::ports::SnapshotExchangePort;
 use tick_scope::core::types::*;
-use tick_scope::protocol::codec::encode_frame;
+use tick_scope::protocol::*;
 use tick_scope::runtime::coordinator::RuntimeCoordinator;
 
 fn send_test_tick(stream: &mut TcpStream, broker_id: BrokerId, seq: Sequence, time_msc: i64, bid: f64, ask: f64) {

@@ -9,7 +9,7 @@ use fixtures::*;
 use support::*;
 use tick_scope::config::load_config_from_file;
 use tick_scope::core::*;
-use tick_scope::protocol::crc32c::crc32c;
+use tick_scope::protocol::*;
 
 #[test]
 fn test_golden_wire_fixtures_match() {

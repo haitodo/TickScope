@@ -1,7 +1,8 @@
 //! Fake Ingress and Log sinks for testing backpressure and lifecycle.
 
 use tick_scope::core::ports::{AppendResult, LogSinkPort, RawIngressSink, SubmitResult};
-use tick_scope::core::types::{IngressItem, LogRecord};
+use tick_scope::core::types::LogRecord;
+use tick_scope::protocol::IngressItem;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

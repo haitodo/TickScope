@@ -1,6 +1,7 @@
 use crate::config::{AppConfig, BrokerConfig};
 use crate::core::ports::{AppendResult, ClockPort, LogSinkPort, RawIngressSink, SnapshotExchangePort, SubmitResult};
 use crate::core::types::*;
+use crate::protocol::*;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle, DiagnosticsRuntime};
 
 use crate::state::snapshot::{SnapshotBuilder, SnapshotExchange};

@@ -3,6 +3,7 @@
 use crate::config::AppConfig;
 use crate::core::models::*;
 use crate::core::types::*;
+use crate::protocol::*;
 use crate::metrics::burst::MultiBrokerBurstDetector;
 use crate::metrics::consensus::ConsensusCalculator;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};

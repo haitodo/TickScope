@@ -2,17 +2,13 @@
 
 pub mod breadth;
 pub mod dispersion;
-pub mod latency;
 pub mod lead_lag;
 pub mod persistence;
-pub mod ribbon;
 
 pub use breadth::*;
 pub use dispersion::*;
-pub use latency::*;
 pub use lead_lag::*;
 pub use persistence::*;
-pub use ribbon::*;
 
 use serde::{Deserialize, Serialize};
 
