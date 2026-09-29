@@ -154,6 +154,10 @@ fn main() -> eframe::Result<()> {
         app
     };
 
+    // Use saved logical inner size directly.  winit (Per-Monitor DPI V2
+    // on Windows) automatically scales the physical pixel count to preserve
+    // the same visual (inch) size on any monitor, so no manual DPI
+    // adjustment is needed at startup.
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("TickScope - Multi-Broker Real-time FX Tick Scope")
         .with_inner_size(ui_state.window.inner_size)

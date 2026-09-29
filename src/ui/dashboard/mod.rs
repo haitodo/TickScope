@@ -747,6 +747,15 @@ impl DashboardApp {
     }
 
     fn track_window_geometry(&mut self, ctx: &egui::Context) {
+        let current_ppp = ctx.pixels_per_point();
+
+        // No manual DPI compensation is needed here.  winit handles
+        // WM_DPICHANGED on Windows (Per-Monitor DPI V2) and applies the
+        // OS-suggested window rect, which preserves the window's visual
+        // (inch) size across monitors — matching Explorer and other native
+        // apps.  The logical size stays constant; the physical pixel count
+        // scales with newDpi / oldDpi automatically.
+
         ctx.input(|i| {
             let vp = i.viewport();
             if let Some(maximized) = vp.maximized {
@@ -757,12 +766,14 @@ impl DashboardApp {
             }
             if !self.window_geometry.maximized {
                 if let Some(rect) = vp.inner_rect {
-                    let size = [rect.width(), rect.height()];
-                    if size[0] >= MIN_WINDOW_WIDTH && size[1] >= MIN_WINDOW_HEIGHT
-                        && ((self.window_geometry.inner_size[0] - size[0]).abs() > 1.0
-                            || (self.window_geometry.inner_size[1] - size[1]).abs() > 1.0)
+                    let logical_size = [rect.width(), rect.height()];
+                    let physical_size = [rect.width() * current_ppp, rect.height() * current_ppp];
+                    if logical_size[0] >= MIN_WINDOW_WIDTH && logical_size[1] >= MIN_WINDOW_HEIGHT
+                        && ((self.window_geometry.inner_size[0] - logical_size[0]).abs() > 1.0
+                            || (self.window_geometry.inner_size[1] - logical_size[1]).abs() > 1.0)
                     {
-                        self.window_geometry.inner_size = size;
+                        self.window_geometry.inner_size = logical_size;
+                        self.window_geometry.physical_inner_size = Some(physical_size);
                         self.state_dirty = true;
                     }
                 }

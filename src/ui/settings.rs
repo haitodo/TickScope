@@ -105,6 +105,8 @@ pub struct WindowGeometryState {
     #[serde(default = "default_window_size")]
     pub inner_size: [f32; 2],
     #[serde(default)]
+    pub physical_inner_size: Option<[f32; 2]>,
+    #[serde(default)]
     pub position: Option<[f32; 2]>,
     #[serde(default)]
     pub maximized: bool,
@@ -114,6 +116,7 @@ impl Default for WindowGeometryState {
     fn default() -> Self {
         Self {
             inner_size: default_window_size(),
+            physical_inner_size: None,
             position: None,
             maximized: false,
         }
@@ -127,6 +130,11 @@ impl WindowGeometryState {
         }
         if !self.inner_size[1].is_finite() || self.inner_size[1] < MIN_WINDOW_HEIGHT {
             self.inner_size[1] = DEFAULT_WINDOW_HEIGHT;
+        }
+        if let Some(phys) = self.physical_inner_size {
+            if !phys[0].is_finite() || !phys[1].is_finite() || phys[0] < MIN_WINDOW_WIDTH || phys[1] < MIN_WINDOW_HEIGHT {
+                self.physical_inner_size = None;
+            }
         }
         if let Some(pos) = self.position {
             if !pos[0].is_finite() || !pos[1].is_finite() {
@@ -440,8 +448,8 @@ mod tests {
             mt5_auto_launch: true,
             mt5_auto_close: false,
             window: WindowGeometryState {
-
                 inner_size: [1280.0, 800.0],
+                physical_inner_size: None,
                 position: Some([100.0, 150.0]),
                 maximized: false,
             },
@@ -514,8 +522,8 @@ mod tests {
             mt5_auto_launch: false,
             mt5_auto_close: false,
             window: WindowGeometryState {
-
                 inner_size: [200.0, 100.0], // Too small
+                physical_inner_size: None,
                 position: None,
                 maximized: false,
             },
@@ -597,5 +605,37 @@ mod tests {
         state.candle_price_scale = CandlePriceScaleMode::Fixed(20.0);
         state.sanitize();
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);
+    }
+
+    #[test]
+    fn test_window_geometry_physical_size_sanitize_and_roundtrip() {
+        let mut geom = WindowGeometryState {
+            inner_size: [1200.0, 800.0],
+            physical_inner_size: Some([1800.0, 1200.0]),
+            position: Some([100.0, 100.0]),
+            maximized: false,
+        };
+        geom.sanitize();
+        assert_eq!(geom.physical_inner_size, Some([1800.0, 1200.0]));
+
+        // Invalid physical size (< min) should be sanitized to None
+        let mut geom_invalid = WindowGeometryState {
+            inner_size: [1200.0, 800.0],
+            physical_inner_size: Some([400.0, 300.0]),
+            position: None,
+            maximized: false,
+        };
+        geom_invalid.sanitize();
+        assert_eq!(geom_invalid.physical_inner_size, None);
+
+        // NaN or Inf should be sanitized to None
+        let mut geom_nan = WindowGeometryState {
+            inner_size: [1200.0, 800.0],
+            physical_inner_size: Some([f32::NAN, 1200.0]),
+            position: None,
+            maximized: false,
+        };
+        geom_nan.sanitize();
+        assert_eq!(geom_nan.physical_inner_size, None);
     }
 }
