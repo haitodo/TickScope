@@ -45,6 +45,32 @@ utc_offset_sec = 0
 utc_verified = true
 auto_utc_offset = true
 
+# Broker 4: Dukascopy
+[[brokers]]
+id = 4
+name = "Dukascopy"
+host = "127.0.0.1"
+port = 39004
+symbol = "USDJPY"
+point_size = 0.001
+pip_size = 0.01
+utc_offset_sec = 0
+utc_verified = true
+auto_utc_offset = true
+
+# Broker 5: Tradeview
+[[brokers]]
+id = 5
+name = "Tradeview"
+host = "127.0.0.1"
+port = 39005
+symbol = "USDJPY.edge"
+point_size = 0.001
+pip_size = 0.01
+utc_offset_sec = 0
+utc_verified = true
+auto_utc_offset = true
+
 [protocol]
 max_payload_length = 1048576
 ack_mode = "required"

@@ -695,3 +695,150 @@ fn test_independent_top_and_bottom_x_axis_mode() {
     assert_eq!(restored.top_x_axis_mode(), ChartXAxisMode::ReceiveTime);
     assert_eq!(restored.bottom_x_axis_mode(), ChartXAxisMode::TickCount);
 }
+
+#[test]
+fn test_broker_visibility_toggle_and_minimum_guard() {
+    let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+    let mut app = DashboardApp::new(exchange, (1, 2));
+
+    let overviews = vec![
+        BrokerOverview { broker_id: 1, name: "Broker 1".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 2, name: "Broker 2".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 3, name: "Broker 3".to_string(), ..Default::default() },
+    ];
+
+    // Initial state: all visible
+    assert!(app.is_broker_visible(1));
+    assert!(app.is_broker_visible(2));
+    assert!(app.is_broker_visible(3));
+    assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2, 3]);
+
+    // Hide broker 3
+    app.set_broker_visible(3, false, &overviews);
+    assert!(app.is_broker_visible(1));
+    assert!(app.is_broker_visible(2));
+    assert!(!app.is_broker_visible(3));
+    assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2]);
+
+    // Guard test: Trying to hide broker 2 leaves only 1 visible broker, which should be rejected
+    app.set_broker_visible(2, false, &overviews);
+    assert!(app.is_broker_visible(2), "Should remain visible due to minimum 2 broker guard");
+    assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2]);
+
+    // Test active pair auto-switching when a selected broker is hidden:
+    // First, show broker 3 again so we have 3 visible brokers
+    app.set_broker_visible(3, true, &overviews);
+    assert!(app.is_broker_visible(3));
+    assert_eq!(app.selected_pair(), (1, 2));
+
+    // Now hide broker 2 (current Broker B) -> Broker B should automatically switch to Broker 3
+    app.set_broker_visible(2, false, &overviews);
+    assert_eq!(app.selected_pair(), (1, 3));
+
+    // Show all brokers
+    app.show_all_brokers();
+    assert!(app.is_broker_visible(1));
+    assert!(app.is_broker_visible(2));
+    assert!(app.is_broker_visible(3));
+    assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2, 3]);
+}
+
+#[test]
+fn test_candlestick_chart_hides_broker_without_wasted_gap() {
+    use tick_compare::ui::chart::{draw_candlestick_chart_for_brokers, ChartTheme};
+    use tick_compare::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+
+    let mut slots_by_broker = HashMap::new();
+    let mut slot_starts = Vec::new();
+
+    for i in 0..10 {
+        let utc = UtcMs(i * 1000);
+        slot_starts.push(utc);
+        for b_id in [1, 2, 3] {
+            let slots = slots_by_broker.entry(b_id).or_insert_with(Vec::new);
+            slots.push(CandleSlot {
+                broker_id: b_id,
+                segment_id: 1,
+                period_ms: 1000,
+                start_utc_ms: utc,
+                state: SlotState::Closed,
+                ohlc: Some(Ohlc {
+                    open: 150.0,
+                    high: 150.1,
+                    low: 149.9,
+                    close: 150.05,
+                    open_key: (utc, 1),
+                    close_key: (utc, 1),
+                }),
+                tick_count: 5,
+                revision: 1,
+                coverage: SlotCoverage::Full,
+            });
+        }
+    }
+
+    let view = CandleView {
+        period_ms: 1000,
+        slot_starts,
+        slots_by_broker,
+    };
+
+    let overviews = vec![
+        BrokerOverview { broker_id: 1, name: "Broker 1".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 2, name: "Broker 2".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 3, name: "Broker 3".to_string(), ..Default::default() },
+    ];
+
+    let ctx = egui::Context::default();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let theme = ChartTheme::default();
+            let rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
+            let painter = ui.painter_at(rect);
+            let mut anchor = None;
+            let mut latch = None;
+
+            // 1. Draw with 3 brokers visible
+            draw_candlestick_chart_for_brokers(
+                &painter,
+                rect,
+                Some(&view),
+                &[1, 2, 3],
+                &overviews,
+                5.0,
+                CandlePriceScaleMode::Auto,
+                CandleFollowCriteria::Median,
+                0.01,
+                &mut anchor,
+                &mut latch,
+                Some(150.0),
+                1000,
+                MonoNs(100_000_000),
+                tick_compare::contracts::models::PriceMode::Bid,
+                &theme,
+            );
+
+            // 2. Draw with broker 2 hidden: only [1, 3] visible
+            // The slot_width for 2 brokers (5px * 2 + 1px gap + 4px = 15px) is smaller
+            // than for 3 brokers (5px * 3 + 2px gap + 4px = 21px), preventing empty gaps.
+            draw_candlestick_chart_for_brokers(
+                &painter,
+                rect,
+                Some(&view),
+                &[1, 3],
+                &overviews,
+                5.0,
+                CandlePriceScaleMode::Auto,
+                CandleFollowCriteria::Median,
+                0.01,
+                &mut anchor,
+                &mut latch,
+                Some(150.0),
+                1000,
+                MonoNs(100_000_000),
+                tick_compare::contracts::models::PriceMode::Bid,
+                &theme,
+            );
+        });
+    });
+}

@@ -159,6 +159,8 @@ pub struct UiState {
     #[serde(default)]
     pub candle_follow_criteria: CandleFollowCriteria,
     #[serde(default)]
+    pub hidden_brokers: Vec<BrokerId>,
+    #[serde(default)]
     pub window: WindowGeometryState,
 }
 
@@ -176,12 +178,30 @@ impl Default for UiState {
             bottom_x_axis_mode: ChartXAxisMode::default(),
             bottom_metric: BottomMetric::default(),
             show_broker_overview: false,
+            hidden_brokers: Vec::new(),
             window: WindowGeometryState::default(),
         }
     }
 }
 
 impl UiState {
+    pub fn is_broker_visible(&self, broker_id: BrokerId) -> bool {
+        !self.hidden_brokers.contains(&broker_id)
+    }
+
+    pub fn set_broker_visible(&mut self, broker_id: BrokerId, visible: bool) {
+        if visible {
+            self.hidden_brokers.retain(|&id| id != broker_id);
+        } else if !self.hidden_brokers.contains(&broker_id) {
+            self.hidden_brokers.push(broker_id);
+            self.hidden_brokers.sort_unstable();
+        }
+    }
+
+    pub fn show_all_brokers(&mut self) {
+        self.hidden_brokers.clear();
+    }
+
     pub fn sanitize(&mut self) {
         self.window.sanitize();
         if !VALID_TIMEFRAMES_MS.contains(&self.selected_timeframe_ms) {
@@ -201,6 +221,8 @@ impl UiState {
         if self.active_pair.0 == self.active_pair.1 {
             self.active_pair = default_active_pair();
         }
+        self.hidden_brokers.sort_unstable();
+        self.hidden_brokers.dedup();
     }
 
     /// Reconciles the loaded active broker pair with currently configured brokers.
@@ -211,11 +233,41 @@ impl UiState {
         default_pair: (BrokerId, BrokerId),
     ) {
         self.sanitize();
-        let (a, b) = self.active_pair;
-        let has_a = brokers.iter().any(|bk| bk.id == a);
-        let has_b = brokers.iter().any(|bk| bk.id == b);
+
+        // 1. Remove non-existent broker IDs from hidden_brokers
+        self.hidden_brokers.retain(|&id| brokers.iter().any(|bk| bk.id == id));
+
+        // 2. Ensure at least two brokers remain visible if at least two exist
+        let visible_count = brokers.iter().filter(|bk| !self.hidden_brokers.contains(&bk.id)).count();
+        if visible_count < 2 && brokers.len() >= 2 {
+            self.hidden_brokers.clear();
+        }
+
+        // 3. Reconcile active pair
+        let (mut a, mut b) = self.active_pair;
+        let has_a = brokers.iter().any(|bk| bk.id == a && !self.hidden_brokers.contains(&bk.id));
+        let has_b = brokers.iter().any(|bk| bk.id == b && !self.hidden_brokers.contains(&bk.id));
+
         if !has_a || !has_b || a == b {
-            self.active_pair = default_pair;
+            // Find first two visible brokers as fallback
+            let visible_ids: Vec<BrokerId> = brokers
+                .iter()
+                .filter(|bk| !self.hidden_brokers.contains(&bk.id))
+                .map(|bk| bk.id)
+                .collect();
+            if visible_ids.len() >= 2 {
+                a = visible_ids[0];
+                b = visible_ids[1];
+            } else if brokers.iter().any(|bk| bk.id == default_pair.0)
+                && brokers.iter().any(|bk| bk.id == default_pair.1)
+                && default_pair.0 != default_pair.1
+            {
+                a = default_pair.0;
+                b = default_pair.1;
+                // Ensure default pair is visible
+                self.hidden_brokers.retain(|&id| id != a && id != b);
+            }
+            self.active_pair = (a, b);
         }
     }
 }
@@ -307,6 +359,7 @@ mod tests {
             bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_metric: BottomMetric::SpreadDiff,
             show_broker_overview: true,
+            hidden_brokers: vec![3, 5],
             window: WindowGeometryState {
                 inner_size: [1280.0, 800.0],
                 position: Some([100.0, 150.0]),
@@ -317,6 +370,33 @@ mod tests {
         save_ui_state(&path, &original).expect("save should succeed");
         let loaded = load_ui_state(&path).expect("load should succeed");
         assert_eq!(original, loaded);
+    }
+
+    #[test]
+    fn test_ui_state_visibility_helpers() {
+        let mut state = UiState::default();
+        assert!(state.is_broker_visible(1));
+        assert!(state.is_broker_visible(2));
+
+        state.set_broker_visible(2, false);
+        assert!(state.is_broker_visible(1));
+        assert!(!state.is_broker_visible(2));
+        assert_eq!(state.hidden_brokers, vec![2]);
+
+        state.set_broker_visible(1, false);
+        assert!(!state.is_broker_visible(1));
+        assert!(!state.is_broker_visible(2));
+        assert_eq!(state.hidden_brokers, vec![1, 2]);
+
+        state.set_broker_visible(2, true);
+        assert!(!state.is_broker_visible(1));
+        assert!(state.is_broker_visible(2));
+        assert_eq!(state.hidden_brokers, vec![1]);
+
+        state.show_all_brokers();
+        assert!(state.is_broker_visible(1));
+        assert!(state.is_broker_visible(2));
+        assert!(state.hidden_brokers.is_empty());
     }
 
     #[test]
@@ -348,6 +428,7 @@ mod tests {
             bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_metric: BottomMetric::MidDiff,
             show_broker_overview: false,
+            hidden_brokers: Vec::new(),
             window: WindowGeometryState {
                 inner_size: [200.0, 100.0], // Too small
                 position: None,
@@ -380,6 +461,18 @@ mod tests {
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);
         // window size should sanitize to min/defaults
         assert_eq!(state.window.inner_size, [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]);
+
+        // Reconcile with hidden brokers
+        let brokers3 = vec![
+            BrokerConfig { id: 1, name: "A".to_string(), ..Default::default() },
+            BrokerConfig { id: 2, name: "B".to_string(), ..Default::default() },
+            BrokerConfig { id: 3, name: "C".to_string(), ..Default::default() },
+        ];
+        state.hidden_brokers = vec![2, 99]; // 99 doesn't exist, 2 is hidden
+        state.active_pair = (1, 2); // 2 is hidden, should switch to visible (1, 3)
+        state.reconcile_with_brokers(&brokers3, (1, 2));
+        assert_eq!(state.hidden_brokers, vec![2]);
+        assert_eq!(state.active_pair, (1, 3));
     }
 
     #[test]

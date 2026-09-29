@@ -667,7 +667,7 @@ pub fn draw_candlestick_chart_multi_with_mode(
     );
 }
 
-fn draw_candlestick_chart_for_brokers(
+pub fn draw_candlestick_chart_for_brokers(
     painter: &egui::Painter,
     rect: Rect,
     candle_view: Option<&CandleView>,
@@ -930,7 +930,11 @@ fn draw_candlestick_chart_for_brokers(
                             + broker_index as f32 * (bar_width + candle_gap)
                             + bar_width * 0.5)
                             .round();
-                        let color = broker_color_for(theme, broker_index);
+                        let color_index = broker_overviews
+                            .iter()
+                            .position(|b| b.broker_id == *broker_id)
+                            .unwrap_or(broker_index);
+                        let color = broker_color_for(theme, color_index);
                         draw_single_candle(
                             &plot_painter,
                             cx,
@@ -960,7 +964,11 @@ fn draw_candlestick_chart_for_brokers(
     let mut legend_y = rect.top() + 6.0;
     let mut hidden_legends = 0;
     for (broker_index, broker_id) in broker_ids.iter().enumerate() {
-        let color = broker_color_for(theme, broker_index);
+        let color_index = broker_overviews
+            .iter()
+            .position(|b| b.broker_id == *broker_id)
+            .unwrap_or(broker_index);
+        let color = broker_color_for(theme, color_index);
         let name = broker_overviews
             .iter()
             .find(|b| b.broker_id == *broker_id)
@@ -1805,6 +1813,43 @@ pub fn draw_realtime_quote_path_chart(
     chart_anchor: &mut Option<f64>,
     theme: &ChartTheme,
 ) {
+    draw_realtime_quote_path_chart_with_visibility(
+        painter,
+        rect,
+        quote_points,
+        broker_overviews,
+        None,
+        selected_pair,
+        x_axis_mode,
+        now_mono,
+        visible_seconds,
+        visible_ticks,
+        pip_size,
+        fixed_follow_span_pips,
+        deadzone_pct,
+        chart_anchor,
+        theme,
+    );
+}
+
+/// Realtime Quote Path Chart with explicit visible brokers list
+pub fn draw_realtime_quote_path_chart_with_visibility(
+    painter: &egui::Painter,
+    rect: Rect,
+    quote_points: &[RealtimeQuotePoint],
+    broker_overviews: &[BrokerOverview],
+    visible_broker_ids: Option<&[BrokerId]>,
+    selected_pair: (BrokerId, BrokerId),
+    x_axis_mode: ChartXAxisMode,
+    now_mono: MonoNs,
+    visible_seconds: u64,
+    visible_ticks: usize,
+    pip_size: f64,
+    fixed_follow_span_pips: f64,
+    deadzone_pct: f64,
+    chart_anchor: &mut Option<f64>,
+    theme: &ChartTheme,
+) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
 
     if quote_points.is_empty() {
@@ -1879,8 +1924,15 @@ pub fn draw_realtime_quote_path_chart(
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
 
-    let mut ordered_brokers: Vec<(usize, &BrokerOverview)> =
-        broker_overviews.iter().enumerate().collect();
+    let mut ordered_brokers: Vec<(usize, &BrokerOverview)> = broker_overviews
+        .iter()
+        .enumerate()
+        .filter(|(_, broker)| {
+            visible_broker_ids
+                .map(|v| v.contains(&broker.broker_id))
+                .unwrap_or(true)
+        })
+        .collect();
     ordered_brokers.sort_by_key(|(_, broker)| {
         if broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1 {
             1

@@ -102,7 +102,7 @@ pub struct LeadLagMatch {
     pub segment_id: AnalysisSegmentId,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BrokerOverview {
     pub broker_id: BrokerId,
     pub name: String,

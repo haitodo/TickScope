@@ -1,12 +1,13 @@
+use crate::contracts::models::BrokerOverview;
 use crate::contracts::ports::{ClockPort, SnapshotExchangePort};
 use crate::contracts::types::*;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::ui::chart::{
-    draw_bid_ask_diff_chart, draw_candlestick_chart_multi_with_mode, draw_lead_lag_view,
-    draw_mid_diff_chart,
-    draw_mid_dispersion_view, draw_move_breadth_view, draw_quote_persistence_view,
-    draw_realtime_quote_path_chart, draw_spread_diff_chart, draw_state_ribbon, BottomMetric,
-    BottomMetricCategory, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide,
+    draw_bid_ask_diff_chart, draw_candlestick_chart_for_brokers, draw_lead_lag_view,
+    draw_mid_diff_chart, draw_mid_dispersion_view, draw_move_breadth_view,
+    draw_quote_persistence_view, draw_realtime_quote_path_chart_with_visibility,
+    draw_spread_diff_chart, draw_state_ribbon, BottomMetric, BottomMetricCategory, ChartTheme,
+    ChartXAxisMode, MarginEdgeLatchSide,
 };
 use crate::ui::fonts::setup_fonts;
 use crate::ui::style;
@@ -53,6 +54,7 @@ pub struct DashboardApp {
     style_configured: bool,
     show_broker_overview: bool,
     show_quick_settings: bool,
+    hidden_brokers: Vec<BrokerId>,
     ui_state_path: Option<PathBuf>,
     window_geometry: WindowGeometryState,
     state_dirty: bool,
@@ -94,6 +96,7 @@ impl DashboardApp {
             style_configured: false,
             show_broker_overview: false,
             show_quick_settings: false,
+            hidden_brokers: Vec::new(),
             ui_state_path: None,
             window_geometry: WindowGeometryState::default(),
             state_dirty: false,
@@ -113,6 +116,7 @@ impl DashboardApp {
         self.bottom_x_axis_mode = state.bottom_x_axis_mode;
         self.bottom_metric = state.bottom_metric;
         self.show_broker_overview = state.show_broker_overview;
+        self.hidden_brokers = state.hidden_brokers.clone();
         self.window_geometry = state.window.clone();
         self
     }
@@ -140,6 +144,7 @@ impl DashboardApp {
             bottom_x_axis_mode: self.bottom_x_axis_mode,
             bottom_metric: self.bottom_metric,
             show_broker_overview: self.show_broker_overview,
+            hidden_brokers: self.hidden_brokers.clone(),
             window: self.window_geometry.clone(),
         }
     }
@@ -184,6 +189,78 @@ impl DashboardApp {
 
     pub fn set_show_quick_settings(&mut self, show: bool) {
         self.show_quick_settings = show;
+    }
+
+    pub fn hidden_brokers(&self) -> &[BrokerId] {
+        &self.hidden_brokers
+    }
+
+    pub fn is_broker_visible(&self, broker_id: BrokerId) -> bool {
+        !self.hidden_brokers.contains(&broker_id)
+    }
+
+    pub fn set_broker_visible(
+        &mut self,
+        broker_id: BrokerId,
+        visible: bool,
+        available_brokers: &[BrokerOverview],
+    ) {
+        let all_ids: Vec<BrokerId> = available_brokers.iter().map(|b| b.broker_id).collect();
+        if visible {
+            if self.hidden_brokers.contains(&broker_id) {
+                self.hidden_brokers.retain(|&id| id != broker_id);
+                self.state_dirty = true;
+            }
+        } else {
+            // Guard: Keep at least 2 brokers visible if 2 or more exist in available_brokers
+            let current_visible_count = all_ids
+                .iter()
+                .filter(|&id| !self.hidden_brokers.contains(id))
+                .count();
+            if current_visible_count <= 2 && all_ids.len() >= 2 {
+                return;
+            }
+            if current_visible_count <= 1 {
+                return;
+            }
+            if !self.hidden_brokers.contains(&broker_id) {
+                self.hidden_brokers.push(broker_id);
+                self.hidden_brokers.sort_unstable();
+                self.state_dirty = true;
+
+                // If currently selected broker A or B is hidden, switch to another visible broker
+                let remaining_visible: Vec<BrokerId> = all_ids
+                    .iter()
+                    .copied()
+                    .filter(|id| !self.hidden_brokers.contains(id))
+                    .collect();
+
+                if self.selected_broker_a == broker_id {
+                    if let Some(&new_a) = remaining_visible.iter().find(|&&id| id != self.selected_broker_b) {
+                        self.set_broker_a(new_a);
+                    }
+                } else if self.selected_broker_b == broker_id {
+                    if let Some(&new_b) = remaining_visible.iter().find(|&&id| id != self.selected_broker_a) {
+                        self.set_broker_b(new_b);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn show_all_brokers(&mut self) {
+        if !self.hidden_brokers.is_empty() {
+            self.hidden_brokers.clear();
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn visible_broker_ids(&self, overviews: &[BrokerOverview]) -> Vec<BrokerId> {
+        overviews
+            .iter()
+            .map(|b| b.broker_id)
+            .filter(|id| self.is_broker_visible(*id))
+            .collect()
     }
 
     pub fn with_pip_size(mut self, pip_size: f64) -> Self {
@@ -508,7 +585,12 @@ impl DashboardApp {
                     .count();
 
                 let overview_arrow = if self.show_broker_overview { "▲" } else { "▼" };
-                let overview_text = format!("{} ● {}/{} Live", overview_arrow, live_brokers, total_brokers);
+                let hidden_count = self.hidden_brokers.len();
+                let overview_text = if hidden_count > 0 {
+                    format!("{} ● {}/{} Live ({} Hidden)", overview_arrow, live_brokers, total_brokers, hidden_count)
+                } else {
+                    format!("{} ● {}/{} Live", overview_arrow, live_brokers, total_brokers)
+                };
                 let overview_color = if live_brokers == total_brokers && total_brokers > 0 {
                     Color32::from_rgb(0, 220, 140)
                 } else if live_brokers > 0 {
@@ -595,6 +677,11 @@ impl DashboardApp {
             egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.strong("Broker Overview");
+                    if !self.hidden_brokers.is_empty() {
+                        if ui.small_button("Show All").on_hover_text("Show all hidden brokers on charts").clicked() {
+                            self.show_all_brokers();
+                        }
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("✕ Close [B]").clicked() {
                             self.show_broker_overview = false;
@@ -611,6 +698,7 @@ impl DashboardApp {
                             .min_row_height(26.0)
                             .show(ui, |ui| {
                                 for header in [
+                                    "Vis",
                                     "Focus",
                                     "Broker",
                                     "Symbol",
@@ -625,6 +713,7 @@ impl DashboardApp {
                                 }
                                 ui.end_row();
                                 for b in &snapshot.broker_overviews {
+                                    let is_vis = self.is_broker_visible(b.broker_id);
                                     let (status, status_color) = match b.health.connection {
                                         ConnectionState::Disconnected => ("DISCONNECTED", style::ERROR),
                                         ConnectionState::Connecting => ("CONNECTING", style::WARNING),
@@ -637,7 +726,9 @@ impl DashboardApp {
                                     let quote_is_live = b.health.connection
                                         == ConnectionState::Connected
                                         && b.health.data_freshness == FreshnessState::Live;
-                                    let quote_color = if quote_is_live {
+                                    let quote_color = if !is_vis {
+                                        Color32::from_gray(90)
+                                    } else if quote_is_live {
                                         Color32::WHITE
                                     } else if b.health.connection == ConnectionState::Disconnected {
                                         Color32::from_gray(90)
@@ -645,6 +736,18 @@ impl DashboardApp {
                                         Color32::from_gray(145)
                                     };
 
+                                    // 1. Visibility Checkbox
+                                    let mut vis_checked = is_vis;
+                                    let vis_btn = ui.checkbox(&mut vis_checked, "");
+                                    if vis_btn.on_hover_text(if is_vis {
+                                        "Visible on charts. Click to hide."
+                                    } else {
+                                        "Hidden from charts. Click to show."
+                                    }).clicked() {
+                                        self.set_broker_visible(b.broker_id, vis_checked, &snapshot.broker_overviews);
+                                    }
+
+                                    // 2. Focus (A / B) Buttons
                                     let is_a = b.broker_id == self.selected_broker_a;
                                     let is_b = b.broker_id == self.selected_broker_b;
                                     ui.horizontal(|ui| {
@@ -653,8 +756,10 @@ impl DashboardApp {
                                             is_a,
                                             RichText::new("A").strong().color(if is_a {
                                                 Color32::from_rgb(0, 220, 255)
-                                            } else {
+                                            } else if is_vis {
                                                 Color32::from_gray(100)
+                                            } else {
+                                                Color32::from_gray(60)
                                             }),
                                         );
                                         if btn_a.on_hover_text("Assign as Broker A").clicked() {
@@ -664,8 +769,10 @@ impl DashboardApp {
                                             is_b,
                                             RichText::new("B").strong().color(if is_b {
                                                 Color32::from_rgb(255, 120, 200)
-                                            } else {
+                                            } else if is_vis {
                                                 Color32::from_gray(100)
+                                            } else {
+                                                Color32::from_gray(60)
                                             }),
                                         );
                                         if btn_b.on_hover_text("Assign as Broker B").clicked() {
@@ -673,11 +780,14 @@ impl DashboardApp {
                                         }
                                     });
 
-                                    ui.label(RichText::new(&b.name).strong().color(if quote_is_live {
+                                    let name_color = if !is_vis {
+                                        Color32::from_gray(120)
+                                    } else if quote_is_live {
                                         Color32::WHITE
                                     } else {
                                         status_color
-                                    }));
+                                    };
+                                    ui.label(RichText::new(&b.name).strong().color(name_color));
                                     ui.label(RichText::new(&b.symbol).color(quote_color));
                                     if let Some(q) = &b.latest_quote {
                                         ui.label(
@@ -769,11 +879,7 @@ impl DashboardApp {
                     self.bottom_metric = self.bottom_metric.next();
                 }
             } else if i.key_pressed(egui::Key::P) {
-                let broker_ids: Vec<BrokerId> = snapshot
-                    .broker_overviews
-                    .iter()
-                    .map(|b| b.broker_id)
-                    .collect();
+                let broker_ids: Vec<BrokerId> = self.visible_broker_ids(&snapshot.broker_overviews);
                 self.cycle_pair(&broker_ids, !i.modifiers.shift);
             } else if i.key_pressed(egui::Key::B) {
                 self.show_broker_overview = !self.show_broker_overview;
@@ -796,7 +902,7 @@ impl DashboardApp {
             let candle_height = available_chart_space * 0.65;
             let metric_height = available_chart_space * 0.35;
 
-            // 1. Candlestick Chart
+            // 1. Candlestick Chart / Realtime Path Chart
             let candle_rect = egui::Rect::from_min_size(
                 available_rect.min,
                 egui::Vec2::new(available_rect.width(), candle_height),
@@ -820,11 +926,14 @@ impl DashboardApp {
                         .find_map(|b| b.latest_quote.as_ref().map(|q| q.mid))
                 });
 
+            let visible_broker_ids = self.visible_broker_ids(&snapshot.broker_overviews);
+
             if self.show_candle_context {
-                draw_candlestick_chart_multi_with_mode(
+                draw_candlestick_chart_for_brokers(
                     &painter,
                     candle_rect,
                     candle_view,
+                    &visible_broker_ids,
                     &snapshot.broker_overviews,
                     self.candle_bar_width,
                     self.candle_price_scale,
@@ -839,11 +948,12 @@ impl DashboardApp {
                     &self.theme,
                 );
             } else {
-                draw_realtime_quote_path_chart(
+                draw_realtime_quote_path_chart_with_visibility(
                     &painter,
                     candle_rect,
                     &snapshot.realtime_quote_points,
                     &snapshot.broker_overviews,
+                    Some(&visible_broker_ids),
                     self.selected_pair(),
                     self.top_x_axis_mode,
                     snapshot.built_mono_ns,
@@ -1049,11 +1159,17 @@ impl DashboardApp {
                     );
                 }
                 BottomMetric::MidDispersion => {
+                    let visible_overviews: Vec<BrokerOverview> = snapshot
+                        .broker_overviews
+                        .iter()
+                        .filter(|b| self.is_broker_visible(b.broker_id))
+                        .cloned()
+                        .collect();
                     draw_mid_dispersion_view(
                         &bottom_painter,
                         bottom_rect,
                         &snapshot.consensus,
-                        &snapshot.broker_overviews,
+                        &visible_overviews,
                         &self.theme,
                     );
                 }
@@ -1068,19 +1184,26 @@ impl DashboardApp {
                     );
                 }
                 BottomMetric::QuotePersistence => {
+                    let visible_overviews: Vec<BrokerOverview> = snapshot
+                        .broker_overviews
+                        .iter()
+                        .filter(|b| self.is_broker_visible(b.broker_id))
+                        .cloned()
+                        .collect();
                     draw_quote_persistence_view(
                         &bottom_painter,
                         bottom_rect,
-                        &snapshot.broker_overviews,
+                        &visible_overviews,
                         &self.theme,
                     );
                 }
                 BottomMetric::QuotePath => {
-                    draw_realtime_quote_path_chart(
+                    draw_realtime_quote_path_chart_with_visibility(
                         &bottom_painter,
                         bottom_rect,
                         &snapshot.realtime_quote_points,
                         &snapshot.broker_overviews,
+                        Some(&visible_broker_ids),
                         self.selected_pair(),
                         self.bottom_x_axis_mode,
                         snapshot.built_mono_ns,
@@ -1196,7 +1319,32 @@ impl DashboardApp {
 
                         ui.separator();
 
-                        // 2. Chart Axes & Timeline
+                        // 2. Visible Brokers
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Visible Brokers (表示業者)")
+                                    .strong()
+                                    .color(Color32::from_rgb(180, 220, 255)),
+                            );
+                            if !self.hidden_brokers.is_empty() {
+                                if ui.small_button("Show All").on_hover_text("Show all hidden brokers").clicked() {
+                                    self.show_all_brokers();
+                                }
+                            }
+                        });
+
+                        ui.horizontal_wrapped(|ui| {
+                            for b in &snapshot.broker_overviews {
+                                let mut vis = self.is_broker_visible(b.broker_id);
+                                if ui.checkbox(&mut vis, &b.name).clicked() {
+                                    self.set_broker_visible(b.broker_id, vis, &snapshot.broker_overviews);
+                                }
+                            }
+                        });
+
+                        ui.separator();
+
+                        // 3. Chart Axes & Timeline
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("Chart Axes & Timeline")
