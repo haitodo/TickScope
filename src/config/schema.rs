@@ -56,7 +56,10 @@ pub struct BrokerConfig {
     pub utc_verified: bool,
     #[serde(default = "default_auto_utc_offset")]
     pub auto_utc_offset: bool,
+    #[serde(default)]
+    pub terminal_path: Option<String>,
 }
+
 
 fn default_broker_port() -> u16 {
     39001
@@ -79,8 +82,10 @@ impl Default for BrokerConfig {
             utc_offset_sec: 0,
             utc_verified: false,
             auto_utc_offset: true,
+            terminal_path: None,
         }
     }
+
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -346,6 +351,12 @@ pub struct Mt5DeployConfig {
     pub auto_deploy: bool,
     #[serde(default)]
     pub custom_data_dirs: Vec<String>,
+    #[serde(default = "default_false")]
+    pub auto_launch_terminals: bool,
+    #[serde(default = "default_false")]
+    pub auto_close_terminals: bool,
+    #[serde(default = "default_true")]
+    pub launch_minimized: bool,
 }
 
 impl Default for Mt5DeployConfig {
@@ -353,9 +364,13 @@ impl Default for Mt5DeployConfig {
         Self {
             auto_deploy: default_true(),
             custom_data_dirs: Vec::new(),
+            auto_launch_terminals: false,
+            auto_close_terminals: false,
+            launch_minimized: true,
         }
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -399,6 +414,7 @@ impl Default for AppConfig {
                     utc_offset_sec: 0,
                     utc_verified: false,
                     auto_utc_offset: true,
+                    terminal_path: None,
                 },
                 BrokerConfig {
                     id: 2,
@@ -411,7 +427,9 @@ impl Default for AppConfig {
                     utc_offset_sec: 0,
                     utc_verified: false,
                     auto_utc_offset: true,
+                    terminal_path: None,
                 },
+
             ],
             active_pair: (1, 2),
             protocol: ProtocolConfig::default(),

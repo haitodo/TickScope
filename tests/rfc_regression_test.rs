@@ -60,7 +60,9 @@ fn make_5_broker_config() -> AppConfig {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            terminal_path: None,
         })
+
         .collect();
     config.active_pair = (1, 2);
     config

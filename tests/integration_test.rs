@@ -63,6 +63,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: true,
+            terminal_path: None,
         },
         BrokerConfig {
             id: 2,
@@ -75,6 +76,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: true,
+            terminal_path: None,
         },
         BrokerConfig {
             id: 3,
@@ -87,7 +89,9 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: true,
+            terminal_path: None,
         },
+
     ];
     config.active_pair = (1, 2);
 
@@ -179,6 +183,7 @@ fn test_ti02_high_frequency_burst_injection() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            terminal_path: None,
         },
         BrokerConfig {
             id: 12,
@@ -191,6 +196,7 @@ fn test_ti02_high_frequency_burst_injection() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            terminal_path: None,
         },
         BrokerConfig {
             id: 13,
@@ -203,7 +209,9 @@ fn test_ti02_high_frequency_burst_injection() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            terminal_path: None,
         },
+
     ];
     config.active_pair = (11, 12);
 

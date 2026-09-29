@@ -25,6 +25,32 @@ pub fn render_broker_overview(
             {
                 app.show_all_brokers();
             }
+
+            ui.separator();
+
+            let all_broker_ids: Vec<crate::core::types::BrokerId> = snapshot
+                .broker_overviews
+                .iter()
+                .map(|b| b.broker_id)
+                .collect();
+            let all_selected = !all_broker_ids.is_empty()
+                && all_broker_ids
+                    .iter()
+                    .all(|&id| app.is_mt5_target(id));
+
+            if ui
+                .small_button(if all_selected { "Deselect All MT5" } else { "Select All MT5" })
+                .on_hover_text("Toggle all brokers as MT5 launch targets")
+                .clicked()
+            {
+                if all_selected {
+                    app.mt5_launch_targets.clear();
+                    app.state_dirty = true;
+                } else {
+                    app.select_all_mt5_targets(&all_broker_ids);
+                }
+            }
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("✕ Close [B]").clicked() {
                     app.show_broker_overview = false;
@@ -51,10 +77,14 @@ pub fn render_broker_overview(
                             "Quote age",
                             "Feed",
                             "Ticks/s",
+                            "Target",
+                            "Process",
+                            "Action",
                         ] {
                             ui.label(RichText::new(header).small().color(style::MUTED));
                         }
                         ui.end_row();
+
                         for b in &snapshot.broker_overviews {
                             let is_vis = app.is_broker_visible(b.broker_id);
                             let (status, status_color) = match b.health.connection {
@@ -190,7 +220,73 @@ pub fn render_broker_overview(
                                     .monospace()
                                     .color(quote_color),
                             );
+
+                            // 11. MT5 Target Checkbox
+                            let mut is_target = app.is_mt5_target(b.broker_id);
+                            if ui
+                                .checkbox(&mut is_target, "")
+                                .on_hover_text("一括起動／終了の対象に含める")
+                                .clicked()
+                            {
+                                app.set_mt5_target(b.broker_id, is_target);
+                            }
+
+                            // 12. MT5 Process Status
+                            let proc_status = app.terminal_manager.get_status(b.broker_id);
+                            match proc_status {
+                                crate::runtime::TerminalProcessStatus::Running { pid } => {
+                                    ui.label(
+                                        RichText::new(format!("● PID:{}", pid))
+                                            .small()
+                                            .color(style::LIVE),
+                                    );
+                                }
+                                crate::runtime::TerminalProcessStatus::Stopped => {
+                                    ui.label(
+                                        RichText::new("○ Stopped")
+                                            .small()
+                                            .color(Color32::from_gray(140)),
+                                    );
+                                }
+                                crate::runtime::TerminalProcessStatus::NotFound => {
+                                    ui.label(
+                                        RichText::new("⚠ No exe")
+                                            .small()
+                                            .color(style::WARNING),
+                                    )
+                                    .on_hover_text("MT5実行ファイルが見つかりません。config.tomlでterminal_pathを指定してください。");
+                                }
+                            }
+
+                            // 13. Individual Action Button
+                            match proc_status {
+                                crate::runtime::TerminalProcessStatus::Running { pid } => {
+                                    let stop_btn = ui.small_button("⏹ 停止");
+                                    if stop_btn
+                                        .on_hover_text(format!("このMT5端末（PID: {}）を終了します", pid))
+                                        .clicked()
+                                    {
+                                        app.terminal_manager.stop(b.broker_id, std::time::Duration::from_secs(5));
+                                    }
+                                }
+                                crate::runtime::TerminalProcessStatus::Stopped => {
+                                    let start_btn = ui.small_button("▶ 起動");
+                                    if start_btn
+                                        .on_hover_text(format!("このMT5端末を起動します（最小化: {}）", if app.mt5_minimized { "オン" } else { "オフ" }))
+                                        .clicked()
+                                    {
+                                        let minimized = app.mt5_minimized;
+                                        let _ = app.terminal_manager.launch(b.broker_id, minimized);
+                                        app.terminal_manager.poll_status(&app.broker_configs, &app.discovered_terminals, true);
+                                    }
+                                }
+                                crate::runtime::TerminalProcessStatus::NotFound => {
+                                    ui.label(RichText::new("—").color(Color32::from_gray(100)));
+                                }
+                            }
+
                             ui.end_row();
+
                         }
                     });
             });

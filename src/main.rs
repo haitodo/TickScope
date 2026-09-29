@@ -103,6 +103,9 @@ fn main() -> eframe::Result<()> {
         }
     };
 
+    // Discover MT5 terminals for auto-deployment and process lifecycle management
+    let (discovered_terminals, _) = tick_scope::deploy::discover_mt5_terminals(&coordinator.config.mt5);
+
     // Deploy the connection map only after each listener has reserved its
     // actual OS-selected port. Every terminal then receives usable endpoints.
     if coordinator.config.mt5.auto_deploy {
@@ -113,12 +116,35 @@ fn main() -> eframe::Result<()> {
         tick_scope::deploy::print_deploy_report(&deploy_report);
     }
 
+    let should_auto_launch = ui_state.mt5_auto_launch || coordinator.config.mt5.auto_launch_terminals;
+    let should_auto_close = ui_state.mt5_auto_close || coordinator.config.mt5.auto_close_terminals;
+
+    if should_auto_launch && !ui_state.mt5_launch_targets.is_empty() {
+        log::info!(
+            "[MT5 Auto-Launch] Auto-launching {} MT5 terminal(s)...",
+            ui_state.mt5_launch_targets.len()
+        );
+        let mut tm = tick_scope::runtime::TerminalManager::new();
+        tm.poll_status(&coordinator.config.brokers, &discovered_terminals, true);
+        let stopped_targets: Vec<_> = ui_state
+            .mt5_launch_targets
+            .iter()
+            .copied()
+            .filter(|&id| !tm.get_status(id).is_running())
+            .collect();
+        let minimized = ui_state.mt5_minimized;
+        let _ = tm.launch_multiple(&stopped_targets, minimized);
+    }
+
     let exchange = coordinator.exchange.clone();
     let app = DashboardApp::new(exchange, initial_pair)
         .with_pip_size(pip_size)
         .with_visible_seconds(visible_seconds)
         .with_visible_ticks(visible_ticks)
         .with_chart_max_quote_age_ms(chart_max_quote_age_ms)
+        .with_broker_configs(coordinator.config.brokers.clone())
+        .with_mt5_config(coordinator.config.mt5.clone())
+        .with_discovered_terminals(discovered_terminals.clone())
         .with_ui_state(&ui_state)
         .with_ui_state_path(ui_state_path)
         .with_pair_selection_handler(coordinator.pair_selection_handler());
@@ -155,8 +181,22 @@ fn main() -> eframe::Result<()> {
         }),
     );
 
+    if should_auto_close {
+        log::info!("[MT5 Auto-Close] Auto-closing running MT5 terminals...");
+        let mut tm = tick_scope::runtime::TerminalManager::new();
+        tm.poll_status(&coordinator.config.brokers, &discovered_terminals, true);
+        let running_targets: Vec<_> = ui_state
+            .mt5_launch_targets
+            .iter()
+            .copied()
+            .filter(|&id| tm.get_status(id).is_running())
+            .collect();
+        tm.stop_multiple(&running_targets, std::time::Duration::from_secs(5));
+    }
+
     coordinator.stop();
     coordinator.wait_for_shutdown();
     cleanup_console();
     result
+
 }

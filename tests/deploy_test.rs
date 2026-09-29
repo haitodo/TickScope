@@ -48,3 +48,29 @@ fn test_live_mt5_discovery_and_deployment_idempotency() {
         }
     }
 }
+
+#[test]
+fn test_live_mt5_terminal_path_resolution() {
+    let config = Mt5DeployConfig::default();
+    let app_config = tick_scope::config::load_config_from_file("config/default.toml")
+        .unwrap_or_else(|_| AppConfig::default());
+    let (terminals, _warnings) = discover_mt5_terminals(&config);
+
+    if terminals.is_empty() {
+        return; // Skip on machines without MT5 installed
+    }
+
+    println!("Testing live MT5 path resolution for {} brokers...", app_config.brokers.len());
+    let mut resolved_count = 0;
+    for broker in &app_config.brokers {
+        let path = tick_scope::runtime::TerminalManager::resolve_terminal_path(broker, &terminals);
+        println!("Broker '{}' -> {:?}", broker.name, path);
+        if let Some(p) = path {
+            assert!(p.is_file(), "Resolved path must be an existing executable: {:?}", p);
+            resolved_count += 1;
+        }
+    }
+    println!("Successfully resolved {}/{} broker terminal executables.", resolved_count, app_config.brokers.len());
+    assert!(resolved_count > 0, "At least one broker terminal should be resolved on this system");
+}
+

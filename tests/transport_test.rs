@@ -30,7 +30,9 @@ fn test_transport_receiver_lifecycle_and_ack() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        terminal_path: None,
     };
+
 
     let receiver = Arc::new(TransportReceiver::new(
         config,
@@ -122,6 +124,7 @@ fn test_transport_receiver_ack_mode_off() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        terminal_path: None,
     };
 
     let receiver = Arc::new(TransportReceiver::new(
@@ -200,7 +203,9 @@ fn test_transport_receiver_multiple_reconnects_lifecycle() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        terminal_path: None,
     };
+
 
     let receiver = Arc::new(TransportReceiver::new(
         config,

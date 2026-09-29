@@ -135,6 +135,10 @@ impl WindowGeometryState {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiState {
     #[serde(default = "default_active_pair")]
@@ -161,6 +165,14 @@ pub struct UiState {
     pub candle_follow_criteria: CandleFollowCriteria,
     #[serde(default)]
     pub hidden_brokers: Vec<BrokerId>,
+    #[serde(default = "default_true")]
+    pub mt5_minimized: bool,
+    #[serde(default)]
+    pub mt5_launch_targets: Vec<BrokerId>,
+    #[serde(default)]
+    pub mt5_auto_launch: bool,
+    #[serde(default)]
+    pub mt5_auto_close: bool,
     #[serde(default)]
     pub window: WindowGeometryState,
 }
@@ -180,10 +192,15 @@ impl Default for UiState {
             bottom_metric: BottomMetric::default(),
             show_broker_overview: false,
             hidden_brokers: Vec::new(),
+            mt5_minimized: true,
+            mt5_launch_targets: Vec::new(),
+            mt5_auto_launch: false,
+            mt5_auto_close: false,
             window: WindowGeometryState::default(),
         }
     }
 }
+
 
 impl UiState {
     pub fn is_broker_visible(&self, broker_id: BrokerId) -> bool {
@@ -202,6 +219,22 @@ impl UiState {
     pub fn show_all_brokers(&mut self) {
         self.hidden_brokers.clear();
     }
+
+    pub fn is_mt5_target(&self, broker_id: BrokerId) -> bool {
+        self.mt5_launch_targets.contains(&broker_id)
+    }
+
+    pub fn set_mt5_target(&mut self, broker_id: BrokerId, target: bool) {
+        if target {
+            if !self.mt5_launch_targets.contains(&broker_id) {
+                self.mt5_launch_targets.push(broker_id);
+                self.mt5_launch_targets.sort_unstable();
+            }
+        } else {
+            self.mt5_launch_targets.retain(|&id| id != broker_id);
+        }
+    }
+
 
     pub fn sanitize(&mut self) {
         self.window.sanitize();
@@ -270,8 +303,17 @@ impl UiState {
             }
             self.active_pair = (a, b);
         }
+
+        // 4. Reconcile MT5 launch targets
+        if self.mt5_launch_targets.is_empty() {
+            self.mt5_launch_targets = brokers.iter().map(|bk| bk.id).collect();
+            self.mt5_launch_targets.sort_unstable();
+        } else {
+            self.mt5_launch_targets.retain(|&id| brokers.iter().any(|bk| bk.id == id));
+        }
     }
 }
+
 
 /// Resolves the file path for persistent UI state.
 pub fn resolve_ui_state_path(exe_dir: &Path, cwd: &Path) -> PathBuf {
@@ -392,7 +434,12 @@ mod tests {
             bottom_metric: BottomMetric::SpreadDiff,
             show_broker_overview: true,
             hidden_brokers: vec![3, 5],
+            mt5_minimized: true,
+            mt5_launch_targets: vec![1, 2],
+            mt5_auto_launch: true,
+            mt5_auto_close: false,
             window: WindowGeometryState {
+
                 inner_size: [1280.0, 800.0],
                 position: Some([100.0, 150.0]),
                 maximized: false,
@@ -461,7 +508,12 @@ mod tests {
             bottom_metric: BottomMetric::MidDiff,
             show_broker_overview: false,
             hidden_brokers: Vec::new(),
+            mt5_minimized: true,
+            mt5_launch_targets: Vec::new(),
+            mt5_auto_launch: false,
+            mt5_auto_close: false,
             window: WindowGeometryState {
+
                 inner_size: [200.0, 100.0], // Too small
                 position: None,
                 maximized: false,

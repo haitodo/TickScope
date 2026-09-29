@@ -18,6 +18,9 @@ use crate::ui::settings::{
 };
 use crate::ui::style;
 use eframe::egui;
+use egui::RichText;
+
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -60,6 +63,15 @@ pub struct DashboardApp {
     pub(crate) window_geometry: WindowGeometryState,
     pub(crate) state_dirty: bool,
     pub(crate) repaint_registered: bool,
+    pub(crate) mt5_minimized: bool,
+    pub(crate) mt5_launch_targets: Vec<BrokerId>,
+    pub(crate) mt5_auto_launch: bool,
+    pub(crate) mt5_auto_close: bool,
+    pub(crate) show_mt5_stop_confirm_modal: bool,
+    pub(crate) terminal_manager: crate::runtime::TerminalManager,
+    pub(crate) discovered_terminals: Vec<crate::deploy::DiscoveredTerminal>,
+    pub(crate) broker_configs: Vec<crate::config::BrokerConfig>,
+    pub(crate) mt5_config: crate::config::Mt5DeployConfig,
 }
 
 impl DashboardApp {
@@ -103,6 +115,15 @@ impl DashboardApp {
             window_geometry: WindowGeometryState::default(),
             state_dirty: false,
             repaint_registered: false,
+            mt5_minimized: true,
+            mt5_launch_targets: Vec::new(),
+            mt5_auto_launch: false,
+            mt5_auto_close: false,
+            show_mt5_stop_confirm_modal: false,
+            terminal_manager: crate::runtime::TerminalManager::new(),
+            discovered_terminals: Vec::new(),
+            broker_configs: Vec::new(),
+            mt5_config: crate::config::Mt5DeployConfig::default(),
         }
     }
 
@@ -121,6 +142,10 @@ impl DashboardApp {
         self.window_geometry = state.window.clone();
         self.selected_broker_a = state.active_pair.0;
         self.selected_broker_b = state.active_pair.1;
+        self.mt5_minimized = state.mt5_minimized;
+        self.mt5_launch_targets = state.mt5_launch_targets.clone();
+        self.mt5_auto_launch = state.mt5_auto_launch;
+        self.mt5_auto_close = state.mt5_auto_close;
         self
     }
 
@@ -132,6 +157,44 @@ impl DashboardApp {
     pub fn with_ui_state_path(mut self, path: PathBuf) -> Self {
         self.ui_state_path = Some(path);
         self
+    }
+
+    pub fn with_discovered_terminals(mut self, terminals: Vec<crate::deploy::DiscoveredTerminal>) -> Self {
+        self.discovered_terminals = terminals;
+        self
+    }
+
+    pub fn with_broker_configs(mut self, configs: Vec<crate::config::BrokerConfig>) -> Self {
+        self.broker_configs = configs;
+        self
+    }
+
+    pub fn with_mt5_config(mut self, config: crate::config::Mt5DeployConfig) -> Self {
+        self.mt5_config = config;
+        self
+    }
+
+    pub fn is_mt5_target(&self, broker_id: BrokerId) -> bool {
+        self.mt5_launch_targets.contains(&broker_id)
+    }
+
+    pub fn set_mt5_target(&mut self, broker_id: BrokerId, target: bool) {
+        if target {
+            if !self.mt5_launch_targets.contains(&broker_id) {
+                self.mt5_launch_targets.push(broker_id);
+                self.mt5_launch_targets.sort_unstable();
+                self.state_dirty = true;
+            }
+        } else if self.mt5_launch_targets.contains(&broker_id) {
+            self.mt5_launch_targets.retain(|&id| id != broker_id);
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn select_all_mt5_targets(&mut self, all_ids: &[BrokerId]) {
+        self.mt5_launch_targets = all_ids.to_vec();
+        self.mt5_launch_targets.sort_unstable();
+        self.state_dirty = true;
     }
 
     pub fn current_ui_state(&self) -> UiState {
@@ -148,9 +211,14 @@ impl DashboardApp {
             bottom_metric: self.bottom_metric,
             active_pair: self.selected_pair(),
             hidden_brokers: self.hidden_brokers.clone(),
+            mt5_minimized: self.mt5_minimized,
+            mt5_launch_targets: self.mt5_launch_targets.clone(),
+            mt5_auto_launch: self.mt5_auto_launch,
+            mt5_auto_close: self.mt5_auto_close,
             window: self.window_geometry.clone(),
         }
     }
+
 
     pub fn save_state(&mut self) {
         if let Some(path) = &self.ui_state_path {
@@ -463,8 +531,16 @@ impl DashboardApp {
         let prev_bottom_xaxis = self.bottom_x_axis_mode;
         let prev_overview = self.show_broker_overview;
         let prev_metric = self.bottom_metric;
+        let prev_mt5_minimized = self.mt5_minimized;
+        let prev_mt5_auto_launch = self.mt5_auto_launch;
+        let prev_mt5_auto_close = self.mt5_auto_close;
+
+        // Poll MT5 process statuses periodically (throttled to 1s internally)
+        self.terminal_manager
+            .poll_status(&self.broker_configs, &self.discovered_terminals, false);
 
         if !self.fonts_configured {
+
             setup_fonts(ctx);
             self.fonts_configured = true;
         }
@@ -540,6 +616,9 @@ impl DashboardApp {
             || self.bottom_x_axis_mode != prev_bottom_xaxis
             || self.show_broker_overview != prev_overview
             || self.bottom_metric != prev_metric
+            || self.mt5_minimized != prev_mt5_minimized
+            || self.mt5_auto_launch != prev_mt5_auto_launch
+            || self.mt5_auto_close != prev_mt5_auto_close
         {
             if self.candle_price_scale != prev_candle_scale {
                 self.candle_chart_anchor = None;
@@ -551,8 +630,70 @@ impl DashboardApp {
             self.state_dirty = true;
         }
 
-        // 6. Track window geometry and auto-persist state
+        // 6. MT5 Termination Confirmation Modal
+        if self.show_mt5_stop_confirm_modal {
+            let mut close_modal = false;
+            let running_targets: Vec<BrokerId> = self
+                .mt5_launch_targets
+                .iter()
+                .copied()
+                .filter(|&id| self.terminal_manager.get_status(id).is_running())
+                .collect();
+            let running_names: Vec<String> = running_targets
+                .iter()
+                .map(|&id| {
+                    self.broker_configs
+                        .iter()
+                        .find(|b| b.id == id)
+                        .map(|b| b.name.clone())
+                        .unwrap_or_else(|| format!("Broker {}", id))
+                })
+                .collect();
+
+            egui::Window::new("MT5終了の確認")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    ui.label(RichText::new("起動中のMT5端末を終了しますか？").strong());
+                    if !running_names.is_empty() {
+                        ui.label(format!("対象: {}", running_names.join(", ")));
+                    } else {
+                        ui.label("現在起動中の対象MT5はありません。");
+                    }
+                    ui.label(
+                        RichText::new("各端末にWM_CLOSE（正常終了）を送信し、チャート設定やEA状態を安全に保存して終了します。")
+                            .small()
+                            .color(egui::Color32::from_gray(180)),
+                    );
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                RichText::new("⏹ 終了する")
+                                    .color(egui::Color32::from_rgb(255, 120, 120))
+                                    .strong(),
+                            )
+                            .clicked()
+                        {
+                            self.terminal_manager
+                                .stop_multiple(&running_targets, std::time::Duration::from_secs(5));
+                            close_modal = true;
+                        }
+                        if ui.button("キャンセル").clicked() {
+                            close_modal = true;
+                        }
+                    });
+                });
+
+            if close_modal {
+                self.show_mt5_stop_confirm_modal = false;
+            }
+        }
+
+        // 7. Track window geometry and auto-persist state
         self.track_window_geometry(ctx);
+
 
         if let (Some(diagnostics), Some(start)) = (&self.diagnostics, ui_render_start) {
             diagnostics.record_duration(DiagnosticStage::UiRenderWork, start.elapsed());

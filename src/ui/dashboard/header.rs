@@ -124,8 +124,74 @@ pub fn render_top_header(
                 app.show_broker_overview = !app.show_broker_overview;
             }
 
+            ui.separator();
+
+            // MT5 Process Quick Action Buttons
+            let target_ids: Vec<crate::core::types::BrokerId> = app.mt5_launch_targets.clone();
+            let running_count = target_ids
+                .iter()
+                .filter(|&&id| app.terminal_manager.get_status(id).is_running())
+                .count();
+            let stopped_count = target_ids
+                .iter()
+                .filter(|&&id| !app.terminal_manager.get_status(id).is_running())
+                .count();
+
+            let launch_btn = ui.add_enabled(
+                stopped_count > 0,
+                egui::Button::new(
+                    RichText::new(format!("▶ MT5起動 ({})", stopped_count))
+                        .color(if stopped_count > 0 {
+                            Color32::from_rgb(100, 220, 255)
+                        } else {
+                            Color32::from_gray(120)
+                        })
+                        .strong(),
+                ),
+            );
+            if launch_btn
+                .on_hover_text(format!(
+                    "選択中の未起動MT5（{}台）を一括起動します（最小化: {}）",
+                    stopped_count,
+                    if app.mt5_minimized { "オン" } else { "オフ" }
+                ))
+                .clicked()
+            {
+                let stopped_targets: Vec<crate::core::types::BrokerId> = target_ids
+                    .iter()
+                    .copied()
+                    .filter(|&id| !app.terminal_manager.get_status(id).is_running())
+                    .collect();
+                let minimized = app.mt5_minimized;
+                app.terminal_manager.launch_multiple(&stopped_targets, minimized);
+                app.terminal_manager.poll_status(&app.broker_configs, &app.discovered_terminals, true);
+            }
+
+            let stop_btn = ui.add_enabled(
+                running_count > 0,
+                egui::Button::new(
+                    RichText::new(format!("⏹ MT5終了 ({})", running_count))
+                        .color(if running_count > 0 {
+                            Color32::from_rgb(255, 140, 140)
+                        } else {
+                            Color32::from_gray(120)
+                        })
+                        .strong(),
+                ),
+            );
+            if stop_btn
+                .on_hover_text(format!(
+                    "選択中の起動中MT5（{}台）をクリーン終了（WM_CLOSE）します",
+                    running_count
+                ))
+                .clicked()
+            {
+                app.show_mt5_stop_confirm_modal = true;
+            }
+
             // 3. Right Zone: Utility & Settings (設定・ツール)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+
                 ui.checkbox(&mut app.show_debug_overlay, "Debug");
 
                 let settings_btn = ui.selectable_label(

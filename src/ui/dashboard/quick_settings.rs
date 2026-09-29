@@ -179,7 +179,34 @@ pub fn render_quick_settings(
 
             ui.separator();
 
-            // 3. Shortcuts Guide
+            // 4. MT5 Process Management
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("MT5 Process Lifecycle")
+                        .strong()
+                        .color(Color32::from_rgb(180, 220, 255)),
+                );
+            });
+
+            ui.checkbox(&mut app.mt5_auto_launch, "Auto-launch target MT5s on start");
+            ui.checkbox(&mut app.mt5_auto_close, "Auto-close running MT5s on exit");
+            ui.checkbox(&mut app.mt5_minimized, "Launch Minimized (最小化起動)");
+
+            ui.collapsing("Resolved MT5 Executable Paths", |ui| {
+                for b in &app.broker_configs {
+                    let path_str = app
+                        .terminal_manager
+                        .get_exe_path(b.id)
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "Not found".to_string());
+                    ui.label(RichText::new(&b.name).strong());
+                    ui.label(RichText::new(path_str).small().monospace().color(Color32::from_gray(160)));
+                }
+            });
+
+            ui.separator();
+
+            // 5. Shortcuts Guide
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(
@@ -189,6 +216,7 @@ pub fn render_quick_settings(
                     .small(),
                 );
             });
+
         });
     app.show_quick_settings = is_open;
 }
