@@ -19,6 +19,8 @@ input uint   InpMaxSameMsScanTicks  = 65536;          // Max scan ticks in singl
 input uint   InpSocketTimeoutMs     = 10;             // Socket timeout (ms)
 input uint   InpHeartbeatIntervalMs = 250;            // Heartbeat interval (ms)
 input uint   InpCollectionIntervalMs = 10;            // ACK/history polling (MT5 timer resolution is about 10-16 ms)
+input bool   InpDisableChartRendering = true;         // Disable chart rendering to reduce CPU/GPU load
+
 
 //--- Runtime State
 CSocketClient g_socket;
@@ -462,46 +464,89 @@ bool LoadConnectionSettings()
 }
 
 //+------------------------------------------------------------------+
-//| Connect, replay pending data, drain ACKs, then collect one batch |
+//| Core Collection: Process ACKs, replay pending batch, and stream  |
+//| new ticks using the bounded cursor. Shared by fast and slow path.|
 //+------------------------------------------------------------------+
-void DriveReliableCollection()
+bool TryCollectAndStream(bool is_warmup)
 {
-   if(!g_socket.IsConnected())
-   {
-      if(!LoadConnectionSettings()) return;
-      g_socket.Init(g_server_host, g_server_port, InpSocketTimeoutMs);
-      if(!g_socket.Connect()) return;
-      if(!g_socket.SendRouteHello(g_active_broker_id)) return;
-      // SocketClient discards only its connection-local partial suffix.  The
-      // immutable pending batch is retained here and is replayed in full.
-      if(g_pending_batch) g_pending_queued = false;
-   }
+   // 1. Drain any available ACKs without waiting
+   if(!PollAndCommitAck()) return false;
 
-   if(!g_warmup_started)
-   {
-      PerformWarmup();
-      return;
-   }
-
-   if(!PollAndCommitAck()) return;
-
+   // 2. If there is still an unacknowledged pending batch, try to flush it and return.
+   //    We must not advance cursor or read new ticks until ACKed (Stop-and-Wait).
    if(g_pending_batch)
    {
       QueuePendingBatch();
-      return;
+      return true;
    }
 
-   bool is_warmup = (g_current_phase == PHASE_WARMING);
-   if(CollectAndStreamTicks(is_warmup)) return;
+   // 3. Collect and stream ticks using bounded cursor
+   if(CollectAndStreamTicks(is_warmup)) return true;
 
-   // No pending batch and no more history means warmup is complete.  Queueing
-   // failures leave g_pending_batch true, so they cannot cause a false LIVE.
+   // 4. No pending batch and no more history means warmup is complete.
+   //    Queueing failures leave g_pending_batch true, preventing false LIVE transition.
    if(is_warmup && g_collection_caught_up)
    {
       g_current_phase = PHASE_LIVE;
       g_warmup_done = true;
       SendStatus(STATUS_CODE_PHASE, PHASE_LIVE, 0, 0, 0, 0, 0);
       PrintFormat("Warmup completed. Transitioned to LIVE at acknowledged seq %I64u", g_current_sequence);
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Fast Path: Process tick arrival with minimum latency             |
+//| Called strictly from OnTick(). Bypasses disk I/O and reconnect.  |
+//+------------------------------------------------------------------+
+void FastPathTickCollection()
+{
+   // In Fast Path, do not attempt reconnection or settings reload;
+   // let the supervisor (OnTimer) handle connection lifecycle.
+   if(!g_connection_ready || !g_socket.IsConnected() || !g_warmup_started)
+      return;
+
+   TryCollectAndStream(g_current_phase == PHASE_WARMING);
+}
+
+//+------------------------------------------------------------------+
+//| Slow Path / Supervisor: Handle connection, warmup, fallback ACK, |
+//| tick collection fallback, and diagnostic heartbeat.              |
+//| Called strictly from OnTimer().                                  |
+//+------------------------------------------------------------------+
+void SlowPathSupervisor()
+{
+   // 1. Supervise connection
+   if(!g_socket.IsConnected())
+   {
+      if(!LoadConnectionSettings()) return;
+      g_socket.Init(g_server_host, g_server_port, InpSocketTimeoutMs);
+      if(!g_socket.Connect()) return;
+      if(!g_socket.SendRouteHello(g_active_broker_id)) return;
+      // SocketClient discards only its connection-local partial suffix. The
+      // immutable pending batch is retained here and is replayed in full.
+      if(g_pending_batch) g_pending_queued = false;
+   }
+
+   // 2. Supervise Warmup
+   if(!g_warmup_started)
+   {
+      PerformWarmup();
+      return;
+   }
+
+   // 3. Fallback ACK collection, pending batch replay, and tick streaming
+   TryCollectAndStream(g_current_phase == PHASE_WARMING);
+
+   // 4. Periodic Heartbeat
+   if(!g_connection_ready || !g_socket.IsConnected())
+      return;
+
+   ulong now_us = GetEaElapsedUs();
+   if(now_us - g_last_heartbeat_us >= ((ulong)InpHeartbeatIntervalMs * 1000))
+   {
+      SendHeartbeat();
    }
 }
 
@@ -521,6 +566,13 @@ int OnInit()
    g_warmup_done = false;
    g_warmup_started = false;
 
+   // Disable chart rendering to drastically reduce MT5 UI and GPU load
+   if(InpDisableChartRendering)
+   {
+      ChartSetInteger(0, CHART_SHOW, false);
+      ChartRedraw(0);
+   }
+
    // The timer is also the connection supervisor. It keeps retrying when
    // TickScope was not running yet, so launch order is irrelevant.
    if(!EventSetMillisecondTimer((int)MathMax(1, InpCollectionIntervalMs)))
@@ -532,7 +584,7 @@ int OnInit()
          PrintFormat("[TickCollector] Failed to start fallback reconnect timer, error: %d", GetLastError());
       }
    }
-   DriveReliableCollection();
+   SlowPathSupervisor();
    return INIT_SUCCEEDED;
 }
 
@@ -547,6 +599,14 @@ void OnDeinit(const int reason)
       g_socket.Flush();
    }
    g_socket.Disconnect();
+
+   // Restore chart rendering if previously disabled
+   if(InpDisableChartRendering)
+   {
+      ChartSetInteger(0, CHART_SHOW, true);
+      ChartRedraw(0);
+   }
+
    PrintFormat("[TickCollector] Deinitialized (reason %d)", reason);
 }
 
@@ -555,7 +615,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   DriveReliableCollection();
+   FastPathTickCollection();
 }
 
 //+------------------------------------------------------------------+
@@ -563,18 +623,7 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   DriveReliableCollection();
-
-   if(!g_connection_ready || !g_socket.IsConnected())
-      return;
-
-   // Heartbeats are independent diagnostics. Their reported sequence is the
-   // last ACKed sequence, never an unconfirmed candidate batch.
-   ulong now_us = GetEaElapsedUs();
-   if(now_us - g_last_heartbeat_us >= ((ulong)InpHeartbeatIntervalMs * 1000))
-   {
-      SendHeartbeat();
-   }
-
+   SlowPathSupervisor();
 }
+
 //+------------------------------------------------------------------+
