@@ -69,8 +69,7 @@ pub fn format_log_line(
     };
 
     let clean_target = target
-        .strip_prefix("tick_compare::")
-        .or_else(|| target.strip_prefix("tick_scope::"))
+        .strip_prefix("tick_scope::")
         .unwrap_or(target);
 
     format!("{timestamp} [{level_str}] [{clean_target}] {message}\n")
@@ -271,7 +270,7 @@ pub mod win_console {
         let curr_out = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
         if curr_out.is_null() || curr_out == INVALID_HANDLE_VALUE {
             if let Ok(conout) = OpenOptions::new().write(true).open("CONOUT$") {
-                let raw = conout.into_raw_handle() as *mut std::ffi::c_void;
+                let raw = conout.into_raw_handle();
                 unsafe {
                     SetStdHandle(STD_OUTPUT_HANDLE, raw);
                 }
@@ -281,7 +280,7 @@ pub mod win_console {
         let curr_err = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
         if curr_err.is_null() || curr_err == INVALID_HANDLE_VALUE {
             if let Ok(conout) = OpenOptions::new().write(true).open("CONOUT$") {
-                let raw = conout.into_raw_handle() as *mut std::ffi::c_void;
+                let raw = conout.into_raw_handle();
                 unsafe {
                     SetStdHandle(STD_ERROR_HANDLE, raw);
                 }
@@ -291,7 +290,7 @@ pub mod win_console {
         let curr_in = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
         if curr_in.is_null() || curr_in == INVALID_HANDLE_VALUE {
             if let Ok(conin) = OpenOptions::new().read(true).open("CONIN$") {
-                let raw = conin.into_raw_handle() as *mut std::ffi::c_void;
+                let raw = conin.into_raw_handle();
                 unsafe {
                     SetStdHandle(STD_INPUT_HANDLE, raw);
                 }
@@ -375,7 +374,7 @@ mod tests {
         let line = format_log_line(
             "2026-09-26 12:00:00.000",
             Level::Info,
-            "tick_compare::transport::tcp",
+            "tick_scope::transport::tcp",
             &msg,
             false,
         );

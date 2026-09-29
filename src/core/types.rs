@@ -1,5 +1,4 @@
 //! Shared data types, newtypes, units, and invariants for TickScope.
-//! Reference: docs/blueprint/interfaces.md and docs/blueprint/invariants.md
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -238,7 +237,7 @@ pub enum SequenceDisposition {
     OutOfOrderUnverified = 3,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ObservedTick {
     pub tick_id: TickId,
     pub record: TickRecord,
@@ -251,7 +250,7 @@ pub struct ObservedTick {
     pub disposition: SequenceDisposition,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct NormalizedTick {
     pub observed: ObservedTick,
     pub utc_ms: UtcMs,
@@ -281,7 +280,7 @@ impl SymbolMeta {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
     pub tick_id: TickId,
     pub bid: f64,
@@ -346,7 +345,7 @@ pub enum NormalizationState {
     Discontinuity,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HealthState {
     pub broker_id: BrokerId,
     pub connection: ConnectionState,

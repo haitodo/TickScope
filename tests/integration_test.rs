@@ -4,11 +4,11 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
-use tick_compare::contracts::config::{AppConfig, BrokerConfig};
-use tick_compare::contracts::ports::SnapshotExchangePort;
-use tick_compare::contracts::types::*;
-use tick_compare::protocol::codec::encode_frame;
-use tick_compare::runtime::coordinator::RuntimeCoordinator;
+use tick_scope::config::{AppConfig, BrokerConfig};
+use tick_scope::core::ports::SnapshotExchangePort;
+use tick_scope::core::types::*;
+use tick_scope::protocol::codec::encode_frame;
+use tick_scope::runtime::coordinator::RuntimeCoordinator;
 
 fn send_test_tick(stream: &mut TcpStream, broker_id: BrokerId, seq: Sequence, time_msc: i64, bid: f64, ask: f64) {
     let frame = Frame {
@@ -157,3 +157,125 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
 
     coordinator.stop();
 }
+
+#[test]
+fn test_ti02_high_frequency_burst_injection() {
+    let mut config = AppConfig::default();
+    config.logger.enabled = false;
+    config.mt5.auto_deploy = false;
+    config.protocol.ack_mode = "off".to_string();
+    config.display.repaint_hz = 60;
+    // Deliberately small channel capacity to exercise channel backpressure and unparking
+    config.ingress.max_frames_per_broker = 64;
+    config.brokers = vec![
+        BrokerConfig {
+            id: 11,
+            name: "BurstBroker1".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 39311,
+            symbol: "EURUSD".to_string(),
+            point_size: 0.00001,
+            pip_size: 0.0001,
+            utc_offset_sec: 0,
+            utc_verified: true,
+            auto_utc_offset: false,
+        },
+        BrokerConfig {
+            id: 12,
+            name: "BurstBroker2".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 39312,
+            symbol: "EURUSD".to_string(),
+            point_size: 0.00001,
+            pip_size: 0.0001,
+            utc_offset_sec: 0,
+            utc_verified: true,
+            auto_utc_offset: false,
+        },
+        BrokerConfig {
+            id: 13,
+            name: "BurstBroker3".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 39313,
+            symbol: "EURUSD".to_string(),
+            point_size: 0.00001,
+            pip_size: 0.0001,
+            utc_offset_sec: 0,
+            utc_verified: true,
+            auto_utc_offset: false,
+        },
+    ];
+    config.active_pair = (11, 12);
+
+    let mut coordinator = RuntimeCoordinator::new(config).expect("Coordinator init failed");
+    thread::sleep(Duration::from_millis(150));
+
+    let burst_count = 200; // 200 ticks * 3 brokers = 600 ticks, exceeding channel capacity of 64
+    let handles: Vec<_> = [39311, 39312, 39313]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, port)| {
+            let broker_id = (idx as u32) + 11;
+            thread::spawn(move || {
+                let mut client =
+                    TcpStream::connect(format!("127.0.0.1:{port}")).expect("Connect broker");
+                client.set_nodelay(true).unwrap();
+                for seq in 0..burst_count {
+                    let base_price = 1.0800 + (broker_id as f64 * 0.001);
+                    send_test_tick(
+                        &mut client,
+                        broker_id,
+                        seq as u64,
+                        1000 + seq as i64,
+                        base_price + (seq as f64 * 0.00001),
+                        base_price + (seq as f64 * 0.00001) + 0.0001,
+                    );
+                }
+                client
+            })
+        })
+        .collect();
+
+    let clients: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+    // Allow pipeline to drain all queued ticks and publish a snapshot
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let snap = coordinator.exchange.load_latest();
+        let all_caught_up = [11, 12, 13].iter().all(|&bid| {
+            snap.broker_overviews
+                .iter()
+                .find(|b| b.broker_id == bid)
+                .and_then(|b| b.latest_quote.as_ref())
+                .is_some_and(|q| q.tick_id.sequence == (burst_count - 1) as u64)
+        });
+        if all_caught_up || std::time::Instant::now() > deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let final_snap = coordinator.exchange.load_latest();
+    for &bid in &[11, 12, 13] {
+        let b = final_snap
+            .broker_overviews
+            .iter()
+            .find(|b| b.broker_id == bid)
+            .expect("Broker overview present");
+        let q = b.latest_quote.as_ref().expect("Latest quote present");
+        assert_eq!(
+            q.tick_id.sequence,
+            (burst_count - 1) as u64,
+            "Broker {bid} must have caught up to the final burst sequence without dropped ticks"
+        );
+        assert_eq!(
+            b.health.total_ticks_received,
+            burst_count as u64,
+            "Broker {bid} must have processed exactly all burst ticks"
+        );
+    }
+
+    drop(clients);
+    coordinator.stop();
+}
+

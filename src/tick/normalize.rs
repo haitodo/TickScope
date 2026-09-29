@@ -1,7 +1,6 @@
 //! UTC Normalizer for Observed Ticks.
-//! Reference: docs/blueprint/semantics-candle.md
 
-use crate::contracts::types::*;
+use crate::core::types::*;
 
 pub fn normalize_tick(
     observed: &ObservedTick,
@@ -27,7 +26,7 @@ pub fn normalize_tick(
         .ok_or_else(|| "Broker time UTC normalization arithmetic underflow".to_string())?;
 
     Ok(NormalizedTick {
-        observed: observed.clone(),
+        observed: *observed,
         utc_ms: UtcMs(utc_ms),
         normalization_epoch,
     })

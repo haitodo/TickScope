@@ -1,4 +1,4 @@
-//! Castagnoli CRC32C implementation as required by docs/blueprint/storage-format.md.
+//! Castagnoli CRC32C implementation for storage records and packet checksums.
 //! Polynomial: 0x82F63B78 (reversed), Initial: 0xFFFFFFFF, Final XOR: 0xFFFFFFFF.
 //! Test vector: b"123456789" -> 0xE3069283
 

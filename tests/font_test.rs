@@ -1,4 +1,4 @@
-use tick_compare::ui::setup_fonts;
+﻿use tick_scope::ui::setup_fonts;
 
 #[test]
 fn test_setup_fonts_and_japanese_shaping() {

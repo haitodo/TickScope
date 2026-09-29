@@ -1,7 +1,6 @@
 //! Low-level byte encoding and decoding for wire protocol messages.
-//! Reference: docs/blueprint/wire-format.md
 
-use crate::contracts::types::*;
+use crate::core::types::*;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq, Clone)]

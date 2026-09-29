@@ -1,8 +1,8 @@
 //! Candle tests: T-C01, T-C02, T-C03.
 
-use tick_compare::contracts::models::*;
-use tick_compare::contracts::types::*;
-use tick_compare::tick::candle::{calculate_slot_start, CandleBook};
+use tick_scope::core::models::*;
+use tick_scope::core::types::*;
+use tick_scope::tick::candle::{calculate_slot_start, CandleBook};
 
 fn make_test_tick(broker_id: BrokerId, seq: Sequence, utc_ms: i64, bid: f64, ask: f64) -> NormalizedTick {
     NormalizedTick {
@@ -134,7 +134,7 @@ fn test_tc03_slot_active_to_closed_advancement() {
 
 #[test]
 fn test_tc04_retention_slots_preserved_to_left_edge() {
-    use tick_compare::contracts::config::SlotRetention;
+    use tick_scope::config::SlotRetention;
 
     let retentions = vec![SlotRetention { period_ms: 1000, slots: 60 }];
     let mut book = CandleBook::with_retentions(&retentions);
@@ -170,13 +170,13 @@ fn test_tc04_retention_slots_preserved_to_left_edge() {
 
 #[test]
 fn test_tc05_engine_candle_views_use_configured_retention_slots() {
-    use tick_compare::contracts::config::AppConfig;
-    use tick_compare::tick::engine::TickEngine;
+    use tick_scope::config::AppConfig;
+    use tick_scope::tick::engine::TickEngine;
 
     let mut config = AppConfig::default();
     config.history.retentions = vec![
-        tick_compare::contracts::config::SlotRetention { period_ms: 1000, slots: 60 },
-        tick_compare::contracts::config::SlotRetention { period_ms: 60000, slots: 60 },
+        tick_scope::config::SlotRetention { period_ms: 1000, slots: 60 },
+        tick_scope::config::SlotRetention { period_ms: 60000, slots: 60 },
     ];
     let engine = TickEngine::new(config);
     let proj = engine.make_projection(UtcMs(1_000_000));

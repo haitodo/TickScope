@@ -1,13 +1,14 @@
 //! Persistent UI state management for TickScope.
 //! Saves and restores UI interactive state and window geometry across application sessions.
 
-use crate::contracts::config::BrokerConfig;
-use crate::contracts::models::PriceMode;
-use crate::contracts::types::BrokerId;
+use crate::config::BrokerConfig;
+use crate::core::models::PriceMode;
+use crate::core::types::BrokerId;
 use crate::ui::chart::{BottomMetric, ChartXAxisMode};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 pub const DEFAULT_WINDOW_WIDTH: f32 = 1100.0;
 pub const DEFAULT_WINDOW_HEIGHT: f32 = 750.0;
@@ -312,27 +313,58 @@ pub fn load_ui_state<P: AsRef<Path>>(path: P) -> Option<UiState> {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum UiStateError {
+    #[error("Failed to create directory '{path}': {source}")]
+    CreateDir {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to serialize UI state to JSON: {0}")]
+    Serialize(#[from] serde_json::Error),
+    #[error("Failed to write temporary UI state file '{path}': {source}")]
+    WriteTemp {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to write UI state file directly after rename failed: {0}")]
+    DirectWrite(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+impl From<UiStateError> for String {
+    fn from(e: UiStateError) -> Self {
+        e.to_string()
+    }
+}
+
 /// Saves UI state to the given JSON file path using an atomic write (temp file + rename).
-pub fn save_ui_state<P: AsRef<Path>>(path: P, state: &UiState) -> Result<(), String> {
+pub fn save_ui_state<P: AsRef<Path>>(path: P, state: &UiState) -> Result<(), UiStateError> {
     let p = path.as_ref();
     if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory '{}': {}", parent.display(), e))?;
+        fs::create_dir_all(parent).map_err(|e| UiStateError::CreateDir {
+            path: parent.to_path_buf(),
+            source: e,
+        })?;
     }
 
-    let json = serde_json::to_string_pretty(state)
-        .map_err(|e| format!("Failed to serialize UI state to JSON: {}", e))?;
+    let json = serde_json::to_string_pretty(state)?;
 
     // Atomic write to avoid partial writes on sudden termination
     let tmp_path = p.with_extension(format!("tmp.{}", std::process::id()));
-    fs::write(&tmp_path, json.as_bytes())
-        .map_err(|e| format!("Failed to write temporary UI state file: {}", e))?;
+    fs::write(&tmp_path, json.as_bytes()).map_err(|e| UiStateError::WriteTemp {
+        path: tmp_path.clone(),
+        source: e,
+    })?;
 
     if let Err(e) = fs::rename(&tmp_path, p) {
         // If rename fails (e.g. cross-filesystem or OS restriction), fallback to direct write
         let _ = fs::remove_file(&tmp_path);
         fs::write(p, json.as_bytes())
-            .map_err(|err| format!("Failed to write UI state file directly after rename failed ({}): {}", e, err))?;
+            .map_err(|err| UiStateError::DirectWrite(format!("{}: {}", e, err)))?;
     }
 
     Ok(())
@@ -498,9 +530,11 @@ mod tests {
         assert_eq!(CandlePriceScaleMode::Fixed(25.0).label(), "25 pips");
         assert_eq!(CandlePriceScaleMode::Fixed(50.0).label(), "50 pips");
 
-        let mut state = UiState::default();
-        state.candle_bar_width = 10.0;
-        state.candle_price_scale = CandlePriceScaleMode::Fixed(2.5);
+        let mut state = UiState {
+            candle_bar_width: 10.0,
+            candle_price_scale: CandlePriceScaleMode::Fixed(2.5),
+            ..Default::default()
+        };
         state.sanitize();
         assert_eq!(state.candle_bar_width, 10.0);
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Fixed(2.5));

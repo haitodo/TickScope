@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use tick_compare::config::load_config_from_file;
-use tick_compare::contracts::ports::SnapshotExchangePort;
-use tick_compare::contracts::types::ConnectionState;
-use tick_compare::runtime::coordinator::RuntimeCoordinator;
+use tick_scope::config::load_config_from_file;
+use tick_scope::core::ports::SnapshotExchangePort;
+use tick_scope::core::types::ConnectionState;
+use tick_scope::runtime::coordinator::RuntimeCoordinator;
 
 #[test]
 #[ignore = "Live MT5 end-to-end connection test (requires running MT5 terminals)"]

@@ -1,0 +1,789 @@
+pub mod broker_overview;
+pub mod charts_view;
+pub mod header;
+pub mod quick_settings;
+
+use crate::core::models::BrokerOverview;
+use crate::core::ports::{ClockPort, SnapshotExchangePort};
+use crate::core::types::*;
+use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
+use crate::ui::chart::{draw_state_ribbon, BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide};
+use crate::ui::fonts::setup_fonts;
+use crate::ui::settings::{
+    save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, UiState,
+    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
+};
+use crate::ui::style;
+use eframe::egui;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
+
+pub type PairSelectionHandler = Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>;
+
+pub struct DashboardApp {
+    pub(crate) exchange: Arc<dyn SnapshotExchangePort>,
+    pub(crate) selected_broker_a: BrokerId,
+    pub(crate) selected_broker_b: BrokerId,
+    pub(crate) selected_timeframe_ms: i64,
+    pub(crate) show_debug_overlay: bool,
+    pub(crate) bottom_metric: BottomMetric,
+    pub(crate) theme: ChartTheme,
+    pub(crate) show_candle_context: bool,
+    pub(crate) candle_bar_width: f32,
+    pub(crate) candle_price_scale: CandlePriceScaleMode,
+    pub(crate) candle_price_mode: CandlePriceMode,
+    pub(crate) candle_follow_criteria: CandleFollowCriteria,
+    pub(crate) candle_chart_anchor: Option<f64>,
+    pub(crate) candle_margin_edge_latch: Option<MarginEdgeLatchSide>,
+    pub(crate) chart_anchor: Option<f64>,
+    pub(crate) bottom_chart_anchor: Option<f64>,
+    pub(crate) pip_size: f64,
+    pub(crate) visible_seconds: u64,
+    pub(crate) visible_ticks: usize,
+    pub(crate) chart_max_quote_age_ms: u64,
+    pub(crate) top_x_axis_mode: ChartXAxisMode,
+    pub(crate) bottom_x_axis_mode: ChartXAxisMode,
+    pub(crate) pair_selection_handler: Option<PairSelectionHandler>,
+    pub(crate) diagnostics: Option<DiagnosticsHandle>,
+    pub(crate) diagnostics_clock: Option<Arc<dyn ClockPort>>,
+    pub(crate) last_diagnostics_snapshot_revision: u64,
+    pub(crate) fonts_configured: bool,
+    pub(crate) style_configured: bool,
+    pub(crate) show_broker_overview: bool,
+    pub(crate) show_quick_settings: bool,
+    pub(crate) hidden_brokers: Vec<BrokerId>,
+    pub(crate) ui_state_path: Option<PathBuf>,
+    pub(crate) window_geometry: WindowGeometryState,
+    pub(crate) state_dirty: bool,
+    pub(crate) repaint_registered: bool,
+}
+
+impl DashboardApp {
+    pub fn new(
+        exchange: Arc<dyn SnapshotExchangePort>,
+        initial_pair: (BrokerId, BrokerId),
+    ) -> Self {
+        Self {
+            exchange,
+            selected_broker_a: initial_pair.0,
+            selected_broker_b: initial_pair.1,
+            selected_timeframe_ms: 1000, // Default 1-second candles (RFC §19)
+            show_debug_overlay: false,
+            bottom_metric: BottomMetric::QuotePath, // Default: Realtime Quote Path
+            theme: ChartTheme::default(),
+            show_candle_context: true,
+            candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
+            candle_price_scale: CandlePriceScaleMode::Auto,
+            candle_price_mode: CandlePriceMode::Bid,
+            candle_follow_criteria: CandleFollowCriteria::Median,
+            candle_chart_anchor: None,
+            candle_margin_edge_latch: None,
+            chart_anchor: None,
+            bottom_chart_anchor: None,
+            pip_size: 0.001,
+            visible_seconds: 60,
+            visible_ticks: 300,
+            chart_max_quote_age_ms: 500,
+            top_x_axis_mode: ChartXAxisMode::ReceiveTime,
+            bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
+            pair_selection_handler: None,
+            diagnostics: None,
+            diagnostics_clock: None,
+            last_diagnostics_snapshot_revision: 0,
+            fonts_configured: false,
+            style_configured: false,
+            show_broker_overview: false,
+            show_quick_settings: false,
+            hidden_brokers: Vec::new(),
+            ui_state_path: None,
+            window_geometry: WindowGeometryState::default(),
+            state_dirty: false,
+            repaint_registered: false,
+        }
+    }
+
+    pub fn with_ui_state(mut self, state: &UiState) -> Self {
+        self.show_candle_context = state.show_candle_context;
+        self.selected_timeframe_ms = state.selected_timeframe_ms;
+        self.candle_bar_width = state.candle_bar_width;
+        self.candle_price_scale = state.candle_price_scale;
+        self.candle_price_mode = state.candle_price_mode;
+        self.candle_follow_criteria = state.candle_follow_criteria;
+        self.top_x_axis_mode = state.top_x_axis_mode;
+        self.bottom_x_axis_mode = state.bottom_x_axis_mode;
+        self.show_broker_overview = state.show_broker_overview;
+        self.bottom_metric = state.bottom_metric;
+        self.hidden_brokers = state.hidden_brokers.clone();
+        self.window_geometry = state.window.clone();
+        self.selected_broker_a = state.active_pair.0;
+        self.selected_broker_b = state.active_pair.1;
+        self
+    }
+
+    pub fn with_chart_max_quote_age_ms(mut self, age: u64) -> Self {
+        self.chart_max_quote_age_ms = age;
+        self
+    }
+
+    pub fn with_ui_state_path(mut self, path: PathBuf) -> Self {
+        self.ui_state_path = Some(path);
+        self
+    }
+
+    pub fn current_ui_state(&self) -> UiState {
+        UiState {
+            show_candle_context: self.show_candle_context,
+            selected_timeframe_ms: self.selected_timeframe_ms,
+            candle_bar_width: self.candle_bar_width,
+            candle_price_scale: self.candle_price_scale,
+            candle_price_mode: self.candle_price_mode,
+            candle_follow_criteria: self.candle_follow_criteria,
+            top_x_axis_mode: self.top_x_axis_mode,
+            bottom_x_axis_mode: self.bottom_x_axis_mode,
+            show_broker_overview: self.show_broker_overview,
+            bottom_metric: self.bottom_metric,
+            active_pair: self.selected_pair(),
+            hidden_brokers: self.hidden_brokers.clone(),
+            window: self.window_geometry.clone(),
+        }
+    }
+
+    pub fn save_state(&mut self) {
+        if let Some(path) = &self.ui_state_path {
+            let state = self.current_ui_state();
+            if let Err(e) = save_ui_state(path, &state) {
+                log::warn!("Failed to persist UI state: {}", e);
+            } else {
+                self.state_dirty = false;
+            }
+        }
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.state_dirty = true;
+    }
+
+    pub fn mark_fonts_configured(&mut self) {
+        self.fonts_configured = true;
+    }
+
+    pub fn with_show_broker_overview(mut self, show: bool) -> Self {
+        self.show_broker_overview = show;
+        self
+    }
+
+    pub fn show_broker_overview(&self) -> bool {
+        self.show_broker_overview
+    }
+
+    pub fn set_show_broker_overview(&mut self, show: bool) {
+        if self.show_broker_overview != show {
+            self.show_broker_overview = show;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn show_quick_settings(&self) -> bool {
+        self.show_quick_settings
+    }
+
+    pub fn set_show_quick_settings(&mut self, show: bool) {
+        self.show_quick_settings = show;
+    }
+
+    pub fn hidden_brokers(&self) -> &[BrokerId] {
+        &self.hidden_brokers
+    }
+
+    pub fn is_broker_visible(&self, broker_id: BrokerId) -> bool {
+        !self.hidden_brokers.contains(&broker_id)
+    }
+
+    pub fn set_broker_visible(
+        &mut self,
+        broker_id: BrokerId,
+        visible: bool,
+        available_brokers: &[BrokerOverview],
+    ) {
+        let all_ids: Vec<BrokerId> = available_brokers.iter().map(|b| b.broker_id).collect();
+        if visible {
+            if self.hidden_brokers.contains(&broker_id) {
+                self.hidden_brokers.retain(|&id| id != broker_id);
+                self.state_dirty = true;
+            }
+        } else {
+            // Guard: Keep at least 2 brokers visible if 2 or more exist in available_brokers
+            let current_visible_count = all_ids
+                .iter()
+                .filter(|&id| !self.hidden_brokers.contains(id))
+                .count();
+            if current_visible_count <= 2 && all_ids.len() >= 2 {
+                return;
+            }
+            if current_visible_count <= 1 {
+                return;
+            }
+            if !self.hidden_brokers.contains(&broker_id) {
+                self.hidden_brokers.push(broker_id);
+                self.hidden_brokers.sort_unstable();
+                self.state_dirty = true;
+
+                // If currently selected broker A or B is hidden, switch to another visible broker
+                let remaining_visible: Vec<BrokerId> = all_ids
+                    .iter()
+                    .copied()
+                    .filter(|id| !self.hidden_brokers.contains(id))
+                    .collect();
+
+                if self.selected_broker_a == broker_id {
+                    if let Some(&new_a) = remaining_visible.iter().find(|&&id| id != self.selected_broker_b) {
+                        self.set_broker_a(new_a);
+                    }
+                } else if self.selected_broker_b == broker_id {
+                    if let Some(&new_b) = remaining_visible.iter().find(|&&id| id != self.selected_broker_a) {
+                        self.set_broker_b(new_b);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn show_all_brokers(&mut self) {
+        if !self.hidden_brokers.is_empty() {
+            self.hidden_brokers.clear();
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn visible_broker_ids(&self, overviews: &[BrokerOverview]) -> Vec<BrokerId> {
+        let mut ids = Vec::with_capacity(overviews.len());
+        ids.extend(
+            overviews
+                .iter()
+                .map(|b| b.broker_id)
+                .filter(|&id| self.is_broker_visible(id)),
+        );
+        ids
+    }
+
+    pub fn with_pip_size(mut self, pip_size: f64) -> Self {
+        self.pip_size = pip_size;
+        self
+    }
+
+    pub fn with_visible_seconds(mut self, visible_seconds: u64) -> Self {
+        self.visible_seconds = visible_seconds;
+        self
+    }
+
+    pub fn with_visible_ticks(mut self, visible_ticks: usize) -> Self {
+        self.visible_ticks = visible_ticks;
+        self
+    }
+
+    pub fn with_pair_selection_handler(
+        mut self,
+        handler: Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>,
+    ) -> Self {
+        self.pair_selection_handler = Some(handler);
+        self
+    }
+
+    pub fn with_diagnostics(
+        mut self,
+        diagnostics: DiagnosticsHandle,
+        clock: Arc<dyn ClockPort>,
+    ) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self.diagnostics_clock = Some(clock);
+        self
+    }
+
+    pub fn selected_pair(&self) -> (BrokerId, BrokerId) {
+        (self.selected_broker_a, self.selected_broker_b)
+    }
+
+    pub fn set_selected_pair(&mut self, a: BrokerId, b: BrokerId) {
+        if self.selected_broker_a != a || self.selected_broker_b != b {
+            self.selected_broker_a = a;
+            self.selected_broker_b = b;
+            self.state_dirty = true;
+            if let Some(handler) = &self.pair_selection_handler {
+                handler((a, b));
+            }
+        }
+    }
+
+    pub fn set_broker_a(&mut self, a: BrokerId) {
+        let (current_a, current_b) = self.selected_pair();
+        if a == current_b {
+            self.set_selected_pair(current_b, current_a);
+        } else if a != current_a {
+            self.set_selected_pair(a, current_b);
+        }
+    }
+
+    pub fn set_broker_b(&mut self, b: BrokerId) {
+        let (current_a, current_b) = self.selected_pair();
+        if b == current_a {
+            self.set_selected_pair(current_b, current_a);
+        } else if b != current_b {
+            self.set_selected_pair(current_a, b);
+        }
+    }
+
+    pub fn cycle_pair(&mut self, broker_ids: &[BrokerId], forward: bool) {
+        if broker_ids.len() < 2 {
+            return;
+        }
+        let mut pairs = Vec::new();
+        for &a in broker_ids {
+            for &b in broker_ids {
+                if a != b {
+                    pairs.push((a, b));
+                }
+            }
+        }
+        if pairs.is_empty() {
+            return;
+        }
+        let current = self.selected_pair();
+        let current_idx = pairs.iter().position(|&p| p == current).unwrap_or(0);
+        let next_idx = if forward {
+            (current_idx + 1) % pairs.len()
+        } else {
+            (current_idx + pairs.len() - 1) % pairs.len()
+        };
+        let (next_a, next_b) = pairs[next_idx];
+        self.set_selected_pair(next_a, next_b);
+    }
+
+    pub fn bottom_metric(&self) -> BottomMetric {
+        self.bottom_metric
+    }
+
+    pub fn set_bottom_metric(&mut self, metric: BottomMetric) {
+        if self.bottom_metric != metric {
+            self.bottom_metric = metric;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn candle_bar_width(&self) -> f32 {
+        self.candle_bar_width
+    }
+
+    pub fn set_candle_bar_width(&mut self, width: f32) {
+        if (self.candle_bar_width - width).abs() > 1e-4 {
+            self.candle_bar_width = width;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn candle_price_scale(&self) -> CandlePriceScaleMode {
+        self.candle_price_scale
+    }
+
+    pub fn set_candle_price_scale(&mut self, mode: CandlePriceScaleMode) {
+        if self.candle_price_scale != mode {
+            self.candle_price_scale = mode;
+            self.candle_chart_anchor = None;
+            self.candle_margin_edge_latch = None;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn candle_price_mode(&self) -> CandlePriceMode {
+        self.candle_price_mode
+    }
+
+    pub fn set_candle_price_mode(&mut self, mode: CandlePriceMode) {
+        if self.candle_price_mode != mode {
+            self.candle_price_mode = mode;
+            self.candle_chart_anchor = None;
+            self.candle_margin_edge_latch = None;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn candle_follow_criteria(&self) -> CandleFollowCriteria {
+        self.candle_follow_criteria
+    }
+
+    pub fn set_candle_follow_criteria(&mut self, criteria: CandleFollowCriteria) {
+        if self.candle_follow_criteria != criteria {
+            self.candle_follow_criteria = criteria;
+            self.candle_margin_edge_latch = None;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn top_x_axis_mode(&self) -> ChartXAxisMode {
+        self.top_x_axis_mode
+    }
+
+    pub fn set_top_x_axis_mode(&mut self, mode: ChartXAxisMode) {
+        if self.top_x_axis_mode != mode {
+            self.top_x_axis_mode = mode;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn bottom_x_axis_mode(&self) -> ChartXAxisMode {
+        self.bottom_x_axis_mode
+    }
+
+    pub fn set_bottom_x_axis_mode(&mut self, mode: ChartXAxisMode) {
+        if self.bottom_x_axis_mode != mode {
+            self.bottom_x_axis_mode = mode;
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn x_axis_mode(&self) -> ChartXAxisMode {
+        self.top_x_axis_mode
+    }
+
+    pub fn set_x_axis_mode(&mut self, mode: ChartXAxisMode) {
+        self.set_top_x_axis_mode(mode);
+    }
+
+    pub fn render_ui(&mut self, ctx: &egui::Context) {
+        let ui_render_start = self.diagnostics.as_ref().map(|_| Instant::now());
+        let prev_candle = self.show_candle_context;
+        let prev_timeframe = self.selected_timeframe_ms;
+        let prev_candle_bar_width = self.candle_bar_width;
+        let prev_candle_scale = self.candle_price_scale;
+        let prev_candle_follow = self.candle_follow_criteria;
+        let prev_top_xaxis = self.top_x_axis_mode;
+        let prev_bottom_xaxis = self.bottom_x_axis_mode;
+        let prev_overview = self.show_broker_overview;
+        let prev_metric = self.bottom_metric;
+
+        if !self.fonts_configured {
+            setup_fonts(ctx);
+            self.fonts_configured = true;
+        }
+        if !self.style_configured {
+            style::configure(ctx);
+            self.style_configured = true;
+        }
+        if !self.repaint_registered {
+            let ctx_clone = ctx.clone();
+            self.exchange.register_repaint_signal(Arc::new(move || {
+                ctx_clone.request_repaint();
+            }));
+            self.repaint_registered = true;
+        }
+
+        let snapshot = self.exchange.load_latest();
+        if let (Some(diagnostics), Some(clock)) = (&self.diagnostics, &self.diagnostics_clock) {
+            if snapshot.snapshot_revision != self.last_diagnostics_snapshot_revision {
+                diagnostics.record_ns(
+                    DiagnosticStage::SnapshotToUi,
+                    clock
+                        .sample()
+                        .mono_ns
+                        .saturating_sub(snapshot.built_mono_ns)
+                        .0,
+                );
+                self.last_diagnostics_snapshot_revision = snapshot.snapshot_revision;
+            }
+        }
+        let name_a = snapshot
+            .broker_overviews
+            .iter()
+            .find(|b| b.broker_id == self.selected_broker_a)
+            .map(|b| b.name.as_str())
+            .unwrap_or("A");
+        let name_b = snapshot
+            .broker_overviews
+            .iter()
+            .find(|b| b.broker_id == self.selected_broker_b)
+            .map(|b| b.name.as_str())
+            .unwrap_or("B");
+
+        // 1. Top Panel: Header context controls and HUD
+        header::render_top_header(self, ctx, &snapshot, name_a, name_b);
+
+        // 2. Broker Overview panel of ALL configured brokers (collapsible)
+        broker_overview::render_broker_overview(self, ctx, &snapshot);
+
+        // 3. State Ribbon at Bottom
+        egui::TopBottomPanel::bottom("state_ribbon").show(ctx, |ui| {
+            draw_state_ribbon(
+                ui,
+                &snapshot.broker_overviews,
+                &snapshot.consensus,
+                &snapshot.active_clusters,
+                &snapshot.current_breadth,
+            );
+        });
+
+        // 4. Keyboard Shortcuts
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::Num2) {
+                self.bottom_metric = BottomMetric::MidDiff;
+            } else if i.key_pressed(egui::Key::Num3) {
+                self.bottom_metric = BottomMetric::BidAskDiff;
+            } else if i.key_pressed(egui::Key::Num4) {
+                self.bottom_metric = BottomMetric::SpreadDiff;
+            } else if i.key_pressed(egui::Key::Num5) {
+                self.bottom_metric = BottomMetric::LeadLag;
+            } else if i.key_pressed(egui::Key::Num6) {
+                self.bottom_metric = BottomMetric::MidDispersion;
+            } else if i.key_pressed(egui::Key::Num7) {
+                self.bottom_metric = BottomMetric::MoveBreadthView;
+            } else if i.key_pressed(egui::Key::Num8) {
+                self.bottom_metric = BottomMetric::QuotePersistence;
+            } else if i.key_pressed(egui::Key::Num1) {
+                self.bottom_metric = BottomMetric::QuotePath;
+            } else if i.key_pressed(egui::Key::Tab) {
+                if i.modifiers.shift {
+                    self.bottom_metric = self.bottom_metric.prev();
+                } else {
+                    self.bottom_metric = self.bottom_metric.next();
+                }
+            } else if i.key_pressed(egui::Key::P) {
+                let broker_ids: Vec<BrokerId> = self.visible_broker_ids(&snapshot.broker_overviews);
+                self.cycle_pair(&broker_ids, !i.modifiers.shift);
+            } else if i.key_pressed(egui::Key::B) {
+                self.show_broker_overview = !self.show_broker_overview;
+            } else if i.key_pressed(egui::Key::S) || i.key_pressed(egui::Key::Comma) {
+                self.show_quick_settings = !self.show_quick_settings;
+            } else if i.key_pressed(egui::Key::Escape) {
+                if self.show_quick_settings {
+                    self.show_quick_settings = false;
+                } else if self.show_broker_overview {
+                    self.show_broker_overview = false;
+                }
+            }
+        });
+
+        // 5. Main Charts Area
+        charts_view::render_charts_view(self, ctx, &snapshot, name_a, name_b);
+
+
+        // Check if any interactive UI settings changed during this frame
+        if self.show_candle_context != prev_candle
+            || self.selected_timeframe_ms != prev_timeframe
+            || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
+            || self.candle_price_scale != prev_candle_scale
+            || self.candle_follow_criteria != prev_candle_follow
+            || self.top_x_axis_mode != prev_top_xaxis
+            || self.bottom_x_axis_mode != prev_bottom_xaxis
+            || self.show_broker_overview != prev_overview
+            || self.bottom_metric != prev_metric
+        {
+            if self.candle_price_scale != prev_candle_scale {
+                self.candle_chart_anchor = None;
+                self.candle_margin_edge_latch = None;
+            }
+            if self.candle_follow_criteria != prev_candle_follow {
+                self.candle_margin_edge_latch = None;
+            }
+            self.state_dirty = true;
+        }
+
+        // Track window geometry and close request
+        ctx.input(|i| {
+            let vp = i.viewport();
+            if let Some(maximized) = vp.maximized {
+                if self.window_geometry.maximized != maximized {
+                    self.window_geometry.maximized = maximized;
+                    self.state_dirty = true;
+                }
+            }
+            if !self.window_geometry.maximized {
+                if let Some(rect) = vp.inner_rect {
+                    let size = [rect.width(), rect.height()];
+                    if size[0] >= MIN_WINDOW_WIDTH && size[1] >= MIN_WINDOW_HEIGHT
+                        && ((self.window_geometry.inner_size[0] - size[0]).abs() > 1.0
+                            || (self.window_geometry.inner_size[1] - size[1]).abs() > 1.0)
+                    {
+                        self.window_geometry.inner_size = size;
+                        self.state_dirty = true;
+                    }
+                }
+                if let Some(rect) = vp.outer_rect {
+                    let pos = [rect.min.x, rect.min.y];
+                    if self.window_geometry.position != Some(pos) {
+                        self.window_geometry.position = Some(pos);
+                        self.state_dirty = true;
+                    }
+                }
+            }
+        });
+
+        if self.state_dirty || ctx.input(|i| i.viewport().close_requested()) {
+            self.save_state();
+        }
+
+        if let (Some(diagnostics), Some(start)) = (&self.diagnostics, ui_render_start) {
+            diagnostics.record_duration(DiagnosticStage::UiRenderWork, start.elapsed());
+        }
+
+        // When a new snapshot is published, the exchange triggers request_repaint()
+        // immediately. For fallback (clock ticks, data freshness transitions),
+        // request repaint after an idle timeout.
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    }
+}
+
+impl Drop for DashboardApp {
+    fn drop(&mut self) {
+        self.save_state();
+    }
+}
+
+impl eframe::App for DashboardApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.render_ui(ctx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::UiSnapshot;
+    use crate::state::snapshot::SnapshotExchange;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_set_broker_a_and_b_with_swapping() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        assert_eq!(app.selected_pair(), (1, 2));
+
+        // Change A to 3
+        app.set_broker_a(3);
+        assert_eq!(app.selected_pair(), (3, 2));
+
+        // Setting A to 2 (current B) should swap them
+        app.set_broker_a(2);
+        assert_eq!(app.selected_pair(), (2, 3));
+
+        // Setting B to 2 (current A) should swap them
+        app.set_broker_b(2);
+        assert_eq!(app.selected_pair(), (3, 2));
+    }
+
+    #[test]
+    fn test_cycle_pair_forward_and_backward() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+        let brokers = vec![1, 2, 3];
+
+        // Forward cycling
+        app.cycle_pair(&brokers, true);
+        assert_eq!(app.selected_pair(), (1, 3));
+        app.cycle_pair(&brokers, true);
+        assert_eq!(app.selected_pair(), (2, 1));
+        app.cycle_pair(&brokers, true);
+        assert_eq!(app.selected_pair(), (2, 3));
+
+        // Backward cycling
+        app.cycle_pair(&brokers, false);
+        assert_eq!(app.selected_pair(), (2, 1));
+    }
+
+    #[test]
+    fn test_pair_selection_handler_called() {
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_clone = Arc::clone(&call_count);
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2)).with_pair_selection_handler(Arc::new(
+            move |_| {
+                count_clone.fetch_add(1, Ordering::SeqCst);
+            },
+        ));
+
+        app.set_broker_a(3);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+        app.set_broker_b(1);
+        assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_show_broker_overview_toggle() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        // Default should be collapsed (false)
+        assert!(!app.show_broker_overview());
+
+        app.set_show_broker_overview(true);
+        assert!(app.show_broker_overview());
+
+        app.set_show_broker_overview(false);
+        assert!(!app.show_broker_overview());
+    }
+
+    #[test]
+    fn test_show_quick_settings_toggle() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        // Default should be closed (false)
+        assert!(!app.show_quick_settings());
+
+        app.set_show_quick_settings(true);
+        assert!(app.show_quick_settings());
+
+        app.set_show_quick_settings(false);
+        assert!(!app.show_quick_settings());
+    }
+
+    #[test]
+    fn test_quick_settings_keyboard_shortcuts() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+
+        let ctx = egui::Context::default();
+
+        // 1. Press S -> should open quick settings
+        let mut input_s = egui::RawInput::default();
+        input_s.events.push(egui::Event::Key {
+            key: egui::Key::S,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run(input_s, |ctx| {
+            app.render_ui(ctx);
+        });
+        assert!(app.show_quick_settings());
+
+        // 2. Press Escape -> should close quick settings
+        let mut input_esc = egui::RawInput::default();
+        input_esc.events.push(egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run(input_esc, |ctx| {
+            app.render_ui(ctx);
+        });
+        assert!(!app.show_quick_settings());
+
+        // 3. Press Comma -> should open quick settings
+        let mut input_comma = egui::RawInput::default();
+        input_comma.events.push(egui::Event::Key {
+            key: egui::Key::Comma,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run(input_comma, |ctx| {
+            app.render_ui(ctx);
+        });
+        assert!(app.show_quick_settings());
+    }
+}

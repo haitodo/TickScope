@@ -1,9 +1,9 @@
 //! Storage serialization and binary logger worker.
-//! Reference: docs/blueprint/storage-format.md
 
-use crate::contracts::crc32c::crc32c;
-use crate::contracts::ports::{AppendResult, LogSinkPort};
-use crate::contracts::types::*;
+use super::error::StorageError;
+use crate::core::ports::{AppendResult, LogSinkPort};
+use crate::core::types::*;
+use crate::protocol::crc32c::crc32c;
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -27,7 +27,7 @@ pub const RECORD_KIND_DIAGNOSTIC: u16 = 3;
 pub fn encode_record(
     record: &LogRecord,
     record_index: u64,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StorageError> {
     let mut payload = Vec::new();
     let (kind, flags) = match record {
         LogRecord::RawFrame(raw) => {
@@ -251,15 +251,14 @@ impl AsyncLogger {
         capacity: usize,
         max_queue_bytes: usize,
         flush_interval_ms: u64,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, StorageError> {
         if capacity == 0 {
-            return Err("logger record capacity must be positive".to_string());
+            return Err(StorageError::InvalidCapacity("logger record capacity must be positive".to_string()));
         }
         if max_queue_bytes == 0 {
-            return Err("logger byte capacity must be positive".to_string());
+            return Err(StorageError::InvalidCapacity("logger byte capacity must be positive".to_string()));
         }
-        create_dir_all(&log_dir)
-            .map_err(|e| format!("Failed to create log dir: {}", e))?;
+        create_dir_all(&log_dir)?;
 
         let (sender, receiver) = bounded(capacity);
         let running = Arc::new(AtomicBool::new(true));

@@ -1,5 +1,4 @@
 //! Independent golden test fixtures and oracle vectors.
-//! Reference: docs/blueprint/wire-format.md, storage-format.md, validation.md
 
 #![allow(dead_code)]
 
@@ -66,8 +65,12 @@ mod tests {
 
     #[test]
     fn test_crc32c_vector() {
-        let res = tick_compare::contracts::crc32c::crc32c(CRC32C_INPUT_BYTES);
+        let res = tick_scope::protocol::crc32c::crc32c(CRC32C_INPUT_BYTES);
         assert_eq!(res, CRC32C_EXPECTED_U32);
+
+        // Verify backward-compatibility facade
+        let res_compat = tick_scope::contracts::crc32c::crc32c(CRC32C_INPUT_BYTES);
+        assert_eq!(res_compat, CRC32C_EXPECTED_U32);
     }
 }
 

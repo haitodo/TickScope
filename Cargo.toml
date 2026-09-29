@@ -27,5 +27,6 @@ name = "tick-scope"
 path = "src/main.rs"
 
 [lib]
-name = "tick_compare"
+name = "tick_scope"
 path = "src/lib.rs"
+

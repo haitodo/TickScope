@@ -1,9 +1,9 @@
-//! Integration tests for CLI argument parsing and diagnostic logging.
+﻿//! Integration tests for CLI argument parsing and diagnostic logging.
 
 use log::LevelFilter;
 use std::path::PathBuf;
-use tick_compare::cli::{parse_level_filter, CliArgs};
-use tick_compare::logging::{
+use tick_scope::cli::{parse_level_filter, CliArgs};
+use tick_scope::logging::{
     format_log_line, init_disabled_logging, init_logging,
 };
 
@@ -119,7 +119,7 @@ fn test_logging_formatting_and_target_cleanup() {
     let line = format_log_line(
         "2026-09-26 12:34:56.789",
         log::Level::Info,
-        "tick_compare::transport::router",
+        "tick_scope::transport::router",
         &msg,
         false,
     );
@@ -168,5 +168,5 @@ fn test_log_suppression_and_activation() {
 #[test]
 fn test_is_console_allocated_in_test_env() {
     // Tests run in test runner console, so a separate console is not newly allocated
-    assert!(!tick_compare::logging::is_console_allocated());
+    assert!(!tick_scope::logging::is_console_allocated());
 }

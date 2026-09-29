@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[test]
 fn oversized_durable_record_fails_instead_of_retrying_forever() {
-    use tick_compare::contracts::ports::{AppendResult, LogSinkPort};
+    use tick_scope::core::ports::{AppendResult, LogSinkPort};
     let dir = tempfile::tempdir().unwrap();
     let logger = AsyncLogger::new(dir.path(), RunId([7; 16]), 4, 64, 100).unwrap();
     let record = Arc::new(LogRecord::Metadata(LogMetadata {
@@ -15,9 +15,9 @@ fn oversized_durable_record_fails_instead_of_retrying_forever() {
     assert!(logger.append_durable(record).unwrap_err().contains("exceeding"));
     logger.finish();
 }
-use tick_compare::contracts::types::*;
-use tick_compare::storage::logger::*;
-use tick_compare::storage::reader::*;
+use tick_scope::core::types::*;
+use tick_scope::storage::logger::*;
+use tick_scope::storage::reader::*;
 
 #[test]
 fn test_tg01_roundtrip_all_record_kinds() {

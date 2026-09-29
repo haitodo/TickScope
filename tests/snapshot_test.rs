@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tick_compare::contracts::models::*;
-use tick_compare::contracts::ports::SnapshotExchangePort;
-use tick_compare::contracts::types::*;
-use tick_compare::state::snapshot::{SnapshotBuilder, SnapshotExchange};
+use tick_scope::core::models::*;
+use tick_scope::core::ports::SnapshotExchangePort;
+use tick_scope::core::types::*;
+use tick_scope::state::snapshot::{SnapshotBuilder, SnapshotExchange};
 
 #[test]
 fn test_ts01_snapshot_builder_and_exchange() {
@@ -115,3 +115,27 @@ fn test_ts03_concurrent_exchange_latest_wins() {
     // Initial read held before thread is unchanged (immutable Arc!)
     assert_eq!(initial_read.snapshot_revision, 0);
 }
+
+#[test]
+fn test_ts04_repaint_signal_trigger() {
+    use std::sync::atomic::AtomicUsize;
+    let run_id = RunId([2u8; 16]);
+    let exchange = Arc::new(SnapshotExchange::new_empty(run_id));
+    let repaint_count = Arc::new(AtomicUsize::new(0));
+    let repaint_count_clone = repaint_count.clone();
+
+    exchange.register_repaint_signal(Arc::new(move || {
+        repaint_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+
+    let builder = SnapshotBuilder::new(run_id);
+    let proj = EngineProjection {
+        revision: 1,
+        ..Default::default()
+    };
+    let snap = builder.build(&proj, UtcMs(1000), MonoNs(1_000_000), 1000);
+    exchange.publish(snap);
+
+    assert_eq!(repaint_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+

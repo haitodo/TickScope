@@ -1,5 +1,5 @@
-use tick_compare::contracts::config::{AppConfig, Mt5DeployConfig};
-use tick_compare::runtime::deploy::{
+use tick_scope::config::{AppConfig, Mt5DeployConfig};
+use tick_scope::runtime::deploy::{
     deploy_mt5_files_for_brokers, discover_mt5_terminals, DeployFileStatus,
 };
 
@@ -7,7 +7,7 @@ use tick_compare::runtime::deploy::{
 #[ignore = "Writes to installed MT5 terminals and runs MetaEditor; opt in explicitly"]
 fn test_live_mt5_discovery_and_deployment_idempotency() {
     let config = Mt5DeployConfig::default();
-    let app_config = tick_compare::config::load_config_from_file("config/default.toml")
+    let app_config = tick_scope::config::load_config_from_file("config/default.toml")
         .unwrap_or_else(|_| AppConfig::default());
     let (terminals, _warnings) = discover_mt5_terminals(&config);
     println!("Discovered {} terminals", terminals.len());

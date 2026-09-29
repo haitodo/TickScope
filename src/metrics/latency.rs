@@ -9,7 +9,7 @@
 //! - Online percentile statistics (p50, p95, p99, max)
 //! - Queue depth and dropped snapshot tracking
 
-use crate::contracts::MonoNs;
+use crate::core::MonoNs;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -319,7 +319,7 @@ fn percentile_at(sorted: &[u64], pct: f64) -> f64 {
 /// - Zero dynamic allocations during `record_*` calls.
 /// - Pure monotonic clock differences (`saturating_sub`).
 /// - Rolling window percentile analysis for dashboard/telemetry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LatencyMetrics {
     tick_to_engine: LatencyRingBuffer,
     engine_to_projection: LatencyRingBuffer,
@@ -328,20 +328,6 @@ pub struct LatencyMetrics {
     total_pipeline: LatencyRingBuffer,
     queue_depth: usize,
     dropped_snapshots: u64,
-}
-
-impl Default for LatencyMetrics {
-    fn default() -> Self {
-        Self {
-            tick_to_engine: LatencyRingBuffer::new(),
-            engine_to_projection: LatencyRingBuffer::new(),
-            projection_to_snapshot: LatencyRingBuffer::new(),
-            snapshot_to_ui: LatencyRingBuffer::new(),
-            total_pipeline: LatencyRingBuffer::new(),
-            queue_depth: 0,
-            dropped_snapshots: 0,
-        }
-    }
 }
 
 impl LatencyMetrics {

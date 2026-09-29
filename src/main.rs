@@ -5,12 +5,12 @@
 
 use eframe::egui;
 use std::env;
-use tick_compare::cli::CliArgs;
-use tick_compare::config::load_startup_config;
-use tick_compare::logging::{cleanup_console, init_logging, is_console_allocated, setup_console};
-use tick_compare::runtime::coordinator::RuntimeCoordinator;
-use tick_compare::ui::dashboard::DashboardApp;
-use tick_compare::ui::settings::{load_ui_state, resolve_ui_state_path};
+use tick_scope::cli::CliArgs;
+use tick_scope::config::load_startup_config;
+use tick_scope::logging::{cleanup_console, init_logging, is_console_allocated, setup_console};
+use tick_scope::runtime::coordinator::RuntimeCoordinator;
+use tick_scope::ui::dashboard::DashboardApp;
+use tick_scope::ui::settings::{load_ui_state, resolve_ui_state_path};
 
 fn pause_if_allocated_console() {
     if is_console_allocated() {
@@ -106,11 +106,11 @@ fn main() -> eframe::Result<()> {
     // Deploy the connection map only after each listener has reserved its
     // actual OS-selected port. Every terminal then receives usable endpoints.
     if coordinator.config.mt5.auto_deploy {
-        let deploy_report = tick_compare::runtime::deploy_mt5_files_for_brokers(
+        let deploy_report = tick_scope::runtime::deploy_mt5_files_for_brokers(
             &coordinator.config.mt5,
             &coordinator.deployment_brokers,
         );
-        tick_compare::runtime::print_deploy_report(&deploy_report);
+        tick_scope::runtime::print_deploy_report(&deploy_report);
     }
 
     let exchange = coordinator.exchange.clone();
@@ -148,7 +148,7 @@ fn main() -> eframe::Result<()> {
         "TickScope",
         native_options,
         Box::new(|cc| {
-            tick_compare::ui::setup_fonts(&cc.egui_ctx);
+            tick_scope::ui::setup_fonts(&cc.egui_ctx);
             let mut app = app;
             app.mark_fonts_configured();
             Ok(Box::new(app))

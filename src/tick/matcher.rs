@@ -1,8 +1,7 @@
 //! 1-to-1 Event Matcher for Lead/Lag.
-//! Reference: docs/blueprint/semantics-lead-lag.md
 
-use crate::contracts::models::{LeadLagMatch, MoveEvent};
-use crate::contracts::types::*;
+use crate::core::models::{LeadLagMatch, MoveEvent};
+use crate::core::types::*;
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]
@@ -148,7 +147,7 @@ impl OneToOneEventMatcher {
             match_id: self.match_count,
             leader,
             follower,
-            leader_event: if leader == self.broker_a { event_a.clone() } else { event_b.clone() },
+            leader_event: if leader == self.broker_a { event_a } else { event_b },
             follower_event: if follower == self.broker_a { event_a } else { event_b },
             t_leader: if leader == self.broker_a { t_a } else { t_b },
             t_follower: if follower == self.broker_a { t_a } else { t_b },

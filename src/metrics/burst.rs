@@ -1,5 +1,4 @@
 //! Multi-Broker Event Cluster (Burst), Quote Geometry, and Directional Breadth.
-//! Reference: RFC Beta 0.3 (docs/improvement.md Sections 33-35, 40-42).
 //!
 //! # Core Invariants
 //! - Burst is an observed cluster of move events across N brokers in a rolling time window.
@@ -7,8 +6,8 @@
 //! - Breadth (e.g. UP 4/4) is an observational count, NEVER converted to a trade signal (§42).
 //! - Quote Geometry distinguishes directional moves from spread expansion, compression, and mixed quotes (§34, §35).
 
-use crate::contracts::models::{MoveDirection, MoveEvent};
-use crate::contracts::types::{BrokerId, MonoNs};
+use crate::core::models::{MoveDirection, MoveEvent};
+use crate::core::types::{BrokerId, MonoNs};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
@@ -330,10 +329,11 @@ impl MultiBrokerBurstDetector {
         let mut latest_dir: HashMap<BrokerId, MoveDirection> = HashMap::new();
 
         for ev in &self.recent_events {
-            if ev.rx_mono_ns.0 >= cutoff && ev.rx_mono_ns <= now_mono {
-                if !stale_brokers.contains(&ev.broker_id) {
-                    latest_dir.insert(ev.broker_id, ev.direction);
-                }
+            if ev.rx_mono_ns.0 >= cutoff
+                && ev.rx_mono_ns <= now_mono
+                && !stale_brokers.contains(&ev.broker_id)
+            {
+                latest_dir.insert(ev.broker_id, ev.direction);
             }
         }
 
@@ -358,7 +358,7 @@ impl MultiBrokerBurstDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::models::MoveQuality;
+    use crate::core::models::MoveQuality;
 
     #[test]
     fn current_clusters_expire_and_exclude_stale_feeds() {

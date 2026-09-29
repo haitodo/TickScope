@@ -1,31 +1,41 @@
 //! Configuration loader and validator.
 
-use crate::contracts::config::AppConfig;
+use super::schema::{AppConfig, ConfigError};
 use std::fs;
 use std::path::Path;
 
 /// An explicit path always wins; portable installs need no external config.
-pub fn load_startup_config(explicit: Option<&Path>, exe_dir: &Path, cwd: &Path) -> Result<AppConfig, String> {
+pub fn load_startup_config(
+    explicit: Option<&Path>,
+    exe_dir: &Path,
+    cwd: &Path,
+) -> Result<AppConfig, ConfigError> {
     if let Some(path) = explicit {
         return load_config_from_file(path);
     }
     for path in [exe_dir.join("config/default.toml"), cwd.join("config/default.toml")] {
-        if path.try_exists().map_err(|e| format!("{}: {}", path.display(), e))? {
+        let exists = path.try_exists().map_err(|e| ConfigError::PathCheck {
+            path: path.clone(),
+            source: e,
+        })?;
+        if exists {
             return load_config_from_file(path);
         }
     }
-    load_config_from_str(include_str!("../config/default.toml"))
+    load_config_from_str(include_str!("../../config/default.toml"))
 }
 
-pub fn load_config_from_file<P: AsRef<Path>>(path: P) -> Result<AppConfig, String> {
-    let content = fs::read_to_string(path.as_ref())
-        .map_err(|e| format!("Failed to read config file '{}': {}", path.as_ref().display(), e))?;
+pub fn load_config_from_file<P: AsRef<Path>>(path: P) -> Result<AppConfig, ConfigError> {
+    let p = path.as_ref();
+    let content = fs::read_to_string(p).map_err(|e| ConfigError::Io {
+        path: p.to_path_buf(),
+        source: e,
+    })?;
     load_config_from_str(&content)
 }
 
-pub fn load_config_from_str(s: &str) -> Result<AppConfig, String> {
-    let config: AppConfig = toml::from_str(s)
-        .map_err(|e| format!("Failed to parse TOML config: {}", e))?;
+pub fn load_config_from_str(s: &str) -> Result<AppConfig, ConfigError> {
+    let config: AppConfig = toml::from_str(s)?;
     config.validate()?;
     Ok(config)
 }
@@ -39,11 +49,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let exe_dir = dir.path().join("app");
         let cwd = dir.path().join("cwd");
-        assert_eq!(load_startup_config(None, &exe_dir, &cwd).unwrap(),
-            load_config_from_str(include_str!("../config/default.toml")).unwrap());
+        assert_eq!(
+            load_startup_config(None, &exe_dir, &cwd).unwrap(),
+            load_config_from_str(include_str!("../../config/default.toml")).unwrap()
+        );
         assert!(load_startup_config(Some(&dir.path().join("missing.toml")), &exe_dir, &cwd).is_err());
         fs::create_dir_all(cwd.join("config")).unwrap();
-        fs::write(cwd.join("config/default.toml"), toml::to_string(&AppConfig::default()).unwrap()).unwrap();
+        fs::write(
+            cwd.join("config/default.toml"),
+            toml::to_string(&AppConfig::default()).unwrap(),
+        )
+        .unwrap();
         assert_eq!(load_startup_config(None, &exe_dir, &cwd).unwrap(), AppConfig::default());
         fs::create_dir_all(exe_dir.join("config")).unwrap();
         fs::write(exe_dir.join("config/default.toml"), "invalid config").unwrap();

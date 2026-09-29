@@ -7,8 +7,9 @@ mod support;
 
 use fixtures::*;
 use support::*;
-use tick_compare::config::load_config_from_file;
-use tick_compare::contracts::*;
+use tick_scope::config::load_config_from_file;
+use tick_scope::core::*;
+use tick_scope::protocol::crc32c::crc32c;
 
 #[test]
 fn test_golden_wire_fixtures_match() {
@@ -66,3 +67,19 @@ fn test_load_default_config() {
     assert!(config.brokers.len() >= 2, "Default config has at least 2 brokers");
     assert_eq!(config.active_pair, (1, 2));
 }
+
+#[test]
+fn test_contracts_facade_backward_compatibility() {
+    assert_eq!(tick_scope::contracts::MAGIC_TICK, MAGIC_TICK);
+    assert_eq!(tick_scope::contracts::PROTOCOL_VERSION, PROTOCOL_VERSION);
+    let sample = tick_scope::contracts::ClockReading {
+        run_id: tick_scope::contracts::RunId([0; 16]),
+        mono_ns: tick_scope::contracts::MonoNs(100),
+        unix_ns: Some(100),
+    };
+    assert_eq!(sample.mono_ns.0, 100);
+    let crc = tick_scope::contracts::crc32c::crc32c(CRC32C_INPUT_BYTES);
+    assert_eq!(crc, CRC32C_EXPECTED_U32);
+}
+
+

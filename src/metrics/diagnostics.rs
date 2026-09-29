@@ -4,7 +4,7 @@
 //! dedicated worker computes one-second summaries and writes them to a CSV
 //! file. The normal runtime does not create this channel or worker.
 
-use crate::contracts::types::RunId;
+use crate::core::types::RunId;
 use crate::metrics::latency::LatencyRingBuffer;
 use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender};
 use std::fmt::Write as FmtWrite;

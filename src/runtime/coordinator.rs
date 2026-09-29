@@ -1,6 +1,6 @@
-use crate::contracts::config::AppConfig;
-use crate::contracts::ports::{AppendResult, ClockPort, LogSinkPort, RawIngressSink, SnapshotExchangePort, SubmitResult};
-use crate::contracts::types::*;
+use crate::config::{AppConfig, BrokerConfig};
+use crate::core::ports::{AppendResult, ClockPort, LogSinkPort, RawIngressSink, SnapshotExchangePort, SubmitResult};
+use crate::core::types::*;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle, DiagnosticsRuntime};
 
 use crate::state::snapshot::{SnapshotBuilder, SnapshotExchange};
@@ -9,7 +9,7 @@ use crate::tick::engine::TickEngine;
 use crate::transport::router::TransportRouter;
 use crate::transport::tcp::TransportReceiver;
 use crossbeam_channel::{bounded, Receiver, Sender};
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -60,6 +60,18 @@ impl RawIngressSink for ChannelIngressSink {
             Err(crossbeam_channel::TrySendError::Disconnected(it)) => SubmitResult::Closed(it),
         }
     }
+
+    fn submit_timeout(
+        &self,
+        item: IngressItem,
+        timeout: std::time::Duration,
+    ) -> SubmitResult<IngressItem> {
+        match self.sender.send_timeout(item, timeout) {
+            Ok(_) => SubmitResult::Accepted,
+            Err(crossbeam_channel::SendTimeoutError::Timeout(it)) => SubmitResult::Full(it),
+            Err(crossbeam_channel::SendTimeoutError::Disconnected(it)) => SubmitResult::Closed(it),
+        }
+    }
 }
 
 pub struct RuntimeCoordinator {
@@ -70,13 +82,14 @@ pub struct RuntimeCoordinator {
     pub running: Arc<AtomicBool>,
     /// Broker routes with the actual listener ports used by this process.
     /// These are written to each MT5 terminal's connection map at startup.
-    pub deployment_brokers: Vec<crate::contracts::config::BrokerConfig>,
+    pub deployment_brokers: Vec<BrokerConfig>,
     receivers: Vec<Arc<TransportReceiver>>,
     router: Option<Arc<TransportRouter>>,
     engine: Arc<Mutex<TickEngine>>,
     logger: Option<Arc<AsyncLogger>>,
     diagnostics: Option<DiagnosticsRuntime>,
     threads: Vec<JoinHandle<()>>,
+    tick_wake: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl RuntimeCoordinator {
@@ -147,9 +160,9 @@ impl RuntimeCoordinator {
             }
         }
 
-        let log_sink_port: Option<Arc<dyn crate::contracts::ports::LogSinkPort>> = logger
+        let log_sink_port: Option<Arc<dyn LogSinkPort>> = logger
             .as_ref()
-            .map(|l| l.clone() as Arc<dyn crate::contracts::ports::LogSinkPort>);
+            .map(|l| l.clone() as Arc<dyn LogSinkPort>);
 
         let mut tick_engine = TickEngine::new(config.clone());
         if let Some(diagnostics) = &diagnostics_handle {
@@ -216,6 +229,10 @@ impl RuntimeCoordinator {
         };
 
         // 2. Spawn Engine Worker
+        let tick_wake = Arc::new((Mutex::new(false), Condvar::new()));
+        let tick_wake_worker = tick_wake.clone();
+        let tick_wake_pub = tick_wake.clone();
+
         let eng_clone = engine.clone();
         let run_clone = running.clone();
         let clk_engine = clock.clone();
@@ -227,6 +244,7 @@ impl RuntimeCoordinator {
                 run_clone,
                 clk_engine,
                 diagnostics_enabled,
+                tick_wake_worker,
             );
         });
         threads.push(engine_handle);
@@ -243,6 +261,7 @@ impl RuntimeCoordinator {
         let pub_handle = thread::spawn(move || {
             let builder = SnapshotBuilder::new(run_id);
             let interval = Duration::from_micros(1_000_000 / repaint_hz as u64);
+            let (lock, cvar) = &*tick_wake_pub;
 
             while run_pub.load(Ordering::SeqCst) {
                 let frame_start = Instant::now();
@@ -264,7 +283,7 @@ impl RuntimeCoordinator {
                 }
 
                 let snapshot_start = diagnostics_pub.as_ref().map(|_| Instant::now());
-                let snap = builder.build(&proj, now_utc, clk_sample.mono_ns, timeframe_ms);
+                let snap = builder.build_owned(proj, now_utc, clk_sample.mono_ns, timeframe_ms);
                 if let (Some(diagnostics), Some(start)) = (&diagnostics_pub, snapshot_start) {
                     diagnostics.record_duration(
                         DiagnosticStage::SnapshotBuild,
@@ -273,8 +292,19 @@ impl RuntimeCoordinator {
                 }
                 ex_pub.publish(snap);
 
-                // Projection/build time is part of the frame budget.
-                thread::sleep(interval.saturating_sub(frame_start.elapsed()));
+                // Rate-limit to repaint_hz: sleep for remaining frame budget if needed
+                let elapsed = frame_start.elapsed();
+                if elapsed < interval {
+                    thread::sleep(interval - elapsed);
+                }
+
+                // If no new tick arrived during the frame budget, wait for next tick or 200ms idle timeout.
+                // Clear pending under the same lock so the next iteration starts fresh without double-locking.
+                let mut pending = lock.lock();
+                if !*pending && run_pub.load(Ordering::SeqCst) {
+                    cvar.wait_for(&mut pending, Duration::from_millis(200));
+                }
+                *pending = false;
             }
         });
         threads.push(pub_handle);
@@ -292,6 +322,7 @@ impl RuntimeCoordinator {
             logger,
             diagnostics,
             threads,
+            tick_wake,
         })
     }
 
@@ -301,17 +332,42 @@ impl RuntimeCoordinator {
         running: Arc<AtomicBool>,
         clock: Arc<dyn ClockPort>,
         diagnostics_enabled: bool,
+        tick_wake: Arc<(Mutex<bool>, Condvar)>,
     ) {
         // Once shutdown begins, receivers are stopped first and every frame
         // already accepted into ingress is processed before this worker exits.
         while running.load(Ordering::SeqCst) || !rx.is_empty() {
-            match rx.recv_timeout(Duration::from_millis(1)) {
+            match rx.recv_timeout(Duration::from_millis(20)) {
                 Ok(item) => {
                     let mut eng = engine.lock();
                     if diagnostics_enabled {
                         eng.on_ingress_item_at(item, clock.sample().mono_ns);
                     } else {
                         eng.on_ingress_item(item);
+                    }
+                    // Batch drain up to 64 additional immediately available items under the same lock
+                    for _ in 0..64 {
+                        match rx.try_recv() {
+                            Ok(next_item) => {
+                                if diagnostics_enabled {
+                                    eng.on_ingress_item_at(next_item, clock.sample().mono_ns);
+                                } else {
+                                    eng.on_ingress_item(next_item);
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    drop(eng);
+
+                    // Signal publisher immediately
+                    {
+                        let (lock, cvar) = &*tick_wake;
+                        let mut pending = lock.lock();
+                        if !*pending {
+                            *pending = true;
+                            cvar.notify_one();
+                        }
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -348,6 +404,12 @@ impl RuntimeCoordinator {
             r.stop();
         }
         self.running.store(false, Ordering::SeqCst);
+        {
+            let (lock, cvar) = &*self.tick_wake;
+            let mut pending = lock.lock();
+            *pending = true;
+            cvar.notify_all();
+        }
     }
 
     pub fn wait_for_shutdown(self) {

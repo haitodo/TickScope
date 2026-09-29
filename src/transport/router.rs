@@ -1,6 +1,6 @@
 //! Shared loopback listener that routes EA connections to broker receivers.
 
-use crate::contracts::types::BrokerId;
+use crate::core::types::BrokerId;
 use crate::transport::tcp::TransportReceiver;
 use parking_lot::Mutex;
 use std::collections::HashMap;

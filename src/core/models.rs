@@ -1,7 +1,6 @@
 //! Analysis, projection, and UI data models.
-//! Reference: docs/blueprint/interfaces.md, semantics-candle.md, semantics-lead-lag.md, semantics-snapshot.md
 
-use crate::contracts::types::*;
+use super::types::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -35,7 +34,7 @@ pub enum SlotCoverage {
     Partial,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct CandleSlot {
     pub broker_id: BrokerId,
     pub segment_id: AnalysisSegmentId,
@@ -69,7 +68,7 @@ pub enum MoveQuality {
     SpreadDriven,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MoveEvent {
     pub segment_id: AnalysisSegmentId,
     pub broker_id: BrokerId,
@@ -86,7 +85,7 @@ pub struct MoveEvent {
     pub quality: MoveQuality,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LeadLagMatch {
     pub match_id: u64,
     pub leader: BrokerId,

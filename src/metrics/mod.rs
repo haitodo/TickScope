@@ -7,6 +7,7 @@ pub mod fingerprint;
 pub mod hypothesis;
 pub mod latency;
 pub mod lead_lag;
+pub mod persistence;
 pub mod price_diff;
 pub mod spread;
 
@@ -17,5 +18,6 @@ pub use fingerprint::*;
 pub use hypothesis::*;
 pub use latency::*;
 pub use lead_lag::*;
+pub use persistence::*;
 pub use price_diff::*;
 pub use spread::*;

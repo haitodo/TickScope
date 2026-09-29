@@ -2,9 +2,37 @@
 
 use log::LevelFilter;
 use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum CliError {
+    #[error("Configuration file path cannot be empty")]
+    EmptyConfigPath,
+
+    #[error("Multiple configuration files specified: '{first}' and '{second}'")]
+    MultipleConfigFiles { first: String, second: String },
+
+    #[error("Option '{option}' requires an argument: {message}")]
+    MissingOptionValue { option: String, message: String },
+
+    #[error("Unknown option '{0}'. Use --help for usage information.")]
+    UnknownOption(String),
+
+    #[error("Invalid log level '{level}'. Valid values are: error, warn, info, debug, trace")]
+    InvalidLogLevel { level: String },
+
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<CliError> for String {
+    fn from(e: CliError) -> Self {
+        e.to_string()
+    }
+}
 
 /// Parsed command-line arguments.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CliArgs {
     /// Whether to attach/allocate a console window and enable log output.
     pub console: bool,
@@ -22,23 +50,9 @@ pub struct CliArgs {
     pub show_version: bool,
 }
 
-impl Default for CliArgs {
-    fn default() -> Self {
-        Self {
-            console: false,
-            diagnostics: false,
-            record_raw: false,
-            config_path: None,
-            log_level: None,
-            show_help: false,
-            show_version: false,
-        }
-    }
-}
-
 impl CliArgs {
     /// Parse arguments from an iterator of strings (excluding the executable name).
-    pub fn parse<I, T>(args: I) -> Result<Self, String>
+    pub fn parse<I, T>(args: I) -> Result<Self, CliError>
     where
         I: IntoIterator<Item = T>,
         T: Into<String>,
@@ -72,8 +86,9 @@ impl CliArgs {
                     cli.show_version = true;
                 }
                 "-l" | "--log-level" => {
-                    let val = iter.next().ok_or_else(|| {
-                        format!("Option '{arg}' requires a log level argument (error, warn, info, debug, trace)")
+                    let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
+                        option: arg.clone(),
+                        message: "requires a log level argument (error, warn, info, debug, trace)".into(),
                     })?;
                     cli.log_level = Some(parse_level_filter(&val)?);
                 }
@@ -82,23 +97,30 @@ impl CliArgs {
                     cli.log_level = Some(parse_level_filter(val)?);
                 }
                 "--config" => {
-                    let path = iter.next().ok_or_else(|| {
-                        "Option '--config' requires a file path argument".to_string()
+                    let path = iter.next().ok_or_else(|| CliError::MissingOptionValue {
+                        option: "--config".into(),
+                        message: "requires a file path argument".into(),
                     })?;
                     if path.trim().is_empty() {
-                        return Err("Option '--config' requires a non-empty file path".to_string());
+                        return Err(CliError::MissingOptionValue {
+                            option: "--config".into(),
+                            message: "requires a non-empty file path".into(),
+                        });
                     }
                     Self::set_config_path(&mut cli, PathBuf::from(path))?;
                 }
                 opt if opt.starts_with("--config=") => {
                     let path = &opt["--config=".len()..];
                     if path.trim().is_empty() {
-                        return Err("Option '--config=' requires a non-empty file path".to_string());
+                        return Err(CliError::MissingOptionValue {
+                            option: "--config=".into(),
+                            message: "requires a non-empty file path".into(),
+                        });
                     }
                     Self::set_config_path(&mut cli, PathBuf::from(path))?;
                 }
                 opt if opt.starts_with('-') => {
-                    return Err(format!("Unknown option '{opt}'. Use --help for usage information."));
+                    return Err(CliError::UnknownOption(opt.to_string()));
                 }
                 positional => {
                     Self::set_config_path(&mut cli, PathBuf::from(positional))?;
@@ -109,16 +131,15 @@ impl CliArgs {
         Ok(cli)
     }
 
-    fn set_config_path(cli: &mut CliArgs, path: PathBuf) -> Result<(), String> {
+    fn set_config_path(cli: &mut CliArgs, path: PathBuf) -> Result<(), CliError> {
         if path.as_os_str().is_empty() || path.to_string_lossy().trim().is_empty() {
-            return Err("Configuration file path cannot be empty".to_string());
+            return Err(CliError::EmptyConfigPath);
         }
         if let Some(existing) = &cli.config_path {
-            return Err(format!(
-                "Multiple configuration files specified: '{}' and '{}'",
-                existing.display(),
-                path.display()
-            ));
+            return Err(CliError::MultipleConfigFiles {
+                first: existing.display().to_string(),
+                second: path.display().to_string(),
+            });
         }
         cli.config_path = Some(path);
         Ok(())
@@ -145,7 +166,7 @@ impl CliArgs {
 }
 
 /// Parse a log level string into a `LevelFilter`.
-pub fn parse_level_filter(s: &str) -> Result<LevelFilter, String> {
+pub fn parse_level_filter(s: &str) -> Result<LevelFilter, CliError> {
     match s.trim().to_ascii_lowercase().as_str() {
         "off" => Ok(LevelFilter::Off),
         "error" | "err" => Ok(LevelFilter::Error),
@@ -153,9 +174,9 @@ pub fn parse_level_filter(s: &str) -> Result<LevelFilter, String> {
         "info" => Ok(LevelFilter::Info),
         "debug" => Ok(LevelFilter::Debug),
         "trace" => Ok(LevelFilter::Trace),
-        other => Err(format!(
-            "Invalid log level '{other}'. Valid values are: error, warn, info, debug, trace"
-        )),
+        other => Err(CliError::InvalidLogLevel {
+            level: other.to_string(),
+        }),
     }
 }
 
@@ -241,34 +262,34 @@ mod tests {
     #[test]
     fn test_duplicate_config_error() {
         let err = CliArgs::parse(["foo.toml", "bar.toml"]).unwrap_err();
-        assert!(err.contains("Multiple configuration files specified"));
+        assert!(err.to_string().contains("Multiple configuration files specified"));
 
         let err = CliArgs::parse(["--config", "foo.toml", "bar.toml"]).unwrap_err();
-        assert!(err.contains("Multiple configuration files specified"));
+        assert!(err.to_string().contains("Multiple configuration files specified"));
     }
 
     #[test]
     fn test_unknown_option_error() {
         let err = CliArgs::parse(["--invalid-option"]).unwrap_err();
-        assert!(err.contains("Unknown option '--invalid-option'"));
+        assert!(err.to_string().contains("Unknown option '--invalid-option'"));
     }
 
     #[test]
     fn test_missing_argument_error() {
         let err = CliArgs::parse(["--config"]).unwrap_err();
-        assert!(err.contains("requires a file path argument"));
+        assert!(err.to_string().contains("requires a file path argument"));
 
         let err = CliArgs::parse(["--log-level"]).unwrap_err();
-        assert!(err.contains("requires a log level argument"));
+        assert!(err.to_string().contains("requires a log level argument"));
 
         let err = CliArgs::parse(["--config="]).unwrap_err();
-        assert!(err.contains("requires a non-empty file path"));
+        assert!(err.to_string().contains("requires a non-empty file path"));
     }
 
     #[test]
     fn test_invalid_log_level() {
         let err = CliArgs::parse(["-l", "superverbose"]).unwrap_err();
-        assert!(err.contains("Invalid log level 'superverbose'"));
+        assert!(err.to_string().contains("Invalid log level 'superverbose'"));
     }
 
     #[test]
@@ -288,22 +309,22 @@ mod tests {
 
         // Flags after `--` are treated as positional arguments
         let err = CliArgs::parse(["--", "first.toml", "second.toml"]).unwrap_err();
-        assert!(err.contains("Multiple configuration files specified"));
+        assert!(err.to_string().contains("Multiple configuration files specified"));
     }
 
     #[test]
     fn test_empty_config_path_rejected() {
         let err = CliArgs::parse([""]).unwrap_err();
-        assert!(err.contains("Configuration file path cannot be empty"));
+        assert!(err.to_string().contains("Configuration file path cannot be empty"));
 
         let err = CliArgs::parse(["   "]).unwrap_err();
-        assert!(err.contains("Configuration file path cannot be empty"));
+        assert!(err.to_string().contains("Configuration file path cannot be empty"));
 
         let err = CliArgs::parse(["--config", ""]).unwrap_err();
-        assert!(err.contains("requires a non-empty file path"));
+        assert!(err.to_string().contains("requires a non-empty file path"));
 
         let err = CliArgs::parse(["--config", "   "]).unwrap_err();
-        assert!(err.contains("requires a non-empty file path"));
+        assert!(err.to_string().contains("requires a non-empty file path"));
     }
 
     #[test]

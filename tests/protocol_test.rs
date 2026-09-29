@@ -1,8 +1,8 @@
 //! Protocol Codec tests: T-W01 through T-W04.
 
-use tick_compare::contracts::types::*;
-use tick_compare::protocol::codec::*;
-use tick_compare::protocol::packet::*;
+use tick_scope::core::types::*;
+use tick_scope::protocol::codec::*;
+use tick_scope::protocol::packet::*;
 
 fn ack_wire(sequence_end: u64) -> Vec<u8> {
     encode_frame(&Frame {

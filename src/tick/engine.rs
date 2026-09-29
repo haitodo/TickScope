@@ -1,9 +1,8 @@
 //! Tick Engine: N-broker watermark merge, ledger, and pipeline coordination.
-//! Reference: docs/blueprint/architecture.md and docs/blueprint/decisions.md
 
-use crate::contracts::config::AppConfig;
-use crate::contracts::models::*;
-use crate::contracts::types::*;
+use crate::config::AppConfig;
+use crate::core::models::*;
+use crate::core::types::*;
 use crate::metrics::burst::MultiBrokerBurstDetector;
 use crate::metrics::consensus::ConsensusCalculator;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
@@ -504,7 +503,7 @@ impl TickEngine {
 
                         // Store latest quote
                         if quote.is_valid {
-                            self.latest_quotes.insert(broker_id, quote.clone());
+                            self.latest_quotes.insert(broker_id, quote);
                         }
 
                         // Evaluate move detectors for ALL brokers to drive multi-broker bursts and fingerprints
@@ -519,7 +518,7 @@ impl TickEngine {
                                             <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
                                 }).count();
 
-                                let cluster_opt = self.burst_detector.on_event(move_ev.clone(), total_b, fresh_c);
+                                let cluster_opt = self.burst_detector.on_event(move_ev, total_b, fresh_c);
                                 if let Some(cluster) = cluster_opt {
                                     if let Some(ft) = self.fingerprint_trackers.get_mut(&cluster.first_observed) {
                                         ft.record_lead();
@@ -564,7 +563,7 @@ impl TickEngine {
                         }
 
                         // Append point to Realtime Quote Path history for all active brokers
-                        let mut mids = HashMap::new();
+                        let mut mids = HashMap::with_capacity(self.latest_quotes.len());
                         for (&bid, q) in &self.latest_quotes {
                             if q.is_valid && !q.is_warmup && q.mid.is_finite()
                                 && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
@@ -677,12 +676,12 @@ impl TickEngine {
     }
 
     pub fn make_projection_at(&self, current_utc_now: UtcMs, now_mono: MonoNs) -> EngineProjection {
-        let mut broker_overviews = Vec::new();
+        let mut broker_overviews = Vec::with_capacity(self.config.brokers.len());
 
         for b in &self.config.brokers {
             let st = self.spread_trackers.get(&b.id);
-            let latest_q = self.latest_quotes.get(&b.id).cloned();
-            let mut health = self.health_states.get(&b.id).cloned().unwrap_or_default();
+            let latest_q = self.latest_quotes.get(&b.id).copied();
+            let mut health = self.health_states.get(&b.id).copied().unwrap_or_default();
             if health.connection == ConnectionState::Connected {
                 health.data_freshness = match health.last_live_tick_rx_mono {
                     Some(last) if now_mono.0.saturating_sub(last.0)
@@ -759,12 +758,12 @@ impl TickEngine {
             latest_match: self.latest_pair_match.as_ref().filter(|m| {
                 q_a.is_some() && q_b.is_some()
                     && now_mono.0.saturating_sub(m.t_follower.0) <= 5_000_000_000
-            }).cloned(),
+            }).copied(),
             ema_lead_lag_ms: self.matcher.current_ema_ms,
         });
 
-        let mut candle_views = HashMap::new();
-        let mut mid_candle_views = HashMap::new();
+        let mut candle_views = HashMap::with_capacity(self.config.history.retentions.len());
+        let mut mid_candle_views = HashMap::with_capacity(self.config.history.retentions.len());
         let broker_ids: Vec<BrokerId> = self.config.brokers.iter().map(|b| b.id).collect();
         for retention in &self.config.history.retentions {
             let period = retention.period_ms;
@@ -812,7 +811,7 @@ impl TickEngine {
         }
 
         // 3. Broker Fingerprints & Hypotheses
-        let mut fingerprints = HashMap::new();
+        let mut fingerprints = HashMap::with_capacity(self.fingerprint_trackers.len());
         for (&bid, ft) in &self.fingerprint_trackers {
             fingerprints.insert(bid, ft.compile());
         }
@@ -829,7 +828,8 @@ impl TickEngine {
         let latency_summary = crate::metrics::StageLatencySummary::default();
 
         // 5. Realtime Quote History
-        let realtime_quote_points: Vec<RealtimeQuotePoint> = self.realtime_quote_history.iter().cloned().collect();
+        let mut realtime_quote_points = Vec::with_capacity(self.realtime_quote_history.len());
+        realtime_quote_points.extend(self.realtime_quote_history.iter().cloned());
 
         EngineProjection {
             revision: self.projection_revision,

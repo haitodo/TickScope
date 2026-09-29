@@ -1,9 +1,8 @@
 //! UiSnapshot builder and atomic ArcSwap exchange.
-//! Reference: docs/blueprint/semantics-snapshot.md
 
-use crate::contracts::models::*;
-use crate::contracts::ports::SnapshotExchangePort;
-use crate::contracts::types::*;
+use crate::core::models::*;
+use crate::core::ports::SnapshotExchangePort;
+use crate::core::types::*;
 use arc_swap::ArcSwap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -28,8 +27,18 @@ impl SnapshotBuilder {
         now_mono: MonoNs,
         timeframe_ms: i64,
     ) -> Arc<UiSnapshot> {
+        self.build_owned(projection.clone(), display_now_utc, now_mono, timeframe_ms)
+    }
+
+    /// Move an owned projection directly into the snapshot without cloning its collections.
+    pub fn build_owned(
+        &self,
+        projection: EngineProjection,
+        display_now_utc: UtcMs,
+        now_mono: MonoNs,
+        _timeframe_ms: i64,
+    ) -> Arc<UiSnapshot> {
         let snap_rev = self.snapshot_revision.fetch_add(1, Ordering::SeqCst) + 1;
-        let active_candles = projection.candle_views.get(&timeframe_ms).cloned();
 
         Arc::new(UiSnapshot {
             schema_revision: SCHEMA_REVISION,
@@ -40,37 +49,41 @@ impl SnapshotBuilder {
             processed_watermark_ns: projection.watermark_ns,
             display_now_utc,
             active_pair: projection.active_pair,
-            broker_overviews: projection.broker_overviews.clone(),
-            active_pair_comparison: projection.active_pair_comparison.clone(),
-            active_candles,
-            candle_views: projection.candle_views.clone(),
-            mid_candle_views: projection.mid_candle_views.clone(),
-            diagnostics: projection.global_diagnostics.clone(),
-            consensus: projection.consensus.clone(),
-            active_clusters: projection.active_clusters.clone(),
-            current_breadth: projection.current_breadth.clone(),
-            fingerprints: projection.fingerprints.clone(),
-            hypotheses: projection.hypotheses.clone(),
-            latency_summary: projection.latency_summary.clone(),
-            realtime_quote_points: projection.realtime_quote_points.clone(),
+            broker_overviews: projection.broker_overviews,
+            active_pair_comparison: projection.active_pair_comparison,
+            active_candles: None,
+            candle_views: projection.candle_views,
+            mid_candle_views: projection.mid_candle_views,
+            diagnostics: projection.global_diagnostics,
+            consensus: projection.consensus,
+            active_clusters: projection.active_clusters,
+            current_breadth: projection.current_breadth,
+            fingerprints: projection.fingerprints,
+            hypotheses: projection.hypotheses,
+            latency_summary: projection.latency_summary,
+            realtime_quote_points: projection.realtime_quote_points,
         })
     }
 }
 
 pub struct SnapshotExchange {
     current: ArcSwap<UiSnapshot>,
+    repaint_signal: std::sync::RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl SnapshotExchange {
     pub fn new(initial: Arc<UiSnapshot>) -> Self {
         Self {
             current: ArcSwap::from(initial),
+            repaint_signal: std::sync::RwLock::new(None),
         }
     }
 
     pub fn new_empty(run_id: RunId) -> Self {
-        let mut initial = UiSnapshot::default();
-        initial.run_id = run_id;
+        let initial = UiSnapshot {
+            run_id,
+            ..Default::default()
+        };
         Self::new(Arc::new(initial))
     }
 }
@@ -78,9 +91,20 @@ impl SnapshotExchange {
 impl SnapshotExchangePort for SnapshotExchange {
     fn publish(&self, snapshot: Arc<UiSnapshot>) {
         self.current.store(snapshot);
+        if let Ok(guard) = self.repaint_signal.read() {
+            if let Some(signal) = guard.as_ref() {
+                signal();
+            }
+        }
     }
 
     fn load_latest(&self) -> Arc<UiSnapshot> {
         self.current.load_full()
+    }
+
+    fn register_repaint_signal(&self, signal: Arc<dyn Fn() + Send + Sync>) {
+        if let Ok(mut guard) = self.repaint_signal.write() {
+            *guard = Some(signal);
+        }
     }
 }

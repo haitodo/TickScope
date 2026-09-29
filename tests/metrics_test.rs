@@ -1,11 +1,11 @@
 //! Metrics and Matcher tests: T-M01, T-L01, T-L02, T-L03, T-L04.
 
-use tick_compare::contracts::models::*;
-use tick_compare::contracts::types::*;
-use tick_compare::metrics::lead_lag::SignificantMidMoveDetector;
-use tick_compare::metrics::price_diff::PairDifferenceTracker;
-use tick_compare::metrics::spread::SpreadTracker;
-use tick_compare::tick::matcher::OneToOneEventMatcher;
+use tick_scope::core::models::*;
+use tick_scope::core::types::*;
+use tick_scope::metrics::lead_lag::SignificantMidMoveDetector;
+use tick_scope::metrics::price_diff::PairDifferenceTracker;
+use tick_scope::metrics::spread::SpreadTracker;
+use tick_scope::tick::matcher::OneToOneEventMatcher;
 
 fn make_quote(broker_id: BrokerId, seq: Sequence, rx_mono: u64, bid: f64, ask: f64) -> Quote {
     Quote {

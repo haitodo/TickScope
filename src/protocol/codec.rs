@@ -1,7 +1,6 @@
 //! Streaming frame decoder and encoder for binary protocol.
-//! Reference: docs/blueprint/wire-format.md
 
-use crate::contracts::types::*;
+use crate::core::types::*;
 use crate::protocol::packet::*;
 use std::sync::{Arc, OnceLock};
 

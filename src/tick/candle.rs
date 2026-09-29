@@ -1,9 +1,8 @@
 //! Candle aggregation and CandleBook for fixed time slots.
-//! Reference: docs/blueprint/semantics-candle.md
 
-use crate::contracts::models::*;
-use crate::contracts::types::*;
-use crate::contracts::config::SlotRetention;
+use crate::config::SlotRetention;
+use crate::core::models::*;
+use crate::core::types::*;
 use std::collections::{BTreeMap, HashMap};
 
 pub fn calculate_slot_start(utc_ms: UtcMs, period_ms: i64) -> UtcMs {
@@ -175,7 +174,7 @@ impl CandleBook {
             slot_starts.push(UtcMs(start));
         }
 
-        let mut slots_by_broker = HashMap::new();
+        let mut slots_by_broker = HashMap::with_capacity(broker_ids.len());
         let broker_map = self.books.get(&period_ms);
 
         for &broker_id in broker_ids {
@@ -184,7 +183,7 @@ impl CandleBook {
 
             for &start in &slot_starts {
                 if let Some(slot) = b_slots.and_then(|m| m.get(&start)) {
-                    let mut s = slot.clone();
+                    let mut s = *slot;
                     if s.state == SlotState::Active && s.start_utc_ms.0 + period_ms <= current_utc_now.0 {
                         s.state = SlotState::Closed;
                     }

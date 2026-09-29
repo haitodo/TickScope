@@ -1,8 +1,7 @@
 //! Abstract ports and sinks for inter-module communication.
-//! Reference: docs/blueprint/interfaces.md
 
-use crate::contracts::models::*;
-use crate::contracts::types::*;
+use super::models::*;
+use super::types::*;
 use std::sync::Arc;
 
 pub trait ClockPort: Send + Sync {
@@ -18,6 +17,16 @@ pub enum SubmitResult<T> {
 
 pub trait RawIngressSink: Send + Sync {
     fn try_submit(&self, item: IngressItem) -> SubmitResult<IngressItem>;
+
+    /// Submit an item with a timeout when the queue is full, avoiding busy polling.
+    fn submit_timeout(
+        &self,
+        item: IngressItem,
+        timeout: std::time::Duration,
+    ) -> SubmitResult<IngressItem> {
+        let _ = timeout;
+        self.try_submit(item)
+    }
 }
 
 pub trait HealthSink: Send + Sync {
@@ -58,4 +67,5 @@ pub trait LogSinkPort: Send + Sync {
 pub trait SnapshotExchangePort: Send + Sync {
     fn publish(&self, snapshot: Arc<UiSnapshot>);
     fn load_latest(&self) -> Arc<UiSnapshot>;
+    fn register_repaint_signal(&self, _signal: Arc<dyn Fn() + Send + Sync>) {}
 }

@@ -1,8 +1,7 @@
 //! Realtime price difference and rolling waveform buffer.
-//! Reference: docs/blueprint/interfaces.md and docs/blueprint/semantics-tick.md
 
-use crate::contracts::models::DiffPoint;
-use crate::contracts::types::*;
+use crate::core::models::DiffPoint;
+use crate::core::types::*;
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]

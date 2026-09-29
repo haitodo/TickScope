@@ -1,5 +1,4 @@
 //! Multi-Broker Consensus and Dispersion Engine.
-//! Reference: RFC Beta 0.3 (docs/improvement.md Sections 10-15, 69-70).
 //!
 //! # Core Invariants
 //! - "Observed Broker Median" is a mathematical consensus of fresh quotes, NOT "true market price".
@@ -8,7 +7,7 @@
 //! - Stale quotes are strictly excluded from fresh counts and consensus calculations (§14, §15).
 //! - Low-N handling (§70): MAD requires N >= 4 fresh brokers; for N < 4 it returns None.
 
-use crate::contracts::types::{BrokerId, MonoNs, Quote};
+use crate::core::types::{BrokerId, MonoNs, Quote};
 use serde::{Deserialize, Serialize};
 
 /// Record of a broker quote's deviation from the Observed Broker Median.
@@ -308,7 +307,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::types::TickId;
+    use crate::core::types::TickId;
 
     fn make_quote(broker_id: BrokerId, bid: f64, ask: f64, rx_mono_ns: MonoNs) -> Quote {
         Quote {

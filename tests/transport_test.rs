@@ -9,10 +9,10 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use support::*;
-use tick_compare::contracts::config::BrokerConfig;
-use tick_compare::contracts::types::*;
-use tick_compare::protocol::codec::encode_frame;
-use tick_compare::transport::tcp::TransportReceiver;
+use tick_scope::config::BrokerConfig;
+use tick_scope::core::types::*;
+use tick_scope::protocol::codec::encode_frame;
+use tick_scope::transport::tcp::TransportReceiver;
 
 #[test]
 fn test_transport_receiver_lifecycle_and_ack() {

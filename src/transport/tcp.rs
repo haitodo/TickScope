@@ -1,9 +1,8 @@
 //! TCP listener and receiver per broker.
-//! Reference: docs/blueprint/interfaces.md and docs/blueprint/invariants.md
 
-use crate::contracts::config::BrokerConfig;
-use crate::contracts::ports::{ClockPort, LogSinkPort, RawIngressSink, SubmitResult};
-use crate::contracts::types::*;
+use crate::config::BrokerConfig;
+use crate::core::ports::{ClockPort, LogSinkPort, RawIngressSink, SubmitResult};
+use crate::core::types::*;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::protocol::codec::{encode_frame, StreamingDecoder};
 use std::io::{Read, Write};
@@ -24,86 +23,6 @@ pub struct TransportReceiver {
     debug_resync_limit: usize,
     progress_interval: Duration,
     running: Arc<AtomicBool>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::contracts::ports::AppendResult;
-    use std::sync::{Mutex, atomic::AtomicU64};
-
-    struct TestClock(AtomicU64);
-    impl ClockPort for TestClock {
-        fn sample(&self) -> ClockReading {
-            ClockReading {
-                run_id: RunId([1; 16]),
-                mono_ns: MonoNs(self.0.load(Ordering::SeqCst)),
-                unix_ns: None,
-            }
-        }
-    }
-
-    #[derive(Default)]
-    struct Ingress(Mutex<Vec<IngressItem>>);
-    impl RawIngressSink for Ingress {
-        fn try_submit(&self, item: IngressItem) -> SubmitResult<IngressItem> {
-            self.0.lock().unwrap().push(item);
-            SubmitResult::Accepted
-        }
-    }
-
-    struct SlowLog(Arc<TestClock>);
-    impl LogSinkPort for SlowLog {
-        fn try_append(&self, _: Arc<LogRecord>) -> AppendResult<Arc<LogRecord>> {
-            // Model time spent persisting a frame without wall-clock sleeps.
-            self.0.0.fetch_add(1_000_000, Ordering::SeqCst);
-            AppendResult::Accepted
-        }
-        fn flush(&self) -> Result<(), String> { Ok(()) }
-    }
-
-    #[test]
-    fn coalesced_frames_keep_read_timestamp_despite_storage_delay() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        let (server, _) = listener.accept().unwrap();
-        let frame = Frame {
-            header: Header {
-                magic: MAGIC_TICK, protocol_version: PROTOCOL_VERSION,
-                message_type: MSG_TYPE_BATCH_ACK, header_length: HEADER_LENGTH,
-                header_flags: 0, broker_id: 1, session_id: 1,
-                sequence_start: 0, tick_count: 0,
-                payload_length: BATCH_ACK_PAYLOAD_LENGTH as u32,
-            },
-            payload: FramePayload::BatchAck(BatchAckPayload { sequence_end: 1 }),
-        };
-        let bytes = encode_frame(&frame).unwrap().repeat(2);
-        client.write_all(&bytes).unwrap();
-        client.shutdown(std::net::Shutdown::Write).unwrap();
-
-        // Ensure both frames are available before the receiver starts reading.
-        let mut peek = [0; 96];
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        server.set_nonblocking(true).unwrap();
-        while server.peek(&mut peek).unwrap_or(0) < bytes.len() {
-            assert!(std::time::Instant::now() < deadline);
-            thread::yield_now();
-        }
-        let clock = Arc::new(TestClock(AtomicU64::new(100)));
-        let ingress = Arc::new(Ingress::default());
-        let config = crate::contracts::config::AppConfig::default().brokers[0].clone();
-        let receiver = TransportReceiver::new_with_limits(
-            config, "off".into(), 1_048_576, 65_536, 1,
-            Some(Arc::new(SlowLog(clock.clone()))), clock, ingress.clone(),
-        );
-        assert!(receiver.handle_connection(server, 1).contains("clean EOF"));
-        let items = ingress.0.lock().unwrap();
-        let times: Vec<_> = items.iter().filter_map(|item| match item {
-            IngressItem::Frame(frame) => Some(frame.rx_mono_ns),
-            _ => None,
-        }).collect();
-        assert_eq!(times, vec![MonoNs(100), MonoNs(100)]);
-    }
 }
 
 impl TransportReceiver {
@@ -263,6 +182,7 @@ impl TransportReceiver {
         {
             return format!("Socket configuration failed: {error}");
         }
+        stream.set_nodelay(true).ok();
         let mut decoder = StreamingDecoder::new_with_raw_capture(
             self.max_payload_length,
             self.debug_resync_limit,
@@ -414,11 +334,11 @@ impl TransportReceiver {
 
     fn submit_ingress_item(&self, mut item: IngressItem) -> bool {
         while self.running.load(Ordering::SeqCst) {
-            match self.ingress_sink.try_submit(item) {
+            match self.ingress_sink.submit_timeout(item, Duration::from_millis(20)) {
                 SubmitResult::Accepted => return true,
                 SubmitResult::Full(returned_item) => {
                     item = returned_item;
-                    thread::sleep(Duration::from_micros(200));
+                    std::thread::yield_now();
                 }
                 SubmitResult::Closed(_) => return false,
             }
@@ -466,5 +386,101 @@ impl TransportReceiver {
         let bytes = encode_frame(&ack_frame)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string()))?;
         stream.write_all(&bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ports::AppendResult;
+    use std::sync::{atomic::AtomicU64, Mutex};
+
+    struct TestClock(AtomicU64);
+    impl ClockPort for TestClock {
+        fn sample(&self) -> ClockReading {
+            ClockReading {
+                run_id: RunId([1; 16]),
+                mono_ns: MonoNs(self.0.load(Ordering::SeqCst)),
+                unix_ns: None,
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct Ingress(Mutex<Vec<IngressItem>>);
+    impl RawIngressSink for Ingress {
+        fn try_submit(&self, item: IngressItem) -> SubmitResult<IngressItem> {
+            self.0.lock().unwrap().push(item);
+            SubmitResult::Accepted
+        }
+    }
+
+    struct SlowLog(Arc<TestClock>);
+    impl LogSinkPort for SlowLog {
+        fn try_append(&self, _: Arc<LogRecord>) -> AppendResult<Arc<LogRecord>> {
+            // Model time spent persisting a frame without wall-clock sleeps.
+            self.0.0.fetch_add(1_000_000, Ordering::SeqCst);
+            AppendResult::Accepted
+        }
+        fn flush(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn coalesced_frames_keep_read_timestamp_despite_storage_delay() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let frame = Frame {
+            header: Header {
+                magic: MAGIC_TICK,
+                protocol_version: PROTOCOL_VERSION,
+                message_type: MSG_TYPE_BATCH_ACK,
+                header_length: HEADER_LENGTH,
+                header_flags: 0,
+                broker_id: 1,
+                session_id: 1,
+                sequence_start: 0,
+                tick_count: 0,
+                payload_length: BATCH_ACK_PAYLOAD_LENGTH as u32,
+            },
+            payload: FramePayload::BatchAck(BatchAckPayload { sequence_end: 1 }),
+        };
+        let bytes = encode_frame(&frame).unwrap().repeat(2);
+        client.write_all(&bytes).unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+
+        // Ensure both frames are available before the receiver starts reading.
+        let mut peek = [0; 96];
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        server.set_nonblocking(true).unwrap();
+        while server.peek(&mut peek).unwrap_or(0) < bytes.len() {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        let clock = Arc::new(TestClock(AtomicU64::new(100)));
+        let ingress = Arc::new(Ingress::default());
+        let config = crate::config::AppConfig::default().brokers[0].clone();
+        let receiver = TransportReceiver::new_with_limits(
+            config,
+            "off".into(),
+            1_048_576,
+            65_536,
+            1,
+            Some(Arc::new(SlowLog(clock.clone()))),
+            clock,
+            ingress.clone(),
+        );
+        assert!(receiver.handle_connection(server, 1).contains("clean EOF"));
+        let items = ingress.0.lock().unwrap();
+        let times: Vec<_> = items
+            .iter()
+            .filter_map(|item| match item {
+                IngressItem::Frame(frame) => Some(frame.rx_mono_ns),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(times, vec![MonoNs(100), MonoNs(100)]);
     }
 }

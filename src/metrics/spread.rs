@@ -1,7 +1,6 @@
 //! Spread and tick rate tracking.
-//! Reference: docs/blueprint/interfaces.md
 
-use crate::contracts::types::*;
+use crate::core::types::*;
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]

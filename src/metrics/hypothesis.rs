@@ -1,5 +1,4 @@
 //! Broker Behaviour Hypothesis Layer.
-//! Reference: RFC Beta 0.3 (docs/improvement.md Sections 48-51, 73, 77-80, 91 Invariants I6, I12, I13).
 //!
 //! RFC Core Invariants:
 //! - NEVER assign confidence percentages or probabilities (e.g., "87% Sticky").
@@ -7,7 +6,7 @@
 //! - NEVER produce trading signals or recommendations (BUY, SELL, ENTRY, EXIT).
 //! - Always present hypotheses with explicit, verifiable evidence chains (RFC Section 50).
 
-use crate::contracts::types::*;
+use crate::core::types::*;
 use crate::metrics::fingerprint::{
     BrokerFingerprint, QuotePersistenceTracker, RepricingPersistenceTracker, SampleContext,
 };

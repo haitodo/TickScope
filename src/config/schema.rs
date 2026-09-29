@@ -1,8 +1,42 @@
 //! Configuration schema and validation for TickScope.
-//! Reference: docs/blueprint/interfaces.md and docs/blueprint/decisions.md
 
-use crate::contracts::types::*;
+use crate::core::types::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Failed to read config file '{path}': {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to check file existence '{path}': {source}")]
+    PathCheck {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to parse TOML config: {0}")]
+    Parse(#[from] toml::de::Error),
+    #[error("Validation failed: {0}")]
+    Validation(String),
+}
+
+impl From<String> for ConfigError {
+    fn from(s: String) -> Self {
+        ConfigError::Validation(s)
+    }
+}
+
+impl From<ConfigError> for String {
+    fn from(e: ConfigError) -> Self {
+        e.to_string()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrokerConfig {
@@ -392,111 +426,111 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigError> {
         if self.brokers.len() < 2 {
-            return Err("At least 2 brokers must be configured".to_string());
+            return Err(ConfigError::Validation("At least 2 brokers must be configured".to_string()));
         }
 
-        let mut seen_ids = std::collections::HashSet::new();
-        let mut seen_ports = std::collections::HashSet::new();
+        let mut seen_ids = HashSet::new();
+        let mut seen_ports = HashSet::new();
         for b in &self.brokers {
             if b.name.trim().is_empty() {
-                return Err(format!("Broker {} name must not be empty", b.id));
+                return Err(ConfigError::Validation(format!("Broker {} name must not be empty", b.id)));
             }
             if b.id == 0 {
-                return Err("Broker id 0 is reserved and invalid".to_string());
+                return Err(ConfigError::Validation("Broker id 0 is reserved and invalid".to_string()));
             }
             if !seen_ids.insert(b.id) {
-                return Err(format!("Duplicate broker id: {}", b.id));
+                return Err(ConfigError::Validation(format!("Duplicate broker id: {}", b.id)));
             }
             if !self.mt5.auto_deploy && !seen_ports.insert(b.port) {
-                return Err(format!("Duplicate broker port: {}", b.port));
+                return Err(ConfigError::Validation(format!("Duplicate broker port: {}", b.port)));
             }
             if b.point_size <= 0.0 {
-                return Err(format!("Broker {} point_size must be positive", b.id));
+                return Err(ConfigError::Validation(format!("Broker {} point_size must be positive", b.id)));
             }
             if b.pip_size <= 0.0 {
-                return Err(format!("Broker {} pip_size must be positive", b.id));
+                return Err(ConfigError::Validation(format!("Broker {} pip_size must be positive", b.id)));
             }
         }
 
         let (a, b) = self.active_pair;
         if a == b {
-            return Err("Active pair cannot have the same broker for both sides".to_string());
+            return Err(ConfigError::Validation("Active pair cannot have the same broker for both sides".to_string()));
         }
         if !seen_ids.contains(&a) {
-            return Err(format!("Active pair broker A ({}) not in brokers list", a));
+            return Err(ConfigError::Validation(format!("Active pair broker A ({}) not in brokers list", a)));
         }
         if !seen_ids.contains(&b) {
-            return Err(format!("Active pair broker B ({}) not in brokers list", b));
+            return Err(ConfigError::Validation(format!("Active pair broker B ({}) not in brokers list", b)));
         }
 
         if self.matcher.trigger_move_points <= 0.0 {
-            return Err("trigger_move_points must be positive".to_string());
+            return Err(ConfigError::Validation("trigger_move_points must be positive".to_string()));
         }
         if self.matcher.matching_window_ms == 0 {
-            return Err("matching_window_ms must be positive".to_string());
+            return Err(ConfigError::Validation("matching_window_ms must be positive".to_string()));
         }
         if self.matcher.ema_alpha <= 0.0 || self.matcher.ema_alpha > 1.0 {
-            return Err("ema_alpha must be in (0.0, 1.0]".to_string());
+            return Err(ConfigError::Validation("ema_alpha must be in (0.0, 1.0]".to_string()));
         }
         if self.matcher.pending_event_capacity == 0 {
-            return Err("pending_event_capacity must be positive".to_string());
+            return Err(ConfigError::Validation("pending_event_capacity must be positive".to_string()));
         }
         if self.matcher.max_quote_skew_ms == 0 {
-            return Err("max_quote_skew_ms must be positive".to_string());
+            return Err(ConfigError::Validation("max_quote_skew_ms must be positive".to_string()));
         }
         if self.history.ledger_capacity == 0 {
-            return Err("history.ledger_capacity must be positive".to_string());
+            return Err(ConfigError::Validation("history.ledger_capacity must be positive".to_string()));
         }
         if self.ingress.max_frames_per_broker == 0 || self.ingress.max_bytes_per_broker == 0 {
-            return Err("ingress frame and byte capacities must be positive".to_string());
+            return Err(ConfigError::Validation("ingress frame and byte capacities must be positive".to_string()));
         }
         if self.logger.enabled
             && (self.logger.max_queue_records == 0 || self.logger.max_queue_bytes == 0)
         {
-            return Err("logger record and byte capacities must be positive".to_string());
+            return Err(ConfigError::Validation("logger record and byte capacities must be positive".to_string()));
         }
         if self.protocol.max_payload_length == 0 || self.protocol.debug_resync_limit == 0 {
-            return Err("protocol payload and resync limits must be positive".to_string());
+            return Err(ConfigError::Validation("protocol payload and resync limits must be positive".to_string()));
         }
         let largest_raw_log_record = (self.protocol.max_payload_length as usize)
             .saturating_add(HEADER_LENGTH as usize)
             .saturating_add(128);
         if self.logger.enabled && self.logger.max_queue_bytes < largest_raw_log_record {
-            return Err(format!(
+            return Err(ConfigError::Validation(format!(
                 "logger.max_queue_bytes ({}) is smaller than one maximum raw frame ({largest_raw_log_record})",
                 self.logger.max_queue_bytes,
-            ));
+            )));
         }
         let largest_raw_frame = (self.protocol.max_payload_length as usize)
             .saturating_add(HEADER_LENGTH as usize);
         if self.ingress.max_bytes_per_broker < largest_raw_frame {
-            return Err(format!(
+            return Err(ConfigError::Validation(format!(
                 "ingress.max_bytes_per_broker ({}) is smaller than one maximum raw frame ({largest_raw_frame})",
                 self.ingress.max_bytes_per_broker,
-            ));
+            )));
         }
         if self.ingress.progress_interval_ms == 0 {
-            return Err("ingress.progress_interval_ms must be positive".to_string());
+            return Err(ConfigError::Validation("ingress.progress_interval_ms must be positive".to_string()));
         }
         if self.health.heartbeat_timeout_ms == 0 {
-            return Err("health.heartbeat_timeout_ms must be positive".to_string());
+            return Err(ConfigError::Validation("health.heartbeat_timeout_ms must be positive".to_string()));
         }
         if self.protocol.ack_mode != "required" && self.protocol.ack_mode != "off" {
-            return Err("protocol.ack_mode must be 'required' or 'off'".to_string());
+            return Err(ConfigError::Validation("protocol.ack_mode must be 'required' or 'off'".to_string()));
         }
         if self.history.retentions.iter().any(|retention| retention.period_ms <= 0 || retention.slots == 0) {
-            return Err("history retentions require positive period_ms and slots".to_string());
+            return Err(ConfigError::Validation("history retentions require positive period_ms and slots".to_string()));
         }
         if self.display.visible_seconds == 0 {
-            return Err("display.visible_seconds must be positive".to_string());
+            return Err(ConfigError::Validation("display.visible_seconds must be positive".to_string()));
         }
         if self.display.visible_ticks == 0 {
-            return Err("display.visible_ticks must be positive".to_string());
+            return Err(ConfigError::Validation("display.visible_ticks must be positive".to_string()));
         }
         if self.display.chart_max_quote_age_ms < 50 {
-            return Err("display.chart_max_quote_age_ms must be at least 50 ms".to_string());
+            return Err(ConfigError::Validation("display.chart_max_quote_age_ms must be at least 50 ms".to_string()));
         }
 
         Ok(())

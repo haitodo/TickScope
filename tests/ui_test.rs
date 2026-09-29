@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tick_compare::contracts::models::*;
-use tick_compare::contracts::types::*;
-use tick_compare::state::snapshot::SnapshotExchange;
-use tick_compare::ui::dashboard::DashboardApp;
+use tick_scope::core::models::*;
+use tick_scope::core::types::*;
+use tick_scope::state::snapshot::SnapshotExchange;
+use tick_scope::ui::dashboard::DashboardApp;
 
 #[test]
 fn test_ts02_ui_headless_render() {
@@ -209,8 +209,8 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
 
 #[test]
 fn test_candlestick_fixed_slot_width_and_responsive_slots() {
-    use tick_compare::ui::chart::{draw_candlestick_chart_multi, ChartTheme};
-    use tick_compare::ui::settings::{
+    use tick_scope::ui::chart::{draw_candlestick_chart_multi, ChartTheme};
+    use tick_scope::ui::settings::{
         DEFAULT_CANDLE_BAR_WIDTH, VALID_CANDLE_BAR_WIDTHS, VALID_CANDLE_FIXED_PIPS,
     };
 
@@ -268,14 +268,14 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
                 Some(&view),
                 &[],
                 5.0,
-                tick_compare::ui::settings::CandlePriceScaleMode::Auto,
-                tick_compare::ui::settings::CandleFollowCriteria::Median,
+                tick_scope::ui::settings::CandlePriceScaleMode::Auto,
+                tick_scope::ui::settings::CandleFollowCriteria::Median,
                 0.01,
                 &mut anchor,
                 &mut latch_narrow,
                 Some(150.0),
                 1000,
-                tick_compare::contracts::MonoNs(0),
+                MonoNs(0),
                 &theme,
             );
 
@@ -290,14 +290,14 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
                 Some(&view),
                 &[],
                 8.0,
-                tick_compare::ui::settings::CandlePriceScaleMode::Fixed(10.0),
-                tick_compare::ui::settings::CandleFollowCriteria::Median,
+                tick_scope::ui::settings::CandlePriceScaleMode::Fixed(10.0),
+                tick_scope::ui::settings::CandleFollowCriteria::Median,
                 0.01,
                 &mut fixed_anchor,
                 &mut latch_wide,
                 Some(150.0),
                 1000,
-                tick_compare::contracts::MonoNs(0),
+                MonoNs(0),
                 &theme,
             );
             assert!(fixed_anchor.is_some(), "Fixed scale should set chart anchor");
@@ -307,7 +307,7 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
 
 #[test]
 fn test_bottom_metric_shortcuts_and_cycling() {
-    use tick_compare::ui::chart::BottomMetric;
+    use tick_scope::ui::chart::BottomMetric;
 
     // 1. Cycling tests
     assert_eq!(BottomMetric::MidDiff.next(), BottomMetric::BidAskDiff);
@@ -421,8 +421,10 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     assert_eq!(app.bottom_metric(), BottomMetric::MidDispersion);
 
     // Simulate pressing Shift+Tab -> should cycle back to LeadLag
-    let mut input_shift_tab = egui::RawInput::default();
-    input_shift_tab.modifiers = egui::Modifiers::SHIFT;
+    let mut input_shift_tab = egui::RawInput {
+        modifiers: egui::Modifiers::SHIFT,
+        ..Default::default()
+    };
     input_shift_tab.events.push(egui::Event::Key {
         key: egui::Key::Tab,
         physical_key: None,
@@ -452,7 +454,7 @@ fn test_bottom_metric_shortcuts_and_cycling() {
 
 #[test]
 fn test_all_bottom_metrics_render_headless() {
-    use tick_compare::ui::chart::BottomMetric;
+    use tick_scope::ui::chart::BottomMetric;
 
     let run_id = RunId([4u8; 16]);
     let snap = Arc::new(UiSnapshot {
@@ -580,9 +582,9 @@ fn test_all_bottom_metrics_render_headless() {
 
 #[test]
 fn test_ui_settings_persistence_lifecycle() {
-    use tick_compare::contracts::config::BrokerConfig;
-    use tick_compare::ui::chart::BottomMetric;
-    use tick_compare::ui::settings::load_ui_state;
+    use tick_scope::config::BrokerConfig;
+    use tick_scope::ui::chart::BottomMetric;
+    use tick_scope::ui::settings::load_ui_state;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let state_file = temp_dir.path().join("ui_state.json");
@@ -606,11 +608,13 @@ fn test_ui_settings_persistence_lifecycle() {
         });
 
         // Mutate additional settings
-        let mut input = egui::RawInput::default();
-        input.screen_rect = Some(egui::Rect::from_min_size(
-            egui::pos2(50.0, 50.0),
-            egui::vec2(1200.0, 800.0),
-        ));
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(50.0, 50.0),
+                egui::vec2(1200.0, 800.0),
+            )),
+            ..Default::default()
+        };
         let _ = ctx.run(input, |ctx| {
             // Emulate selecting S10
             egui::CentralPanel::default().show(ctx, |_ui| {
@@ -659,8 +663,8 @@ fn test_ui_settings_persistence_lifecycle() {
 
 #[test]
 fn test_independent_top_and_bottom_x_axis_mode() {
-    use tick_compare::ui::chart::ChartXAxisMode;
-    use tick_compare::ui::settings::load_ui_state;
+    use tick_scope::ui::chart::ChartXAxisMode;
+    use tick_scope::ui::settings::load_ui_state;
 
     let dir = tempfile::tempdir().unwrap();
     let state_file = dir.path().join("ui_state.json");
@@ -745,8 +749,8 @@ fn test_broker_visibility_toggle_and_minimum_guard() {
 
 #[test]
 fn test_candlestick_chart_hides_broker_without_wasted_gap() {
-    use tick_compare::ui::chart::{draw_candlestick_chart_for_brokers, ChartTheme};
-    use tick_compare::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+    use tick_scope::ui::chart::{draw_candlestick_chart_for_brokers, ChartTheme};
+    use tick_scope::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
 
     let mut slots_by_broker = HashMap::new();
     let mut slot_starts = Vec::new();
@@ -814,7 +818,7 @@ fn test_candlestick_chart_hides_broker_without_wasted_gap() {
                 Some(150.0),
                 1000,
                 MonoNs(100_000_000),
-                tick_compare::contracts::models::PriceMode::Bid,
+                PriceMode::Bid,
                 &theme,
             );
 
@@ -836,7 +840,7 @@ fn test_candlestick_chart_hides_broker_without_wasted_gap() {
                 Some(150.0),
                 1000,
                 MonoNs(100_000_000),
-                tick_compare::contracts::models::PriceMode::Bid,
+                PriceMode::Bid,
                 &theme,
             );
         });

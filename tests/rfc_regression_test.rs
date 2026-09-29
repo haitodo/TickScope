@@ -1,5 +1,4 @@
 //! RFC Beta 0.3 Regression & Verification Suite.
-//! Reference: docs/improvement.md Sections 81, 82, 83, 91.
 //!
 //! # Core Invariants & Tests Covered:
 //! - RFC §81 Test A: Single broker quote jump -> Outlier / Broker Deviation, NOT market-wide move.
@@ -13,17 +12,17 @@
 //! - RFC §91 Invariant I1 & I2 & I3 & I6 & I7 & I8 & I14 & I15.
 
 use std::sync::Arc;
-use tick_compare::contracts::config::{AppConfig, BrokerConfig};
-use tick_compare::contracts::models::*;
-use tick_compare::contracts::types::*;
-use tick_compare::metrics::burst::{
+use tick_scope::config::{AppConfig, BrokerConfig};
+use tick_scope::core::models::*;
+use tick_scope::core::types::*;
+use tick_scope::metrics::burst::{
     classify_quote_geometry, MultiBrokerBurstDetector, QuoteGeometry,
 };
-use tick_compare::metrics::consensus::{ConsensusCalculator, ObservedBrokerConsensus};
-use tick_compare::metrics::fingerprint::{BrokerFingerprint, SampleContext};
-use tick_compare::metrics::hypothesis::{EvidenceChain, Hypothesis, HypothesisEngine, HypothesisType};
-use tick_compare::state::snapshot::SnapshotBuilder;
-use tick_compare::tick::engine::TickEngine;
+use tick_scope::metrics::consensus::{ConsensusCalculator, ObservedBrokerConsensus};
+use tick_scope::metrics::fingerprint::{BrokerFingerprint, SampleContext};
+use tick_scope::metrics::hypothesis::{EvidenceChain, Hypothesis, HypothesisEngine, HypothesisType};
+use tick_scope::state::snapshot::SnapshotBuilder;
+use tick_scope::tick::engine::TickEngine;
 
 /// Helper to generate a valid `Quote` for testing.
 fn make_quote(broker_id: BrokerId, seq: Sequence, rx_mono_ns: u64, bid: f64, ask: f64) -> Quote {

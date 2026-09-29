@@ -1,8 +1,7 @@
 //! Significant Mid-move event detector for Lead/Lag.
-//! Reference: docs/blueprint/semantics-lead-lag.md
 
-use crate::contracts::models::{MoveDirection, MoveEvent, MoveQuality};
-use crate::contracts::types::*;
+use crate::core::models::{MoveDirection, MoveEvent, MoveQuality};
+use crate::core::types::*;
 
 #[derive(Debug, Clone)]
 pub struct SignificantMidMoveDetector {
@@ -49,7 +48,7 @@ impl SignificantMidMoveDetector {
             Some(a) => a,
             None => {
                 // First valid quote sets anchor, does not fire
-                self.anchor_quote = Some(quote.clone());
+                self.anchor_quote = Some(*quote);
                 return None;
             }
         };
@@ -109,7 +108,7 @@ impl SignificantMidMoveDetector {
             };
 
             // Invariant I13: Immediately re-anchor to current quote, set cooldown
-            self.anchor_quote = Some(quote.clone());
+            self.anchor_quote = Some(*quote);
             self.cooldown_until = MonoNs(quote.rx_mono_ns.0 + self.cooldown_ns);
 
             Some(event)

@@ -1,8 +1,8 @@
 //! Binary log verification reader.
-//! Reference: docs/blueprint/storage-format.md
 
-use crate::contracts::crc32c::crc32c;
-use crate::contracts::types::*;
+use crate::core::types::*;
+use crate::protocol::crc32c::crc32c;
+use crate::storage::error::StorageError;
 use crate::storage::logger::*;
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Arc;
@@ -24,24 +24,22 @@ pub struct LogFileReader<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> LogFileReader<R> {
-    pub fn new(mut reader: R) -> Result<Self, String> {
+    pub fn new(mut reader: R) -> Result<Self, StorageError> {
         let mut hdr_buf = [0u8; FILE_HEADER_LEN];
-        reader
-            .read_exact(&mut hdr_buf)
-            .map_err(|e| format!("Failed to read file header: {}", e))?;
+        reader.read_exact(&mut hdr_buf)?;
 
         if hdr_buf[0..4] != STORAGE_MAGIC {
-            return Err("Invalid file magic, expected TLOG".to_string());
+            return Err(StorageError::InvalidMagic);
         }
 
         let version = u16::from_le_bytes(hdr_buf[4..6].try_into().unwrap());
         if version != STORAGE_VERSION {
-            return Err(format!("Unsupported storage version: {}", version));
+            return Err(StorageError::UnsupportedVersion(version));
         }
 
         let header_len = u16::from_le_bytes(hdr_buf[6..8].try_into().unwrap());
         if header_len as usize != FILE_HEADER_LEN {
-            return Err(format!("Invalid file header length: {}", header_len));
+            return Err(StorageError::InvalidHeaderLength(header_len));
         }
 
         let mut run_id_bytes = [0u8; 16];

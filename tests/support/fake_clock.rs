@@ -1,7 +1,7 @@
 //! Fake clock implementation for deterministic testing.
 
-use tick_compare::contracts::ports::ClockPort;
-use tick_compare::contracts::types::{ClockReading, MonoNs, RunId};
+use tick_scope::core::ports::ClockPort;
+use tick_scope::core::types::{ClockReading, MonoNs, RunId};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 #[allow(dead_code)]
