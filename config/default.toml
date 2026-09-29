@@ -123,3 +123,5 @@ retentions = [
 [mt5]
 auto_deploy = true
 custom_data_dirs = []
+# 複数業者の起動時、この業者のみ最小化せず通常ウィンドウで表示します（デフォルト: "OANDA"、空または"none"で全最小化）
+non_minimized_broker = "OANDA"

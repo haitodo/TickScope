@@ -345,6 +345,10 @@ impl Default for HistoryConfig {
     }
 }
 
+fn default_non_minimized_broker() -> Option<String> {
+    Some("OANDA".to_string())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mt5DeployConfig {
     #[serde(default = "default_true")]
@@ -357,6 +361,8 @@ pub struct Mt5DeployConfig {
     pub auto_close_terminals: bool,
     #[serde(default = "default_true")]
     pub launch_minimized: bool,
+    #[serde(default = "default_non_minimized_broker", alias = "normal_window_broker")]
+    pub non_minimized_broker: Option<String>,
 }
 
 impl Default for Mt5DeployConfig {
@@ -367,6 +373,7 @@ impl Default for Mt5DeployConfig {
             auto_launch_terminals: false,
             auto_close_terminals: false,
             launch_minimized: true,
+            non_minimized_broker: default_non_minimized_broker(),
         }
     }
 }
@@ -553,5 +560,39 @@ impl AppConfig {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mt5_deploy_config_default_and_custom() {
+        // 1. Default instance
+        let default_cfg = Mt5DeployConfig::default();
+        assert_eq!(default_cfg.non_minimized_broker, Some("OANDA".to_string()));
+        assert!(default_cfg.launch_minimized);
+
+        // 2. Parse from TOML with default (absent key)
+        let toml_str = r#"
+            auto_deploy = true
+        "#;
+        let parsed: Mt5DeployConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(parsed.non_minimized_broker, Some("OANDA".to_string()));
+
+        // 3. Parse explicit non_minimized_broker
+        let toml_custom = r#"
+            non_minimized_broker = "Axiory"
+        "#;
+        let parsed_custom: Mt5DeployConfig = toml::from_str(toml_custom).unwrap();
+        assert_eq!(parsed_custom.non_minimized_broker, Some("Axiory".to_string()));
+
+        // 4. Parse alias normal_window_broker
+        let toml_alias = r#"
+            normal_window_broker = "JFX"
+        "#;
+        let parsed_alias: Mt5DeployConfig = toml::from_str(toml_alias).unwrap();
+        assert_eq!(parsed_alias.non_minimized_broker, Some("JFX".to_string()));
     }
 }

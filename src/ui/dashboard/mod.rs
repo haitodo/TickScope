@@ -69,6 +69,7 @@ pub struct DashboardApp {
     pub(crate) mt5_launch_targets: Vec<BrokerId>,
     pub(crate) mt5_auto_launch: bool,
     pub(crate) mt5_auto_close: bool,
+    pub(crate) mt5_non_minimized_broker: Option<BrokerId>,
     pub(crate) show_mt5_stop_confirm_modal: bool,
     pub(crate) terminal_manager: crate::runtime::TerminalManager,
     pub(crate) discovered_terminals: Vec<crate::deploy::DiscoveredTerminal>,
@@ -122,6 +123,7 @@ impl DashboardApp {
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
             mt5_auto_close: false,
+            mt5_non_minimized_broker: Some(1),
             show_mt5_stop_confirm_modal: false,
             terminal_manager: crate::runtime::TerminalManager::new(),
             discovered_terminals: Vec::new(),
@@ -149,6 +151,7 @@ impl DashboardApp {
         self.mt5_launch_targets = state.mt5_launch_targets.clone();
         self.mt5_auto_launch = state.mt5_auto_launch;
         self.mt5_auto_close = state.mt5_auto_close;
+        self.mt5_non_minimized_broker = state.mt5_non_minimized_broker;
         self
     }
 
@@ -218,6 +221,7 @@ impl DashboardApp {
             mt5_launch_targets: self.mt5_launch_targets.clone(),
             mt5_auto_launch: self.mt5_auto_launch,
             mt5_auto_close: self.mt5_auto_close,
+            mt5_non_minimized_broker: self.mt5_non_minimized_broker,
             window: self.window_geometry.clone(),
         }
     }
@@ -577,6 +581,7 @@ impl DashboardApp {
         let prev_mt5_minimized = self.mt5_minimized;
         let prev_mt5_auto_launch = self.mt5_auto_launch;
         let prev_mt5_auto_close = self.mt5_auto_close;
+        let prev_mt5_non_minimized_broker = self.mt5_non_minimized_broker;
 
         // Poll MT5 process statuses periodically (throttled to 1s internally)
         self.terminal_manager
@@ -662,6 +667,7 @@ impl DashboardApp {
             || self.mt5_minimized != prev_mt5_minimized
             || self.mt5_auto_launch != prev_mt5_auto_launch
             || self.mt5_auto_close != prev_mt5_auto_close
+            || self.mt5_non_minimized_broker != prev_mt5_non_minimized_broker
         {
             if self.candle_price_scale != prev_candle_scale {
                 self.candle_chart_anchor = None;

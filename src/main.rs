@@ -85,7 +85,11 @@ fn main() -> eframe::Result<()> {
         ui_state.window = WindowGeometryState::default();
         let _ = save_ui_state(&ui_state_path, &ui_state);
     }
-    ui_state.reconcile_with_brokers(&config.brokers, config.active_pair);
+    ui_state.reconcile_with_brokers_and_config(
+        &config.brokers,
+        config.active_pair,
+        config.mt5.non_minimized_broker.as_deref(),
+    );
 
     // Ensure the engine starts with the restored active pair
     config.active_pair = ui_state.active_pair;
@@ -140,7 +144,8 @@ fn main() -> eframe::Result<()> {
             .filter(|&id| !tm.get_status(id).is_running())
             .collect();
         let minimized = ui_state.mt5_minimized;
-        let _ = tm.launch_multiple(&stopped_targets, minimized);
+        let normal_id = ui_state.mt5_non_minimized_broker;
+        let _ = tm.launch_multiple_with_normal(&stopped_targets, normal_id, minimized);
     }
 
     let exchange = coordinator.exchange.clone();

@@ -260,6 +260,47 @@ pub fn render_quick_settings(
             ui.checkbox(&mut app.mt5_auto_close, "Auto-close running MT5s on exit");
             ui.checkbox(&mut app.mt5_minimized, "Launch Minimized (最小化起動)");
 
+            ui.horizontal(|ui| {
+                ui.label("通常表示する業者 (Normal Window):");
+                let current_selected = app.mt5_non_minimized_broker;
+                let selected_text = match current_selected {
+                    Some(id) => app
+                        .broker_configs
+                        .iter()
+                        .find(|b| b.id == id)
+                        .map(|b| format!("{} (ID: {})", b.name, b.id))
+                        .unwrap_or_else(|| format!("ID: {}", id)),
+                    None => "なし (すべて最小化)".to_string(),
+                };
+                egui::ComboBox::from_id_salt("mt5_normal_broker_combo")
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_value(
+                                &mut app.mt5_non_minimized_broker,
+                                None,
+                                "なし (すべて最小化)",
+                            )
+                            .clicked()
+                        {
+                            app.state_dirty = true;
+                        }
+                        for b in &app.broker_configs {
+                            let label = format!("{} (ID: {})", b.name, b.id);
+                            if ui
+                                .selectable_value(
+                                    &mut app.mt5_non_minimized_broker,
+                                    Some(b.id),
+                                    label,
+                                )
+                                .clicked()
+                            {
+                                app.state_dirty = true;
+                            }
+                        }
+                    });
+            });
+
             ui.collapsing("Resolved MT5 Executable Paths", |ui| {
                 for b in &app.broker_configs {
                     let path_str = app

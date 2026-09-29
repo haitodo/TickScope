@@ -123,12 +123,25 @@ pub fn render_top_header(
                         .strong(),
                 ),
             );
-            if launch_btn
-                .on_hover_text(format!(
+            let normal_broker_name = app.mt5_non_minimized_broker.and_then(|id| {
+                app.broker_configs.iter().find(|b| b.id == id).map(|b| b.name.as_str())
+            });
+            let hover_text = match normal_broker_name {
+                Some(name) => format!(
+                    "選択中の未起動MT5（{}台）を一括起動します（「{}」は通常表示、他は最小化: {}）",
+                    stopped_count,
+                    name,
+                    if app.mt5_minimized { "オン" } else { "オフ" }
+                ),
+                None => format!(
                     "選択中の未起動MT5（{}台）を一括起動します（最小化: {}）",
                     stopped_count,
                     if app.mt5_minimized { "オン" } else { "オフ" }
-                ))
+                ),
+            };
+
+            if launch_btn
+                .on_hover_text(hover_text)
                 .clicked()
             {
                 let stopped_targets: Vec<crate::core::types::BrokerId> = target_ids
@@ -137,7 +150,8 @@ pub fn render_top_header(
                     .filter(|&id| !app.terminal_manager.get_status(id).is_running())
                     .collect();
                 let minimized = app.mt5_minimized;
-                app.terminal_manager.launch_multiple(&stopped_targets, minimized);
+                let normal_id = app.mt5_non_minimized_broker;
+                app.terminal_manager.launch_multiple_with_normal(&stopped_targets, normal_id, minimized);
                 app.terminal_manager.poll_status(&app.broker_configs, &app.discovered_terminals, true);
             }
 

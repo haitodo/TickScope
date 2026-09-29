@@ -180,17 +180,29 @@ impl TerminalManager {
         Ok(pid)
     }
 
+    /// Launch terminals for multiple brokers, allowing a specific broker to launch in normal (non-minimized) window mode.
+    pub fn launch_multiple_with_normal(
+        &mut self,
+        broker_ids: &[BrokerId],
+        normal_broker_id: Option<BrokerId>,
+        default_minimized: bool,
+    ) -> Vec<(BrokerId, Result<u32, String>)> {
+        let mut results = Vec::new();
+        for &id in broker_ids {
+            let is_normal = normal_broker_id == Some(id);
+            let minimized = if is_normal { false } else { default_minimized };
+            results.push((id, self.launch(id, minimized)));
+        }
+        results
+    }
+
     /// Launch terminals for multiple brokers.
     pub fn launch_multiple(
         &mut self,
         broker_ids: &[BrokerId],
         minimized: bool,
     ) -> Vec<(BrokerId, Result<u32, String>)> {
-        let mut results = Vec::new();
-        for &id in broker_ids {
-            results.push((id, self.launch(id, minimized)));
-        }
-        results
+        self.launch_multiple_with_normal(broker_ids, None, minimized)
     }
 
     /// Request graceful close of terminal for a single broker.
@@ -501,6 +513,25 @@ mod tests {
         let not_found = TerminalProcessStatus::NotFound;
         assert!(!not_found.is_running());
         assert_eq!(not_found.pid(), None);
+    }
+
+    #[test]
+    fn test_launch_multiple_with_normal_broker() {
+        let mut tm = TerminalManager::new();
+        let broker_ids = vec![1, 2, 3];
+        // Terminals are not resolved yet, so launch will return Err for each
+        let results = tm.launch_multiple_with_normal(&broker_ids, Some(1), true);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].0, 1);
+        assert_eq!(results[1].0, 2);
+        assert_eq!(results[2].0, 3);
+        assert!(results[0].1.is_err());
+        assert!(results[1].1.is_err());
+        assert!(results[2].1.is_err());
+
+        // Normal launch_multiple delegates with None
+        let results2 = tm.launch_multiple(&broker_ids, true);
+        assert_eq!(results2.len(), 3);
     }
 }
 

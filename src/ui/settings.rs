@@ -148,6 +148,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_non_minimized_broker_id() -> Option<BrokerId> {
+    Some(1)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiState {
     #[serde(default = "default_active_pair")]
@@ -182,6 +186,8 @@ pub struct UiState {
     pub mt5_auto_launch: bool,
     #[serde(default)]
     pub mt5_auto_close: bool,
+    #[serde(default = "default_non_minimized_broker_id", alias = "mt5_normal_broker_id")]
+    pub mt5_non_minimized_broker: Option<BrokerId>,
     #[serde(default)]
     pub window: WindowGeometryState,
 }
@@ -205,6 +211,7 @@ impl Default for UiState {
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
             mt5_auto_close: false,
+            mt5_non_minimized_broker: default_non_minimized_broker_id(),
             window: WindowGeometryState::default(),
         }
     }
@@ -275,6 +282,17 @@ impl UiState {
         brokers: &[BrokerConfig],
         default_pair: (BrokerId, BrokerId),
     ) {
+        self.reconcile_with_brokers_and_config(brokers, default_pair, None);
+    }
+
+    /// Reconciles the loaded active broker pair and MT5 launch configurations with
+    /// currently configured brokers and optional MT5 config defaults.
+    pub fn reconcile_with_brokers_and_config(
+        &mut self,
+        brokers: &[BrokerConfig],
+        default_pair: (BrokerId, BrokerId),
+        default_normal_broker_name: Option<&str>,
+    ) {
         self.sanitize();
 
         // 1. Remove non-existent broker IDs from hidden_brokers
@@ -319,6 +337,23 @@ impl UiState {
             self.mt5_launch_targets.sort_unstable();
         } else {
             self.mt5_launch_targets.retain(|&id| brokers.iter().any(|bk| bk.id == id));
+        }
+
+        // 5. Reconcile MT5 normal (non-minimized) window broker
+        if let Some(id) = self.mt5_non_minimized_broker {
+            if !brokers.iter().any(|bk| bk.id == id) {
+                // Configured ID no longer exists; try config default or fallback to OANDA
+                let mut resolved = None;
+                if let Some(name) = default_normal_broker_name {
+                    if !name.is_empty() && !name.eq_ignore_ascii_case("none") {
+                        resolved = brokers.iter().find(|bk| bk.name.eq_ignore_ascii_case(name) || bk.name.to_lowercase().contains(&name.to_lowercase())).map(|bk| bk.id);
+                    }
+                }
+                if resolved.is_none() {
+                    resolved = brokers.iter().find(|bk| bk.name.to_lowercase().contains("oanda")).map(|bk| bk.id);
+                }
+                self.mt5_non_minimized_broker = resolved;
+            }
         }
     }
 }
@@ -447,6 +482,7 @@ mod tests {
             mt5_launch_targets: vec![1, 2],
             mt5_auto_launch: true,
             mt5_auto_close: false,
+            mt5_non_minimized_broker: Some(1),
             window: WindowGeometryState {
                 inner_size: [1280.0, 800.0],
                 physical_inner_size: None,
@@ -500,6 +536,47 @@ mod tests {
         assert_eq!(state.top_x_axis_mode, ChartXAxisMode::TickCount);
         assert_eq!(state.bottom_x_axis_mode, ChartXAxisMode::ReceiveTime);
         assert_eq!(state.bottom_metric, BottomMetric::MidDiff);
+        // Should default to Some(1) (OANDA) for legacy configs
+        assert_eq!(state.mt5_non_minimized_broker, Some(1));
+    }
+
+    #[test]
+    fn test_mt5_non_minimized_broker_deserialization_and_reconcile() {
+        // 1. None / null in JSON
+        let null_json = r#"{
+            "active_pair": [1, 2],
+            "mt5_non_minimized_broker": null
+        }"#;
+        let null_state: UiState = serde_json::from_str(null_json).unwrap();
+        assert_eq!(null_state.mt5_non_minimized_broker, None);
+
+        // 2. Specific broker ID
+        let broker2_json = r#"{
+            "active_pair": [1, 2],
+            "mt5_non_minimized_broker": 2
+        }"#;
+        let broker2_state: UiState = serde_json::from_str(broker2_json).unwrap();
+        assert_eq!(broker2_state.mt5_non_minimized_broker, Some(2));
+
+        // 3. Reconcile fallback when ID doesn't exist: should fallback to OANDA
+        let mut state = UiState {
+            mt5_non_minimized_broker: Some(99),
+            ..Default::default()
+        };
+        let brokers = vec![
+            BrokerConfig { id: 10, name: "OANDA".to_string(), ..Default::default() },
+            BrokerConfig { id: 20, name: "Axiory".to_string(), ..Default::default() },
+        ];
+        state.reconcile_with_brokers(&brokers, (10, 20));
+        assert_eq!(state.mt5_non_minimized_broker, Some(10));
+
+        // 4. Reconcile with custom default config name
+        let mut state2 = UiState {
+            mt5_non_minimized_broker: Some(99),
+            ..Default::default()
+        };
+        state2.reconcile_with_brokers_and_config(&brokers, (10, 20), Some("Axiory"));
+        assert_eq!(state2.mt5_non_minimized_broker, Some(20));
     }
 
     #[test]
@@ -521,6 +598,7 @@ mod tests {
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
             mt5_auto_close: false,
+            mt5_non_minimized_broker: Some(99), // Non-existent broker ID, should reconcile
             window: WindowGeometryState {
                 inner_size: [200.0, 100.0], // Too small
                 physical_inner_size: None,

@@ -233,20 +233,41 @@ pub fn render_broker_overview(
 
                             // 12. MT5 Process Status
                             let proc_status = app.terminal_manager.get_status(b.broker_id);
+                            let is_normal_window = app.mt5_non_minimized_broker == Some(b.broker_id);
                             match proc_status {
                                 crate::runtime::TerminalProcessStatus::Running { pid } => {
-                                    ui.label(
-                                        RichText::new(format!("● PID:{}", pid))
-                                            .small()
-                                            .color(style::LIVE),
-                                    );
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(format!("● PID:{}", pid))
+                                                .small()
+                                                .color(style::LIVE),
+                                        );
+                                        if is_normal_window {
+                                            ui.label(
+                                                RichText::new("[通常]")
+                                                    .small()
+                                                    .color(Color32::from_rgb(100, 220, 255)),
+                                            )
+                                            .on_hover_text("通常表示設定の端末です");
+                                        }
+                                    });
                                 }
                                 crate::runtime::TerminalProcessStatus::Stopped => {
-                                    ui.label(
-                                        RichText::new("○ Stopped")
-                                            .small()
-                                            .color(Color32::from_gray(140)),
-                                    );
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new("○ Stopped")
+                                                .small()
+                                                .color(Color32::from_gray(140)),
+                                        );
+                                        if is_normal_window {
+                                            ui.label(
+                                                RichText::new("[通常]")
+                                                    .small()
+                                                    .color(Color32::from_rgb(100, 220, 255)),
+                                            )
+                                            .on_hover_text("この端末は最小化せず通常ウィンドウで起動します");
+                                        }
+                                    });
                                 }
                                 crate::runtime::TerminalProcessStatus::NotFound => {
                                     ui.label(
@@ -270,12 +291,17 @@ pub fn render_broker_overview(
                                     }
                                 }
                                 crate::runtime::TerminalProcessStatus::Stopped => {
+                                    let minimized = if is_normal_window { false } else { app.mt5_minimized };
                                     let start_btn = ui.small_button("▶ 起動");
+                                    let hover_text = if is_normal_window {
+                                        "このMT5端末を起動します（モード: 通常表示）".to_string()
+                                    } else {
+                                        format!("このMT5端末を起動します（最小化: {}）", if app.mt5_minimized { "オン" } else { "オフ" })
+                                    };
                                     if start_btn
-                                        .on_hover_text(format!("このMT5端末を起動します（最小化: {}）", if app.mt5_minimized { "オン" } else { "オフ" }))
+                                        .on_hover_text(hover_text)
                                         .clicked()
                                     {
-                                        let minimized = app.mt5_minimized;
                                         let _ = app.terminal_manager.launch(b.broker_id, minimized);
                                         app.terminal_manager.poll_status(&app.broker_configs, &app.discovered_terminals, true);
                                     }
