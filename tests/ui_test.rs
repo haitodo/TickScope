@@ -846,3 +846,159 @@ fn test_candlestick_chart_hides_broker_without_wasted_gap() {
         });
     });
 }
+
+#[test]
+fn test_reset_window_size_restores_defaults_and_persists() {
+    use eframe::egui;
+    use tick_scope::ui::settings::{
+        load_ui_state, WindowGeometryState, DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let state_file = dir.path().join("ui_state.json");
+    let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+
+    let mut app = DashboardApp::new(exchange, (1, 2)).with_ui_state_path(state_file.clone());
+
+    // Set non-default custom window size
+    app.set_window_geometry(WindowGeometryState {
+        inner_size: [1400.0, 900.0],
+        physical_inner_size: Some([2100.0, 1350.0]),
+        position: Some([120.0, 200.0]),
+        maximized: true,
+    });
+    app.save_state();
+
+    // Verify it was written
+    let saved = load_ui_state(&state_file).unwrap();
+    assert_eq!(saved.window.inner_size, [1400.0, 900.0]);
+    assert!(saved.window.maximized);
+
+    // Trigger window size reset
+    let ctx = egui::Context::default();
+    app.reset_window_size(&ctx);
+
+    // Verify app state
+    assert_eq!(
+        app.window_geometry().inner_size,
+        [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]
+    );
+    assert!(!app.window_geometry().maximized);
+    assert_eq!(app.window_geometry().position, None);
+    assert!(app.is_window_resetting());
+
+    // Verify persisted state
+    let reloaded = load_ui_state(&state_file).unwrap();
+    assert_eq!(
+        reloaded.window.inner_size,
+        [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]
+    );
+    assert!(!reloaded.window.maximized);
+    assert_eq!(reloaded.window.position, None);
+}
+
+#[test]
+fn test_ctrl_zero_hotkey_triggers_window_reset() {
+    use eframe::egui;
+    use tick_scope::ui::settings::{
+        WindowGeometryState, DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH,
+    };
+
+    let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+    let mut app = DashboardApp::new(exchange, (1, 2));
+
+    app.set_window_geometry(WindowGeometryState {
+        inner_size: [1600.0, 1000.0],
+        physical_inner_size: None,
+        position: None,
+        maximized: true,
+    });
+
+    let ctx = egui::Context::default();
+
+    // Simulate Ctrl+0 key press input
+    let mut raw_input = egui::RawInput::default();
+    raw_input.modifiers.command = true;
+    raw_input.events.push(egui::Event::Key {
+        key: egui::Key::Num0,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+
+    let _ = ctx.run(raw_input, |ctx| {
+        app.render_ui(ctx);
+    });
+
+    // Window size should now be reset to defaults
+    assert_eq!(
+        app.window_geometry().inner_size,
+        [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]
+    );
+    assert!(!app.window_geometry().maximized);
+}
+
+#[test]
+fn test_quick_settings_small_screen_viewport_constraint() {
+    use eframe::egui;
+
+    // Test matrix across various window dimensions, especially small and constrained viewports
+    let test_viewports = [
+        (600.0, 380.0), // Very small compact screen
+        (800.0, 500.0), // TickScope standard minimum window size
+        (1024.0, 600.0), // Netbook / low-res display
+        (1100.0, 750.0), // Default window size
+        (1920.0, 1080.0), // Full HD monitor
+    ];
+
+    for (screen_w, screen_h) in test_viewports {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2));
+        app.set_show_quick_settings(true);
+
+        let ctx = egui::Context::default();
+        let mut raw_input = egui::RawInput::default();
+        raw_input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(screen_w, screen_h),
+        ));
+
+        let window_id = egui::Id::new("⚙ Quick Settings");
+        let input1 = raw_input.clone();
+        let _ = ctx.run(input1, |ctx| {
+            app.render_ui(ctx);
+        });
+
+        let _ = ctx.run(raw_input, |ctx| {
+            app.render_ui(ctx);
+        });
+
+        let rect = ctx.memory(|mem| mem.area_rect(window_id)).unwrap();
+        // In all viewports, dialog must stay completely inside screen bounds
+        assert!(
+            rect.max.y <= screen_h,
+            "Viewport {}x{}: Dialog bottom ({}) exceeded screen height ({})",
+            screen_w, screen_h, rect.max.y, screen_h
+        );
+        assert!(
+            rect.max.x <= screen_w,
+            "Viewport {}x{}: Dialog right ({}) exceeded screen width ({})",
+            screen_w, screen_h, rect.max.x, screen_w
+        );
+        assert!(
+            rect.min.x >= 0.0,
+            "Viewport {}x{}: Dialog left ({}) fell off left edge",
+            screen_w, screen_h, rect.min.x
+        );
+        if screen_h >= 450.0 {
+            // For standard and larger windows, dialog starts cleanly below header
+            assert!(
+                rect.min.y >= 30.0,
+                "Viewport {}x{}: Dialog top ({}) should be below header (~32.0)",
+                screen_w, screen_h, rect.min.y
+            );
+        }
+    }
+}
+

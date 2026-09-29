@@ -48,6 +48,8 @@ pub struct CliArgs {
     pub show_help: bool,
     /// Whether to display version and exit.
     pub show_version: bool,
+    /// Whether to reset window geometry to default size and position.
+    pub reset_window: bool,
 }
 
 impl CliArgs {
@@ -84,6 +86,9 @@ impl CliArgs {
                 }
                 "-V" | "--version" => {
                     cli.show_version = true;
+                }
+                "--reset-window" => {
+                    cli.reset_window = true;
                 }
                 "-l" | "--log-level" => {
                     let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
@@ -159,6 +164,7 @@ impl CliArgs {
             "    -r, --record-raw        Persist raw protocol frames for offline investigation\n",
             "    -l, --log-level <LVL>   Set log level (error, warn, info, debug, trace) [default: info]\n",
             "        --config <PATH>     Alternative way to specify custom configuration file path\n",
+            "        --reset-window      Reset window geometry (size 1100x750, unmaximized) to defaults\n",
             "    -V, --version           Print version information and exit\n",
             "    -h, --help              Print this help information and exit\n"
         )
@@ -192,6 +198,13 @@ mod tests {
         assert_eq!(cli.config_path, None);
         assert_eq!(cli.log_level, None);
         assert!(!cli.show_help);
+        assert!(!cli.reset_window);
+    }
+
+    #[test]
+    fn test_reset_window_flag() {
+        let cli = CliArgs::parse(["--reset-window"]).unwrap();
+        assert!(cli.reset_window);
     }
 
     #[test]

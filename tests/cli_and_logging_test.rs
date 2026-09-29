@@ -1,4 +1,4 @@
-﻿//! Integration tests for CLI argument parsing and diagnostic logging.
+//! Integration tests for CLI argument parsing and diagnostic logging.
 
 use log::LevelFilter;
 use std::path::PathBuf;
@@ -65,7 +65,10 @@ fn test_cli_parsing_matrix() {
     assert!(CliArgs::parse(["-V"]).unwrap().show_version);
     assert!(CliArgs::parse(["--version"]).unwrap().show_version);
 
-    // 10. Option delimiter --
+    // 10. Reset window flag
+    assert!(CliArgs::parse(["--reset-window"]).unwrap().reset_window);
+
+    // 11. Option delimiter --
     let cli = CliArgs::parse(["-c", "--", "cfg.toml"]).unwrap();
     assert!(cli.console);
     assert_eq!(cli.config_path, Some(PathBuf::from("cfg.toml")));

@@ -14,7 +14,8 @@ use crate::ui::chart::{BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatch
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
     save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, UiState,
-    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
+    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH,
+    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
 };
 use crate::ui::style;
 use eframe::egui;
@@ -61,6 +62,7 @@ pub struct DashboardApp {
     pub(crate) hidden_brokers: Vec<BrokerId>,
     pub(crate) ui_state_path: Option<PathBuf>,
     pub(crate) window_geometry: WindowGeometryState,
+    pub(crate) window_reset_in_progress: u8,
     pub(crate) state_dirty: bool,
     pub(crate) repaint_registered: bool,
     pub(crate) mt5_minimized: bool,
@@ -113,6 +115,7 @@ impl DashboardApp {
             hidden_brokers: Vec::new(),
             ui_state_path: None,
             window_geometry: WindowGeometryState::default(),
+            window_reset_in_progress: 0,
             state_dirty: false,
             repaint_registered: false,
             mt5_minimized: true,
@@ -229,6 +232,46 @@ impl DashboardApp {
                 self.state_dirty = false;
             }
         }
+    }
+
+    /// Resets the application window size to default (1100x750),
+    /// unmaximizes the window, resets zoom factor to 1.0, and saves UI state.
+    pub fn reset_window_size(&mut self, ctx: &egui::Context) {
+        log::info!(
+            "Resetting window size to default ({}x{})",
+            DEFAULT_WINDOW_WIDTH,
+            DEFAULT_WINDOW_HEIGHT
+        );
+        self.window_geometry = WindowGeometryState::default();
+        self.window_reset_in_progress = 10;
+        self.state_dirty = true;
+
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            DEFAULT_WINDOW_WIDTH,
+            DEFAULT_WINDOW_HEIGHT,
+        )));
+        let pos_opt = ctx.input(|i| i.viewport().outer_rect.map(|r| [r.min.x, r.min.y]));
+        if let Some(pos) = pos_opt {
+            if pos[0] < 0.0 || pos[1] < 0.0 {
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(80.0, 80.0)));
+            }
+        }
+        ctx.set_zoom_factor(1.0);
+        self.save_state();
+    }
+
+    pub fn window_geometry(&self) -> &WindowGeometryState {
+        &self.window_geometry
+    }
+
+    pub fn set_window_geometry(&mut self, geometry: WindowGeometryState) {
+        self.window_geometry = geometry;
+        self.state_dirty = true;
+    }
+
+    pub fn is_window_resetting(&self) -> bool {
+        self.window_reset_in_progress > 0
     }
 
     pub fn mark_dirty(&mut self) {
@@ -706,8 +749,11 @@ impl DashboardApp {
     }
 
     fn handle_hotkeys(&mut self, ctx: &egui::Context, snapshot: &UiSnapshot) {
+        let mut reset_size_requested = false;
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::Num2) {
+            if (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::Num0) {
+                reset_size_requested = true;
+            } else if i.key_pressed(egui::Key::Num2) {
                 self.bottom_metric = BottomMetric::MidDiff;
             } else if i.key_pressed(egui::Key::Num3) {
                 self.bottom_metric = BottomMetric::BidAskDiff;
@@ -744,9 +790,21 @@ impl DashboardApp {
                 }
             }
         });
+
+        if reset_size_requested {
+            self.reset_window_size(ctx);
+        }
     }
 
     fn track_window_geometry(&mut self, ctx: &egui::Context) {
+        if self.window_reset_in_progress > 0 {
+            self.window_reset_in_progress -= 1;
+            if self.state_dirty || ctx.input(|i| i.viewport().close_requested()) {
+                self.save_state();
+            }
+            return;
+        }
+
         let current_ppp = ctx.pixels_per_point();
 
         // No manual DPI compensation is needed here.  winit handles

@@ -174,7 +174,7 @@ pub fn render_top_header(
                     RichText::new("⚙ Settings").strong(),
                 );
                 if settings_btn
-                    .on_hover_text("Open Quick Settings flyout [Key: S]")
+                    .on_hover_text("Open Quick Settings flyout [Key: S]\nReset window size [Key: Ctrl+0]")
                     .clicked()
                 {
                     app.show_quick_settings = !app.show_quick_settings;

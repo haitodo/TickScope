@@ -17,27 +17,80 @@ pub fn render_quick_settings(
         return;
     }
 
+    let screen_rect = ctx.screen_rect();
+    let top_offset = 32.0;
+    let bottom_margin = 8.0;
+    let side_margin = 8.0;
+
+    // Dynamically constrain dialog within visible viewport so it never cuts off or overflows.
+    // egui::Window decoration (title bar ~28px, frame margins ~24px, inner margins/spacing)
+    // adds ~84px around the inner content.
+    let frame_decorations = 84.0;
+    let max_total_window_height = (screen_rect.height() - top_offset - bottom_margin).max(160.0);
+    let max_window_content_height = (max_total_window_height - frame_decorations).max(80.0);
+    let max_dialog_width = (screen_rect.width() - side_margin * 2.0).max(260.0);
+    let default_width = 330.0_f32.min(max_dialog_width);
+
     let mut is_open = true;
     egui::Window::new("⚙ Quick Settings")
         .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 32.0))
-        .default_width(320.0)
+        .resizable(true)
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-side_margin, top_offset))
+        .default_width(default_width)
+        .min_width(260.0_f32.min(max_dialog_width))
+        .max_width(max_dialog_width)
+        .max_height(max_window_content_height)
+        .constrain(true)
         .open(&mut is_open)
         .show(ctx, |ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
+            // Quick Reset Banner: if viewport is small or window is maximized, provide instant 1-click reset at top
+            let is_compact_screen = screen_rect.height() < 680.0 || screen_rect.width() < 950.0;
+            let mut banner_height = 0.0;
+            if is_compact_screen || app.window_geometry.maximized {
+                let banner_start = ui.cursor().top();
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "画面: {:.0}×{:.0}{}",
+                            app.window_geometry.inner_size[0],
+                            app.window_geometry.inner_size[1],
+                            if app.window_geometry.maximized { " (最大化)" } else { "" }
+                        ))
+                        .small()
+                        .color(Color32::from_gray(160)),
+                    );
+                    let reset_btn = ui.small_button("⟲ リセット (1100×750)");
+                    if reset_btn
+                        .on_hover_text("ウィンドウサイズを規定値（1100×750）に戻します [Key: Ctrl+0]")
+                        .clicked()
+                    {
+                        app.reset_window_size(ctx);
+                    }
+                });
+                ui.separator();
+                banner_height = (ui.cursor().top() - banner_start).max(0.0);
+            }
 
-            // 1. Candlestick Settings
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("Candlestick Display")
-                        .strong()
-                        .color(Color32::from_rgb(180, 220, 255)),
-                );
-            });
+            // Scrollable body so no settings get cut off on small windows or high DPI
+            let scroll_max_h = (max_window_content_height - banner_height).max(60.0);
 
-            ui.horizontal(|ui| {
-                ui.label("Timeframe:");
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, true])
+                .max_height(scroll_max_h)
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+
+                    // 1. Candlestick Settings
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("Candlestick Display")
+                                .strong()
+                                .color(Color32::from_rgb(180, 220, 255)),
+                        );
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Timeframe:");
                 for &(ms, label) in &[
                     (10000, "S10 (10秒)"),
                     (5000, "S5 (5秒)"),
@@ -221,17 +274,52 @@ pub fn render_quick_settings(
 
             ui.separator();
 
-            // 5. Shortcuts Guide
+            // 5. Window & Display (ウィンドウ・画面サイズ)
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("Window & Display (画面サイズ)")
+                        .strong()
+                        .color(Color32::from_rgb(180, 220, 255)),
+                );
+            });
+
+            ui.horizontal(|ui| {
+                let size_str = format!(
+                    "{:.0} × {:.0}{}",
+                    app.window_geometry.inner_size[0],
+                    app.window_geometry.inner_size[1],
+                    if app.window_geometry.maximized { " (最大化)" } else { "" }
+                );
+                ui.label(format!("Current: {}", size_str));
+            });
+
+            ui.horizontal(|ui| {
+                let reset_btn = ui.button(
+                    RichText::new("⟲ 画面サイズをリセット (1100×750)")
+                        .color(Color32::from_rgb(220, 230, 255))
+                        .strong(),
+                );
+                if reset_btn
+                    .on_hover_text("ウィンドウサイズを規定値（1100×750）に戻し、最大化と拡大率をリセットします [Key: Ctrl+0]")
+                    .clicked()
+                {
+                    app.reset_window_size(ctx);
+                }
+            });
+
+            ui.separator();
+
+            // 6. Shortcuts Guide
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(
-                        "Keys: [S] Settings, [B] Brokers, [P] Pair, [1-8] Metric, [Esc] Close",
+                        "Keys: [S] Settings, [Ctrl+0] Reset Size, [B] Brokers, [P] Pair, [1-8] Metric, [Esc] Close",
                     )
                     .color(Color32::from_gray(140))
                     .small(),
                 );
             });
-
         });
+    });
     app.show_quick_settings = is_open;
 }

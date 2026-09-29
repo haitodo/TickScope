@@ -10,7 +10,9 @@ use tick_scope::config::load_startup_config;
 use tick_scope::logging::{cleanup_console, init_logging, is_console_allocated, setup_console};
 use tick_scope::runtime::coordinator::RuntimeCoordinator;
 use tick_scope::ui::dashboard::DashboardApp;
-use tick_scope::ui::settings::{load_ui_state, resolve_ui_state_path};
+use tick_scope::ui::settings::{
+    load_ui_state, resolve_ui_state_path, save_ui_state, WindowGeometryState,
+};
 
 fn pause_if_allocated_console() {
     if is_console_allocated() {
@@ -78,6 +80,11 @@ fn main() -> eframe::Result<()> {
 
     let ui_state_path = resolve_ui_state_path(exe_dir, &cwd);
     let mut ui_state = load_ui_state(&ui_state_path).unwrap_or_default();
+    if cli.reset_window {
+        log::info!("CLI flag --reset-window active: resetting window geometry to defaults");
+        ui_state.window = WindowGeometryState::default();
+        let _ = save_ui_state(&ui_state_path, &ui_state);
+    }
     ui_state.reconcile_with_brokers(&config.brokers, config.active_pair);
 
     // Ensure the engine starts with the restored active pair
