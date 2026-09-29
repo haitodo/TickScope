@@ -4,9 +4,9 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Embedded copies as reliable fallback when source repo is not on disk
-pub const EMBEDDED_TICK_COLLECTOR: &str = include_str!("../../../mt5/TickCollector.mq5");
-pub const EMBEDDED_PROTOCOL_MQH: &str = include_str!("../../../mt5/Include/TickScope/Protocol.mqh");
-pub const EMBEDDED_SOCKET_CLIENT_MQH: &str = include_str!("../../../mt5/Include/TickScope/SocketClient.mqh");
+pub const EMBEDDED_TICK_COLLECTOR: &str = include_str!("../../mt5/TickCollector.mq5");
+pub const EMBEDDED_PROTOCOL_MQH: &str = include_str!("../../mt5/Include/TickScope/Protocol.mqh");
+pub const EMBEDDED_SOCKET_CLIENT_MQH: &str = include_str!("../../mt5/Include/TickScope/SocketClient.mqh");
 
 /// Discovered source files to deploy
 #[derive(Debug, Clone)]

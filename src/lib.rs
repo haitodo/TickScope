@@ -4,6 +4,7 @@ pub mod cli;
 pub mod config;
 pub mod contracts;
 pub mod core;
+pub mod deploy;
 pub mod logging;
 pub mod metrics;
 pub mod protocol;

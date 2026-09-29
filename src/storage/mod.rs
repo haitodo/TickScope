@@ -1,9 +1,11 @@
-//! Binary log writer and verification reader.
+//! Binary log writer and verification reader for .tlog records.
 
 pub mod error;
 pub mod logger;
 pub mod reader;
+pub mod tlog_reader;
+pub mod tlog_writer;
 
 pub use error::*;
-pub use logger::*;
-pub use reader::*;
+pub use tlog_reader::*;
+pub use tlog_writer::*;

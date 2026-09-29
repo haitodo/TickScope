@@ -4,7 +4,7 @@ use crate::core::types::*;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle, DiagnosticsRuntime};
 
 use crate::state::snapshot::{SnapshotBuilder, SnapshotExchange};
-use crate::storage::logger::AsyncLogger;
+use crate::storage::tlog_writer::AsyncLogger;
 use crate::tick::engine::TickEngine;
 use crate::transport::router::TransportRouter;
 use crate::transport::tcp::TransportReceiver;

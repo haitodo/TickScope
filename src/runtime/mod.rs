@@ -1,8 +1,10 @@
 //! Runtime coordinator and task supervisor.
 
 pub mod coordinator;
-pub mod deploy;
-
 pub use coordinator::*;
-pub use deploy::*;
 
+/// Backward compatibility re-export of deploy module.
+pub mod deploy {
+    pub use crate::deploy::*;
+}
+pub use crate::deploy::*;
