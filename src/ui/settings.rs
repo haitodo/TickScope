@@ -88,8 +88,9 @@ fn default_active_pair() -> (BrokerId, BrokerId) {
 }
 
 fn default_timeframe_ms() -> i64 {
-    60000
+    10000
 }
+
 
 fn default_candle_bar_width() -> f32 {
     DEFAULT_CANDLE_BAR_WIDTH
@@ -537,9 +538,10 @@ mod tests {
 
         // active_pair should fallback to default (1, 2) since 99, 100 don't exist
         assert_eq!(state.active_pair, (1, 2));
-        // timeframe should sanitize to 60000
-        assert_eq!(state.selected_timeframe_ms, 60000);
+        // timeframe should sanitize to default (10000ms / S10)
+        assert_eq!(state.selected_timeframe_ms, default_timeframe_ms());
         // candle_bar_width should sanitize to default
+
         assert_eq!(state.candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
         // candle_price_scale should sanitize to Auto
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);

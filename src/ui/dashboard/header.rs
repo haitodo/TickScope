@@ -2,7 +2,7 @@ use super::DashboardApp;
 use crate::core::models::UiSnapshot;
 use crate::core::types::{ConnectionState, FreshnessState};
 use crate::ui::chart::ChartXAxisMode;
-use crate::ui::settings::{CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode};
+use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
 use eframe::egui;
 use egui::{Color32, RichText};
 
@@ -17,72 +17,26 @@ pub fn render_top_header(
         ui.horizontal(|ui| {
             // 1. Left Zone: Context Controls (操作ゾーン)
             ui.checkbox(&mut app.show_candle_context, "Candle");
-            ui.selectable_value(&mut app.selected_timeframe_ms, 60000, "M1");
-            ui.selectable_value(&mut app.selected_timeframe_ms, 10000, "S10");
-            ui.selectable_value(&mut app.selected_timeframe_ms, 5000, "S5");
-            ui.selectable_value(&mut app.selected_timeframe_ms, 1000, "S1");
-
             if app.show_candle_context {
-                ui.separator();
-                ui.label("Price:");
-                if ui
-                    .selectable_label(app.candle_price_mode == CandlePriceMode::Bid, "Bid")
-                    .clicked()
-                {
-                    app.set_candle_price_mode(CandlePriceMode::Bid);
-                }
-                if ui
-                    .selectable_label(app.candle_price_mode == CandlePriceMode::Mid, "Mid")
-                    .clicked()
-                {
-                    app.set_candle_price_mode(CandlePriceMode::Mid);
-                }
+                let tf_text = match app.selected_timeframe_ms {
+                    60000 => "M1",
+                    10000 => "S10",
+                    5000 => "S5",
+                    1000 => "S1",
+                    _ => "S10",
+                };
+                egui::ComboBox::from_id_salt("header_tf")
+                    .selected_text(tf_text)
+                    .width(44.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut app.selected_timeframe_ms, 10000, "S10 (10秒)");
+                        ui.selectable_value(&mut app.selected_timeframe_ms, 5000, "S5 (5秒)");
+                        ui.selectable_value(&mut app.selected_timeframe_ms, 1000, "S1 (1秒)");
+                        ui.selectable_value(&mut app.selected_timeframe_ms, 60000, "M1 (1分)");
+                    });
             }
 
             ui.separator();
-
-            // 2. Center Zone: Live Telemetry HUD (監視HUD)
-            if let Some(comp) = &snapshot.active_pair_comparison {
-                if let Some(m) = &comp.latest_match {
-                    let leader_name = snapshot
-                        .broker_overviews
-                        .iter()
-                        .find(|b| b.broker_id == m.leader)
-                        .map(|b| b.name.as_str())
-                        .unwrap_or("Leader");
-                    let ema_text = comp
-                        .ema_lead_lag_ms
-                        .map(|e| format!(" (EMA {:+.1}ms)", e))
-                        .unwrap_or_default();
-                    let badge = format!(
-                        "⚡ {} +{:.1}ms{}",
-                        leader_name,
-                        m.raw_delta_ms.abs(),
-                        ema_text
-                    );
-                    let lead_label = ui.label(
-                        RichText::new(badge)
-                            .strong()
-                            .color(Color32::from_rgb(255, 215, 0)),
-                    );
-                    lead_label.on_hover_text(format!(
-                        "Lead/Lag Match:\nPair: {} vs {}\nLeader: {}\nRaw Lead: {:.2} ms\nEMA Lead: {}\n\n(Key: [P] Cycle pair)",
-                        name_a,
-                        name_b,
-                        leader_name,
-                        m.raw_delta_ms.abs(),
-                        comp.ema_lead_lag_ms
-                            .map(|e| format!("{:+.2} ms", e))
-                            .unwrap_or_else(|| "N/A".to_string())
-                    ));
-                } else {
-                    let none_label = ui.label(
-                        RichText::new(format!("⚡ Lead [{} vs {}]: None", name_a, name_b))
-                            .color(Color32::GRAY),
-                    );
-                    none_label.on_hover_text("No synchronous tick match detected yet.");
-                }
-            }
 
             // Broker Overview Collapsing Toggle
             let total_brokers = snapshot.broker_overviews.len();
@@ -113,12 +67,32 @@ pub fn render_top_header(
                 Color32::from_rgb(255, 120, 120)
             };
 
+            let mut tooltip = "Toggle Broker Overview table [Key: B]".to_string();
+            if let Some(comp) = &snapshot.active_pair_comparison {
+                if let Some(m) = &comp.latest_match {
+                    let leader_name = snapshot
+                        .broker_overviews
+                        .iter()
+                        .find(|b| b.broker_id == m.leader)
+                        .map(|b| b.name.as_str())
+                        .unwrap_or("Leader");
+                    let ema_text = comp
+                        .ema_lead_lag_ms
+                        .map(|e| format!("{:+.2} ms", e))
+                        .unwrap_or_else(|| "N/A".to_string());
+                    tooltip.push_str(&format!(
+                        "\n\n⚡ Lead/Lag [{} vs {}]:\nLeader: {}\nRaw Lead: {:.2} ms\nEMA Lead: {}\n(Key: [5] Lead/Lag view)",
+                        name_a, name_b, leader_name, m.raw_delta_ms.abs(), ema_text
+                    ));
+                }
+            }
+
             let toggle_btn = ui.selectable_label(
                 app.show_broker_overview,
                 RichText::new(overview_text).color(overview_color).strong(),
             );
             if toggle_btn
-                .on_hover_text("Toggle Broker Overview table [Key: B]")
+                .on_hover_text(tooltip)
                 .clicked()
             {
                 app.show_broker_overview = !app.show_broker_overview;
@@ -140,7 +114,7 @@ pub fn render_top_header(
             let launch_btn = ui.add_enabled(
                 stopped_count > 0,
                 egui::Button::new(
-                    RichText::new(format!("▶ MT5起動 ({})", stopped_count))
+                    RichText::new(format!("▶ 起動 ({})", stopped_count))
                         .color(if stopped_count > 0 {
                             Color32::from_rgb(100, 220, 255)
                         } else {
@@ -170,7 +144,7 @@ pub fn render_top_header(
             let stop_btn = ui.add_enabled(
                 running_count > 0,
                 egui::Button::new(
-                    RichText::new(format!("⏹ MT5終了 ({})", running_count))
+                    RichText::new(format!("⏹ 終了 ({})", running_count))
                         .color(if running_count > 0 {
                             Color32::from_rgb(255, 140, 140)
                         } else {
@@ -188,6 +162,7 @@ pub fn render_top_header(
             {
                 app.show_mt5_stop_confirm_modal = true;
             }
+
 
             // 3. Right Zone: Utility & Settings (設定・ツール)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

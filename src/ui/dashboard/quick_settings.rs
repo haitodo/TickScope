@@ -37,6 +37,21 @@ pub fn render_quick_settings(
             });
 
             ui.horizontal(|ui| {
+                ui.label("Timeframe:");
+                for &(ms, label) in &[
+                    (10000, "S10 (10秒)"),
+                    (5000, "S5 (5秒)"),
+                    (1000, "S1 (1秒)"),
+                    (60000, "M1 (1分)"),
+                ] {
+                    if ui.selectable_label(app.selected_timeframe_ms == ms, label).clicked() {
+                        app.selected_timeframe_ms = ms;
+                    }
+                }
+            });
+
+
+            ui.horizontal(|ui| {
                 ui.label("Price:");
                 if ui
                     .selectable_label(
