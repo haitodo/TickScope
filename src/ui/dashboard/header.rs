@@ -2,7 +2,9 @@ use super::DashboardApp;
 use crate::core::models::UiSnapshot;
 use crate::core::types::{ConnectionState, FreshnessState};
 use crate::ui::chart::ChartXAxisMode;
-use crate::ui::settings::{CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode};
+use crate::ui::settings::{
+    CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, VALID_CANDLE_FIXED_PIPS,
+};
 use eframe::egui;
 use egui::{Color32, RichText};
 
@@ -248,21 +250,42 @@ pub fn render_top_header(
                             }
                         }
                     };
-                    let badge_text = format!("[{:.0}px | {}]", app.candle_bar_width, scale_label);
-                    let badge_btn = ui.add(
-                        egui::Button::new(
-                            RichText::new(badge_text).color(Color32::from_rgb(180, 220, 255)),
+                    egui::ComboBox::from_id_salt("header_price_scale")
+                        .selected_text(
+                            RichText::new(format!(
+                                "[{:.0}px | {}]",
+                                app.candle_bar_width, scale_label
+                            ))
+                            .color(Color32::from_rgb(180, 220, 255)),
                         )
-                        .wrap_mode(egui::TextWrapMode::Extend),
-                    );
-                    if badge_btn
-                        .on_hover_text(
-                            "Current Candle bar width & scale.\nClick to adjust settings [Key: S]",
-                        )
-                        .clicked()
-                    {
-                        app.show_quick_settings = true;
-                    }
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(
+                                    app.candle_price_scale == CandlePriceScaleMode::Auto,
+                                    "Auto",
+                                )
+                                .clicked()
+                            {
+                                app.set_candle_price_scale(CandlePriceScaleMode::Auto);
+                                ui.close_menu();
+                            }
+
+                            for &pips in &VALID_CANDLE_FIXED_PIPS {
+                                let mode = CandlePriceScaleMode::Fixed(pips);
+                                let label = if (pips.fract()).abs() < 1e-4 {
+                                    format!("{:.0}p", pips)
+                                } else {
+                                    format!("{:.1}p", pips)
+                                };
+                                if ui
+                                    .selectable_label(app.candle_price_scale == mode, label)
+                                    .clicked()
+                                {
+                                    app.set_candle_price_scale(mode);
+                                    ui.close_menu();
+                                }
+                            }
+                        });
                 } else {
                     let x_label = match app.top_x_axis_mode {
                         ChartXAxisMode::ReceiveTime => "Time",
