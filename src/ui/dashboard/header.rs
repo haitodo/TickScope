@@ -2,7 +2,7 @@ use super::DashboardApp;
 use crate::core::models::UiSnapshot;
 use crate::core::types::{ConnectionState, FreshnessState};
 use crate::ui::chart::ChartXAxisMode;
-use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+use crate::ui::settings::{CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode};
 use eframe::egui;
 use egui::{Color32, RichText};
 
@@ -210,6 +210,30 @@ pub fn render_top_header(
                 }
 
                 if app.show_candle_context {
+                    ui.horizontal(|ui| {
+                        let bid_btn = ui.selectable_label(
+                            app.candle_price_mode == CandlePriceMode::Bid,
+                            "Bid",
+                        );
+                        if bid_btn
+                            .on_hover_text("Use Bid prices for candlesticks")
+                            .clicked()
+                        {
+                            app.set_candle_price_mode(CandlePriceMode::Bid);
+                        }
+
+                        let mid_btn = ui.selectable_label(
+                            app.candle_price_mode == CandlePriceMode::Mid,
+                            "Mid",
+                        );
+                        if mid_btn
+                            .on_hover_text("Use Mid prices for candlesticks (reference price)")
+                            .clicked()
+                        {
+                            app.set_candle_price_mode(CandlePriceMode::Mid);
+                        }
+                    });
+
                     let scale_label = match app.candle_price_scale {
                         CandlePriceScaleMode::Auto => "Auto".to_string(),
                         CandlePriceScaleMode::Fixed(p) => {
@@ -224,12 +248,7 @@ pub fn render_top_header(
                             }
                         }
                     };
-                    let badge_text = format!(
-                        "[{} | {:.0}px | {}]",
-                        app.candle_price_mode.label().to_uppercase(),
-                        app.candle_bar_width,
-                        scale_label
-                    );
+                    let badge_text = format!("[{:.0}px | {}]", app.candle_bar_width, scale_label);
                     let badge_btn = ui.add(
                         egui::Button::new(
                             RichText::new(badge_text).color(Color32::from_rgb(180, 220, 255)),
@@ -238,7 +257,7 @@ pub fn render_top_header(
                     );
                     if badge_btn
                         .on_hover_text(
-                            "Current Candle price, bar width & scale.\nClick to adjust settings [Key: S]",
+                            "Current Candle bar width & scale.\nClick to adjust settings [Key: S]",
                         )
                         .clicked()
                     {
