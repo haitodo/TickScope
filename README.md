@@ -13,7 +13,7 @@
 
 標準配置以外のMT5は `[mt5].custom_data_dirs` にデータフォルダーを指定できます。MetaEditorが自動検出できない場合は `TICKSCOPE_METAEDITOR_PATH` に実行ファイルを指定するか、MT5からEAを開いてコンパイルしてください。`[mt5]` の `auto_deploy = false` は自動配置と共通ポートを無効にして、従来の `brokers[].port` に指定した固定ポートを使います。自動接続には `auto_deploy = true` を使用してください。
 
-通常起動ではraw frame保存と性能計測を行いません。性能計測は `tick-scope.exe -d`、raw frameの保存は `tick-scope.exe -r`、両方を記録する場合は `tick-scope.exe -d -r` で起動します。`-c` はコンソールのテキストログ表示を独立して有効にします。画面サイズのリセットはアプリ内の「⚙ Settings → 画面サイズをリセット」またはショートカットキー `Ctrl+0`、起動オプション `tick-scope.exe --reset-window` で行えます。起動引数の一覧は `tick-scope.exe --help` で確認できます。
+通常起動ではraw frame保存と性能計測を行いません。性能計測は `tick-scope.exe -d`、raw frameの保存は `tick-scope.exe -r`、両方を記録する場合は `tick-scope.exe -d -r` で起動します。`-c` はコンソールのテキストログ表示を独立して有効にします。ウィンドウの最前面固定（Always on Top）はヘッダー右上の「📌 Pin」ボタン、Settings内のチェックボックス、またはショートカットキー `T` で切り替えられ、アプリ再起動後も前回の状態が保持されます。画面サイズのリセットはアプリ内の「⚙ Settings → 画面サイズをリセット」またはショートカットキー `Ctrl+0`、起動オプション `tick-scope.exe --reset-window` で行えます。起動引数の一覧は `tick-scope.exe --help` で確認できます。
 
 ## 開発
 

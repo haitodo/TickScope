@@ -70,6 +70,7 @@ pub struct DashboardApp {
     pub(crate) mt5_auto_launch: bool,
     pub(crate) mt5_auto_close: bool,
     pub(crate) mt5_non_minimized_broker: Option<BrokerId>,
+    pub(crate) always_on_top: bool,
     pub(crate) show_mt5_stop_confirm_modal: bool,
     pub(crate) terminal_manager: crate::runtime::TerminalManager,
     pub(crate) discovered_terminals: Vec<crate::deploy::DiscoveredTerminal>,
@@ -124,6 +125,7 @@ impl DashboardApp {
             mt5_auto_launch: false,
             mt5_auto_close: false,
             mt5_non_minimized_broker: Some(1),
+            always_on_top: false,
             show_mt5_stop_confirm_modal: false,
             terminal_manager: crate::runtime::TerminalManager::new(),
             discovered_terminals: Vec::new(),
@@ -152,6 +154,7 @@ impl DashboardApp {
         self.mt5_auto_launch = state.mt5_auto_launch;
         self.mt5_auto_close = state.mt5_auto_close;
         self.mt5_non_minimized_broker = state.mt5_non_minimized_broker;
+        self.always_on_top = state.always_on_top;
         self
     }
 
@@ -222,8 +225,31 @@ impl DashboardApp {
             mt5_auto_launch: self.mt5_auto_launch,
             mt5_auto_close: self.mt5_auto_close,
             mt5_non_minimized_broker: self.mt5_non_minimized_broker,
+            always_on_top: self.always_on_top,
             window: self.window_geometry.clone(),
         }
+    }
+
+    pub fn always_on_top(&self) -> bool {
+        self.always_on_top
+    }
+
+    pub fn set_always_on_top(&mut self, ctx: &egui::Context, enabled: bool) {
+        if self.always_on_top != enabled {
+            self.always_on_top = enabled;
+            self.state_dirty = true;
+            let level = if enabled {
+                egui::WindowLevel::AlwaysOnTop
+            } else {
+                egui::WindowLevel::Normal
+            };
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+            self.save_state();
+        }
+    }
+
+    pub fn toggle_always_on_top(&mut self, ctx: &egui::Context) {
+        self.set_always_on_top(ctx, !self.always_on_top);
     }
 
 
@@ -582,6 +608,7 @@ impl DashboardApp {
         let prev_mt5_auto_launch = self.mt5_auto_launch;
         let prev_mt5_auto_close = self.mt5_auto_close;
         let prev_mt5_non_minimized_broker = self.mt5_non_minimized_broker;
+        let prev_always_on_top = self.always_on_top;
 
         // Poll MT5 process statuses periodically (throttled to 1s internally)
         self.terminal_manager
@@ -668,6 +695,7 @@ impl DashboardApp {
             || self.mt5_auto_launch != prev_mt5_auto_launch
             || self.mt5_auto_close != prev_mt5_auto_close
             || self.mt5_non_minimized_broker != prev_mt5_non_minimized_broker
+            || self.always_on_top != prev_always_on_top
         {
             if self.candle_price_scale != prev_candle_scale {
                 self.candle_chart_anchor = None;
@@ -675,6 +703,14 @@ impl DashboardApp {
             }
             if self.candle_follow_criteria != prev_candle_follow {
                 self.candle_margin_edge_latch = None;
+            }
+            if self.always_on_top != prev_always_on_top {
+                let level = if self.always_on_top {
+                    egui::WindowLevel::AlwaysOnTop
+                } else {
+                    egui::WindowLevel::Normal
+                };
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
             }
             self.state_dirty = true;
         }
@@ -756,6 +792,7 @@ impl DashboardApp {
 
     fn handle_hotkeys(&mut self, ctx: &egui::Context, snapshot: &UiSnapshot) {
         let mut reset_size_requested = false;
+        let mut toggle_always_on_top = false;
         ctx.input(|i| {
             if (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::Num0) {
                 reset_size_requested = true;
@@ -788,6 +825,8 @@ impl DashboardApp {
                 self.show_broker_overview = !self.show_broker_overview;
             } else if i.key_pressed(egui::Key::S) || i.key_pressed(egui::Key::Comma) {
                 self.show_quick_settings = !self.show_quick_settings;
+            } else if i.key_pressed(egui::Key::T) {
+                toggle_always_on_top = true;
             } else if i.key_pressed(egui::Key::Escape) {
                 if self.show_quick_settings {
                     self.show_quick_settings = false;
@@ -796,6 +835,10 @@ impl DashboardApp {
                 }
             }
         });
+
+        if toggle_always_on_top {
+            self.toggle_always_on_top(ctx);
+        }
 
         if reset_size_requested {
             self.reset_window_size(ctx);

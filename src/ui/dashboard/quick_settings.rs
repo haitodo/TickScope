@@ -318,11 +318,20 @@ pub fn render_quick_settings(
             // 5. Window & Display (ウィンドウ・画面サイズ)
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Window & Display (画面サイズ)")
+                    RichText::new("Window & Display (画面・ウィンドウ)")
                         .strong()
                         .color(Color32::from_rgb(180, 220, 255)),
                 );
             });
+
+            let mut pin_checked = app.always_on_top;
+            if ui
+                .checkbox(&mut pin_checked, "Always on Top (最前面に固定) [Key: T]")
+                .on_hover_text("ウィンドウを他のアプリケーションの最前面に常に表示します")
+                .clicked()
+            {
+                app.set_always_on_top(ctx, pin_checked);
+            }
 
             ui.horizontal(|ui| {
                 let size_str = format!(
@@ -354,7 +363,7 @@ pub fn render_quick_settings(
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(
-                        "Keys: [S] Settings, [Ctrl+0] Reset Size, [B] Brokers, [P] Pair, [1-8] Metric, [Esc] Close",
+                        "Keys: [S] Settings, [T] Pin/Top, [Ctrl+0] Reset Size, [B] Brokers, [P] Pair, [1-8] Metric, [Esc] Close",
                     )
                     .color(Color32::from_gray(140))
                     .small(),

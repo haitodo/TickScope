@@ -189,6 +189,8 @@ pub struct UiState {
     #[serde(default = "default_non_minimized_broker_id", alias = "mt5_normal_broker_id")]
     pub mt5_non_minimized_broker: Option<BrokerId>,
     #[serde(default)]
+    pub always_on_top: bool,
+    #[serde(default)]
     pub window: WindowGeometryState,
 }
 
@@ -212,6 +214,7 @@ impl Default for UiState {
             mt5_auto_launch: false,
             mt5_auto_close: false,
             mt5_non_minimized_broker: default_non_minimized_broker_id(),
+            always_on_top: false,
             window: WindowGeometryState::default(),
         }
     }
@@ -483,6 +486,7 @@ mod tests {
             mt5_auto_launch: true,
             mt5_auto_close: false,
             mt5_non_minimized_broker: Some(1),
+            always_on_top: true,
             window: WindowGeometryState {
                 inner_size: [1280.0, 800.0],
                 physical_inner_size: None,
@@ -599,6 +603,7 @@ mod tests {
             mt5_auto_launch: false,
             mt5_auto_close: false,
             mt5_non_minimized_broker: Some(99), // Non-existent broker ID, should reconcile
+            always_on_top: false,
             window: WindowGeometryState {
                 inner_size: [200.0, 100.0], // Too small
                 physical_inner_size: None,

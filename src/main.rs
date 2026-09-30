@@ -180,6 +180,10 @@ fn main() -> eframe::Result<()> {
         viewport = viewport.with_position(egui::pos2(pos[0], pos[1]));
     }
 
+    if ui_state.always_on_top {
+        viewport = viewport.with_window_level(egui::WindowLevel::AlwaysOnTop);
+    }
+
     let native_options = eframe::NativeOptions {
         viewport,
         ..Default::default()

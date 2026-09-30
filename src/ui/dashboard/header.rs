@@ -194,6 +194,21 @@ pub fn render_top_header(
                     app.show_quick_settings = !app.show_quick_settings;
                 }
 
+                let pin_text = if app.always_on_top {
+                    RichText::new("📌 Pin").color(Color32::from_rgb(0, 220, 255)).strong()
+                } else {
+                    RichText::new("📌 Pin").color(Color32::from_gray(140))
+                };
+                let pin_btn = ui.selectable_label(app.always_on_top, pin_text);
+                let pin_hover = if app.always_on_top {
+                    "最前面固定: オン\n他のウィンドウの前面に常に表示します [Key: T]"
+                } else {
+                    "最前面固定: オフ\nクリックして常に手前に表示 [Key: T]"
+                };
+                if pin_btn.on_hover_text(pin_hover).clicked() {
+                    app.toggle_always_on_top(ctx);
+                }
+
                 if app.show_candle_context {
                     let scale_label = match app.candle_price_scale {
                         CandlePriceScaleMode::Auto => "Auto".to_string(),

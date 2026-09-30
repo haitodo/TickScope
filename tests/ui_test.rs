@@ -603,6 +603,7 @@ fn test_ui_settings_persistence_lifecycle() {
         app.set_candle_bar_width(6.0);
 
         let ctx = egui::Context::default();
+        app.set_always_on_top(&ctx, true);
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             app.render_ui(ctx);
         });
@@ -632,6 +633,7 @@ fn test_ui_settings_persistence_lifecycle() {
     assert_eq!(loaded.bottom_metric, BottomMetric::LeadLag);
     assert!(loaded.show_broker_overview);
     assert_eq!(loaded.candle_bar_width, 6.0);
+    assert!(loaded.always_on_top);
 
     // 3. Second session: reconcile with brokers and restore into new app instance
     let brokers = vec![
@@ -650,6 +652,7 @@ fn test_ui_settings_persistence_lifecycle() {
         assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
         assert!(app.show_broker_overview());
         assert_eq!(app.candle_bar_width(), 6.0);
+        assert!(app.always_on_top());
     }
 
     // 4. Test broker disappearance fallback
@@ -1000,5 +1003,87 @@ fn test_quick_settings_small_screen_viewport_constraint() {
             );
         }
     }
+}
+
+#[test]
+fn test_always_on_top_persistence_and_backward_compatibility() {
+    use tick_scope::ui::settings::{load_ui_state, save_ui_state, UiState};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let state_file = temp_dir.path().join("ui_state.json");
+
+    // 1. Default value is false
+    let default_state = UiState::default();
+    assert!(!default_state.always_on_top);
+
+    // 2. Set to true, save, and reload
+    let state = UiState {
+        always_on_top: true,
+        ..Default::default()
+    };
+    save_ui_state(&state_file, &state).expect("save_ui_state should succeed");
+
+    let loaded = load_ui_state(&state_file).expect("load_ui_state should succeed");
+    assert!(loaded.always_on_top);
+
+    // 3. Backward compatibility: deserialize JSON without always_on_top field
+    let legacy_json = r#"{
+        "active_pair": [1, 2],
+        "show_candle_context": false,
+        "selected_timeframe_ms": 10000,
+        "candle_bar_width": 5.0,
+        "hidden_brokers": []
+    }"#;
+    let legacy_state: UiState = serde_json::from_str(legacy_json).expect("deserialize legacy json");
+    assert!(!legacy_state.always_on_top, "legacy json must default always_on_top to false");
+}
+
+#[test]
+fn test_always_on_top_toggle_and_hotkey() {
+    let snap = Arc::new(UiSnapshot::default());
+    let exchange = Arc::new(SnapshotExchange::new(snap));
+    let mut app = DashboardApp::new(exchange, (1, 2));
+
+    let ctx = egui::Context::default();
+
+    // Initially false
+    assert!(!app.always_on_top());
+
+    // Toggle via method
+    app.toggle_always_on_top(&ctx);
+    assert!(app.always_on_top());
+    assert_eq!(app.current_ui_state().always_on_top, true);
+
+    app.toggle_always_on_top(&ctx);
+    assert!(!app.always_on_top());
+    assert_eq!(app.current_ui_state().always_on_top, false);
+
+    // Toggle via 'T' keyboard shortcut
+    let mut input_t = egui::RawInput::default();
+    input_t.events.push(egui::Event::Key {
+        key: egui::Key::T,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input_t, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert!(app.always_on_top(), "Pressing T should enable always_on_top");
+
+    // Press T again to turn off
+    let mut input_t2 = egui::RawInput::default();
+    input_t2.events.push(egui::Event::Key {
+        key: egui::Key::T,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input_t2, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert!(!app.always_on_top(), "Pressing T again should disable always_on_top");
 }
 
