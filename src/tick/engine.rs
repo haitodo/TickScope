@@ -229,6 +229,8 @@ impl TickEngine {
         self.processing_mono_ns = processing_mono_ns;
         let broker_id = item.broker_id();
         let mut close_diagnostic = None;
+        let mut fast_quote = None;
+
         let is_disconnected = {
             let ch = match self.channels.get_mut(&broker_id) {
                 Some(c) => c,
@@ -259,6 +261,7 @@ impl TickEngine {
                     }
                     ch.pending_frame_bytes = ch.pending_frame_bytes
                         .saturating_add(rf.wire_len());
+                    fast_quote = Self::extract_fast_path_quote(broker_id, &rf);
                     ch.pending_frames.push_back(rf);
                 }
                 IngressItem::End { generation, reason, .. } => {
@@ -286,6 +289,13 @@ impl TickEngine {
         };
         if let Some(diagnostic) = close_diagnostic {
             self.push_diagnostic(diagnostic);
+        }
+
+        // Fast Path: Immediately expose the latest quote from the arriving frame
+        // without waiting for the global merge watermark. This allows individual
+        // broker quotes and headers to update with 0ms cross-broker wait latency.
+        if let Some((quote, rx_mono_ns, is_warmup)) = fast_quote {
+            self.apply_fast_path_quote(broker_id, quote, rx_mono_ns, is_warmup);
         }
 
         self.force_drain_overflow(broker_id);
@@ -344,6 +354,58 @@ impl TickEngine {
                 }
                 None => break,
             }
+        }
+    }
+
+    fn extract_fast_path_quote(broker_id: BrokerId, rf: &ReceivedFrame) -> Option<(Quote, MonoNs, bool)> {
+        if let FramePayload::TickBatch(ticks) = &rf.frame.payload {
+            let is_warmup = (rf.frame.header.header_flags & HEADER_FLAG_WARMUP) != 0;
+            if let Some(last_tick) = ticks.iter().rev().find(|t| {
+                t.bid.is_finite() && t.ask.is_finite() && t.bid > 0.0 && t.ask > 0.0 && t.ask >= t.bid
+            }) {
+                let quote = Quote {
+                    tick_id: TickId {
+                        broker_id,
+                        session_id: rf.frame.header.session_id,
+                        sequence: last_tick.sequence,
+                    },
+                    bid: last_tick.bid,
+                    ask: last_tick.ask,
+                    mid: (last_tick.bid + last_tick.ask) / 2.0,
+                    spread: last_tick.ask - last_tick.bid,
+                    rx_mono_ns: rf.rx_mono_ns,
+                    utc_ms: Some(UtcMs(last_tick.broker_time_msc)),
+                    is_warmup,
+                    is_valid: true,
+                };
+                return Some((quote, rf.rx_mono_ns, is_warmup));
+            }
+        }
+        None
+    }
+
+    fn apply_fast_path_quote(&mut self, broker_id: BrokerId, quote: Quote, rx_mono_ns: MonoNs, is_warmup: bool) {
+        let should_update = match self.latest_quotes.get(&broker_id) {
+            Some(existing) => {
+                quote.tick_id.session_id != existing.tick_id.session_id
+                    || quote.tick_id.sequence >= existing.tick_id.sequence
+                    || rx_mono_ns >= existing.rx_mono_ns
+            }
+            None => true,
+        };
+
+        if should_update {
+            if let Some(st) = self.spread_trackers.get_mut(&broker_id) {
+                st.on_quote(quote.spread, rx_mono_ns);
+            }
+            if let Some(h) = self.health_states.get_mut(&broker_id) {
+                if !is_warmup {
+                    h.last_live_tick_rx_mono = Some(rx_mono_ns);
+                    h.data_freshness = FreshnessState::Live;
+                }
+            }
+            self.latest_quotes.insert(broker_id, quote);
+            self.projection_revision += 1;
         }
     }
 
@@ -526,9 +588,19 @@ impl TickEngine {
                             ft.record_tick(false, false, !is_warmup && quote.is_valid, rf.rx_mono_ns);
                         }
 
-                        // Store latest quote
+                        // Store latest quote only if not superseded by a newer fast-path quote
                         if quote.is_valid {
-                            self.latest_quotes.insert(broker_id, quote);
+                            let should_insert = match self.latest_quotes.get(&broker_id) {
+                                Some(existing) => {
+                                    quote.tick_id.session_id != existing.tick_id.session_id
+                                        || quote.tick_id.sequence >= existing.tick_id.sequence
+                                        || rf.rx_mono_ns >= existing.rx_mono_ns
+                                }
+                                None => true,
+                            };
+                            if should_insert {
+                                self.latest_quotes.insert(broker_id, quote);
+                            }
                         }
 
                         // Evaluate move detectors for ALL brokers to drive multi-broker bursts and fingerprints

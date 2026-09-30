@@ -9,6 +9,7 @@ use tick_scope::cli::CliArgs;
 use tick_scope::config::load_startup_config;
 use tick_scope::logging::{cleanup_console, init_logging, is_console_allocated, setup_console};
 use tick_scope::runtime::coordinator::RuntimeCoordinator;
+use tick_scope::runtime::PrecisionTimerGuard;
 use tick_scope::ui::dashboard::DashboardApp;
 use tick_scope::ui::settings::{
     load_ui_state, resolve_ui_state_path, save_ui_state, WindowGeometryState,
@@ -23,6 +24,8 @@ fn pause_if_allocated_console() {
 }
 
 fn main() -> eframe::Result<()> {
+    let _timer_guard = PrecisionTimerGuard::new(1);
+
     let cli = match CliArgs::parse(env::args().skip(1)) {
         Ok(cli) => cli,
         Err(err) => {

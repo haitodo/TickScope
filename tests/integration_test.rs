@@ -293,3 +293,107 @@ fn test_ti02_high_frequency_burst_injection() {
     coordinator.stop();
 }
 
+#[test]
+fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
+    use tick_scope::tick::engine::TickEngine;
+
+    let mut config = AppConfig::default();
+    config.brokers = vec![
+        BrokerConfig {
+            id: 21,
+            name: "FastBroker".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 39301,
+            symbol: "USDJPY".to_string(),
+            point_size: 0.001,
+            pip_size: 0.01,
+            utc_offset_sec: 0,
+            timezone_rule: TimezoneRule::Utc,
+            utc_verified: true,
+            auto_utc_offset: true,
+            terminal_path: None,
+        },
+        BrokerConfig {
+            id: 22,
+            name: "SlowBroker".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 39302,
+            symbol: "USDJPY".to_string(),
+            point_size: 0.001,
+            pip_size: 0.01,
+            utc_offset_sec: 0,
+            timezone_rule: TimezoneRule::Utc,
+            utc_verified: true,
+            auto_utc_offset: true,
+            terminal_path: None,
+        },
+    ];
+
+    let mut engine = TickEngine::new(config);
+
+    // Connect both brokers
+    engine.on_ingress_item(IngressItem::Connected {
+        broker_id: 21,
+        generation: 1,
+        connected_at_mono: MonoNs(100),
+    });
+    engine.on_ingress_item(IngressItem::Connected {
+        broker_id: 22,
+        generation: 1,
+        connected_at_mono: MonoNs(100),
+    });
+
+    // SlowBroker (22) has received NO frames and watermark is 0.
+    // Therefore, calculate_global_watermark() is 0.
+
+    // FastBroker (21) receives a live tick at rx_mono_ns = 50_000_000 (50ms).
+    let tick_record = TickRecord {
+        sequence: 42,
+        broker_time_msc: 1700000000000,
+        ea_elapsed_us: 1000,
+        bid: 150.123,
+        ask: 150.125,
+        last: 0.0,
+        volume: 1,
+        volume_real: 1.0,
+        flags: 0,
+        reserved: 0,
+    };
+    let rf = ReceivedFrame {
+        frame: Frame {
+            header: Header {
+                magic: MAGIC_TICK,
+                protocol_version: PROTOCOL_VERSION,
+                message_type: MSG_TYPE_TICK_BATCH,
+                header_length: HEADER_LENGTH,
+                header_flags: 0,
+                broker_id: 21,
+                session_id: 999,
+                sequence_start: 42,
+                tick_count: 1,
+                payload_length: 72,
+            },
+            payload: FramePayload::TickBatch(vec![tick_record]),
+        },
+        raw_wire_bytes: std::sync::Arc::new(Vec::new()),
+        run_id: RunId::new_random(),
+        rx_mono_ns: MonoNs(50_000_000),
+        rx_unix_ns: Some(1700000000000_000_000),
+        connection_generation: 1,
+        frame_index: 1,
+    };
+
+    engine.on_ingress_item(IngressItem::Frame(rf));
+
+    // Verify Fast Path: FastBroker quote is immediately visible in projection
+    // despite SlowBroker holding the global merge watermark at 0!
+    let proj = engine.make_projection_at(UtcMs(1700000000000), MonoNs(50_000_000));
+    let overview_21 = proj.broker_overviews.iter().find(|b| b.broker_id == 21).expect("Broker 21 overview present");
+    let q = overview_21.latest_quote.as_ref().expect("Latest quote in overview must be immediately available via Fast Path");
+    assert_eq!(q.tick_id.sequence, 42);
+    assert_eq!(q.bid, 150.123);
+    assert_eq!(q.ask, 150.125);
+    assert_eq!(q.rx_mono_ns, MonoNs(50_000_000));
+}
+
+
