@@ -227,7 +227,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
                 Pos2::new(legend_x + 8.0, legend_y + 6.0),
             ],
             Stroke::new(
-                if selected { 2.5_f32 } else { 1.0_f32 },
+                1.0_f32,
                 if selected {
                     base_color
                 } else {
@@ -258,8 +258,8 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         );
     }
 
-    // Draw background brokers first. The selected pair is drawn last with a
-    // stronger stroke, so it remains readable where prices overlap.
+    // Draw background brokers first. The selected pair is drawn last in full
+    // color, while every broker keeps the same line width.
     for (index, broker) in &ordered_brokers {
         let selected = broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1;
         let color = broker_color_for(theme, *index);
@@ -268,7 +268,6 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         } else {
             dim_color(color, if is_live(broker) { 105 } else { 55 })
         };
-        let stroke_width = if selected { 2.5_f32 } else { 1.0_f32 };
         let mut previous = None;
         for (sample_index, pt) in quote_points.iter().enumerate() {
             let current = pt
@@ -289,7 +288,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
                     .map(|x| Pos2::new(x, price_to_y(mid)))
                 });
             if let (Some(a), Some(b)) = (previous, current) {
-                painter.line_segment([a, b], Stroke::new(stroke_width, line_color));
+                painter.line_segment([a, b], Stroke::new(1.0_f32, line_color));
             }
             previous = current;
         }
@@ -318,7 +317,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
             if let (Some(a), Some(b)) = (previous, current) {
                 painter.line_segment(
                     [a, b],
-                    Stroke::new(1.5_f32, dim_color(theme.median_line, 145)),
+                    Stroke::new(1.0_f32, dim_color(theme.median_line, 145)),
                 );
             }
             previous = current;
