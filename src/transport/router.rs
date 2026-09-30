@@ -14,11 +14,22 @@ use std::time::{Duration, Instant};
 const ROUTE_HELLO_MAGIC: [u8; 4] = *b"TSCP";
 const ROUTE_HELLO_LENGTH: usize = 8;
 
-struct ActiveConnectionGuard(Arc<AtomicBool>);
+struct ActiveConnectionGuard {
+    broker_id: BrokerId,
+    generation: u64,
+    active_generations: Arc<Mutex<HashMap<BrokerId, u64>>>,
+    active_sockets: Arc<Mutex<HashMap<BrokerId, TcpStream>>>,
+}
 
 impl Drop for ActiveConnectionGuard {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        let mut gens = self.active_generations.lock();
+        if let Some(&current_gen) = gens.get(&self.broker_id) {
+            if current_gen == self.generation {
+                gens.remove(&self.broker_id);
+                self.active_sockets.lock().remove(&self.broker_id);
+            }
+        }
     }
 }
 
@@ -26,7 +37,8 @@ pub struct TransportRouter {
     listener: TcpListener,
     port: u16,
     receivers: HashMap<BrokerId, Arc<TransportReceiver>>,
-    active_connections: HashMap<BrokerId, Arc<AtomicBool>>,
+    active_generations: Arc<Mutex<HashMap<BrokerId, u64>>>,
+    active_sockets: Arc<Mutex<HashMap<BrokerId, TcpStream>>>,
     generations: HashMap<BrokerId, AtomicU64>,
     connection_threads: Mutex<Vec<thread::JoinHandle<()>>>,
     progress_interval: Duration,
@@ -48,10 +60,8 @@ impl TransportRouter {
             .set_nonblocking(true)
             .map_err(|error| format!("Failed to configure the shared MT5 listener: {error}"))?;
 
-        let active_connections = receivers
-            .keys()
-            .map(|&broker_id| (broker_id, Arc::new(AtomicBool::new(false))))
-            .collect();
+        let active_generations = Arc::new(Mutex::new(HashMap::new()));
+        let active_sockets = Arc::new(Mutex::new(HashMap::new()));
         let generations = receivers
             .keys()
             .map(|&broker_id| (broker_id, AtomicU64::new(0)))
@@ -61,7 +71,8 @@ impl TransportRouter {
             listener,
             port,
             receivers,
-            active_connections,
+            active_generations,
+            active_sockets,
             generations,
             connection_threads: Mutex::new(Vec::new()),
             progress_interval: Duration::from_millis(progress_interval_ms.max(1)),
@@ -75,6 +86,9 @@ impl TransportRouter {
 
     pub fn stop(&self) {
         self.running.store(false, Ordering::Release);
+        for (_, socket) in self.active_sockets.lock().drain() {
+            let _ = socket.shutdown(std::net::Shutdown::Both);
+        }
     }
 
     pub fn run(&self) {
@@ -130,16 +144,6 @@ impl TransportRouter {
             log::warn!("Failed to configure broker {broker_id} connection: {error}");
             return;
         }
-        let Some(active) = self.active_connections.get(&broker_id).cloned() else {
-            return;
-        };
-        if active
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            log::warn!("Rejected a duplicate active MT5 connection for broker {broker_id}.");
-            return;
-        }
 
         let generation = self
             .generations
@@ -148,13 +152,37 @@ impl TransportRouter {
             .unwrap_or(1);
         stream.set_read_timeout(None).ok();
 
+        // Connection Takeover: if a previous connection is still active for this broker,
+        // shut down its socket so its receiver loop unblocks immediately and terminates.
+        {
+            let mut gens = self.active_generations.lock();
+            gens.insert(broker_id, generation);
+
+            let mut sockets = self.active_sockets.lock();
+            if let Some(old_socket) = sockets.remove(&broker_id) {
+                log::info!(
+                    "MT5 broker {broker_id} reconnected: superseding previous connection with generation {generation}"
+                );
+                let _ = old_socket.shutdown(std::net::Shutdown::Both);
+            }
+            if let Ok(cloned) = stream.try_clone() {
+                sockets.insert(broker_id, cloned);
+            }
+        }
+
         log::info!("Accepted MT5 connection for broker {broker_id} (generation: {generation})");
 
-        let active_for_thread = active.clone();
+        let active_guard = ActiveConnectionGuard {
+            broker_id,
+            generation,
+            active_generations: self.active_generations.clone(),
+            active_sockets: self.active_sockets.clone(),
+        };
+
         let spawn_result = thread::Builder::new()
             .name(format!("mt5-broker-{broker_id}"))
             .spawn(move || {
-                let _active_guard = ActiveConnectionGuard(active_for_thread);
+                let _guard = active_guard;
                 receiver.handle_routed_connection(stream, generation);
             });
         match spawn_result {
@@ -172,7 +200,11 @@ impl TransportRouter {
                 handles.push(handle);
             }
             Err(error) => {
-                active.store(false, Ordering::Release);
+                let mut gens = self.active_generations.lock();
+                if gens.get(&broker_id) == Some(&generation) {
+                    gens.remove(&broker_id);
+                    self.active_sockets.lock().remove(&broker_id);
+                }
                 log::error!("Failed to start MT5 receiver for broker {broker_id}: {error}");
             }
         }

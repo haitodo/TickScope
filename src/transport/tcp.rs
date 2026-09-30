@@ -23,6 +23,7 @@ pub struct TransportReceiver {
     max_payload_length: usize,
     debug_resync_limit: usize,
     progress_interval: Duration,
+    activity_timeout: Duration,
     running: Arc<AtomicBool>,
 }
 
@@ -66,8 +67,14 @@ impl TransportReceiver {
             max_payload_length,
             debug_resync_limit,
             progress_interval: Duration::from_millis(progress_interval_ms.max(1)),
+            activity_timeout: Duration::from_secs(3),
             running: Arc::new(AtomicBool::new(true)),
         }
+    }
+
+    pub fn with_activity_timeout(mut self, timeout: Duration) -> Self {
+        self.activity_timeout = timeout;
+        self
     }
 
     pub fn with_diagnostics(mut self, diagnostics: DiagnosticsHandle) -> Self {
@@ -192,6 +199,7 @@ impl TransportReceiver {
         let mut read_buf = [0u8; 8192];
         let mut frame_index: u64 = 0;
         let mut last_progress = std::time::Instant::now();
+        let mut last_activity = std::time::Instant::now();
 
         while self.running.load(Ordering::SeqCst) {
             match stream.read(&mut read_buf) {
@@ -200,6 +208,7 @@ impl TransportReceiver {
                     return "Client closed connection (clean EOF)".to_string();
                 }
                 Ok(n) => {
+                    last_activity = std::time::Instant::now();
                     // All frames completed by this read share its observation
                     // time; decoding and durable writes must not skew it.
                     let clk = self.clock.sample();
@@ -313,6 +322,12 @@ impl TransportReceiver {
                     }
                 }
                 Err(ref e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                    if !self.activity_timeout.is_zero() && last_activity.elapsed() >= self.activity_timeout {
+                        return format!(
+                            "Connection activity timeout: no data or heartbeat received for {:.1}s",
+                            last_activity.elapsed().as_secs_f32()
+                        );
+                    }
                     if last_progress.elapsed() >= self.progress_interval {
                         let sample = self.clock.sample();
                         self.submit_ingress_item(IngressItem::Progress {

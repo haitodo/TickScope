@@ -330,7 +330,7 @@ public:
       ResetLastError();
       uint readable = SocketIsReadable(m_socket);
       int is_read_err = GetLastError();
-      if(is_read_err != 0 && is_read_err != 5273)
+      if(is_read_err != 0)
       {
          PrintFormat("[TickCollector] SocketIsReadable error: %d, disconnecting.", is_read_err);
          Disconnect();

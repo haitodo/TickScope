@@ -58,6 +58,7 @@ long          g_pending_cursor_time_msc = 0;
 uint          g_pending_cursor_same_ms  = 0;
 long          g_pending_last_tick_time_msc = 0;
 uchar         g_pending_packet[];
+ulong         g_pending_batch_time_us  = 0;
 
 // Reusable scratch buffers
 MqlTick       g_tick_buffer[];
@@ -114,6 +115,7 @@ bool PollAndCommitAck()
    g_current_sequence = g_pending_sequence_end + 1;
    g_pending_batch = false;
    g_pending_queued = false;
+   g_pending_batch_time_us = 0;
    ArrayResize(g_pending_packet, 0);
    return true;
 }
@@ -300,6 +302,7 @@ bool CollectAndStreamTicks(bool is_warmup)
    g_pending_cursor_time_msc = candidate_cursor_time_msc;
    g_pending_cursor_same_ms = candidate_cursor_same_ms;
    g_pending_last_tick_time_msc = candidate_last_tick_time_msc;
+   g_pending_batch_time_us = GetMicrosecondCount();
 
    return QueuePendingBatch();
 }
@@ -321,6 +324,7 @@ void PerformWarmup()
    g_has_acked_sequence = false;
    g_pending_batch = false;
    g_pending_queued = false;
+   g_pending_batch_time_us = 0;
    ArrayResize(g_pending_packet, 0);
    g_warmup_started = true;
 
@@ -476,6 +480,16 @@ bool TryCollectAndStream(bool is_warmup)
    //    We must not advance cursor or read new ticks until ACKed (Stop-and-Wait).
    if(g_pending_batch)
    {
+      ulong now_us = GetMicrosecondCount();
+      if(g_pending_batch_time_us > 0 && (now_us - g_pending_batch_time_us > 2000000))
+      {
+         PrintFormat("[TickCollector] Pending batch ACK timeout (%I64u - %I64u, %I64u ms elapsed). Disconnecting to force clean reconnect.",
+                     g_pending_sequence_start, g_pending_sequence_end, (now_us - g_pending_batch_time_us) / 1000);
+         g_socket.Disconnect();
+         g_pending_queued = false;
+         g_pending_batch_time_us = now_us;
+         return false;
+      }
       QueuePendingBatch();
       return true;
    }

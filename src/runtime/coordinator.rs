@@ -194,6 +194,8 @@ impl RuntimeCoordinator {
                 clock.clone(),
                 ingress_sink.clone(),
             );
+            let activity_timeout = Duration::from_millis(config.health.heartbeat_timeout_ms.max(3000));
+            let receiver = receiver.with_activity_timeout(activity_timeout);
             let receiver = if let Some(diagnostics) = &diagnostics_handle {
                 receiver.with_diagnostics(diagnostics.clone())
             } else {
