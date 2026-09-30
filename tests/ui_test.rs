@@ -1087,3 +1087,85 @@ fn test_always_on_top_toggle_and_hotkey() {
     assert!(!app.always_on_top(), "Pressing T again should disable always_on_top");
 }
 
+#[test]
+fn test_candlestick_5_brokers_hiding_broker_4_tradeview_remains() {
+    use tick_scope::ui::chart::{draw_candlestick_chart_for_brokers, ChartTheme};
+    use tick_scope::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+
+    let mut slots_by_broker = HashMap::new();
+    let mut slot_starts = Vec::new();
+
+    for i in 0..10 {
+        let utc = UtcMs(i * 1000);
+        slot_starts.push(utc);
+        for b_id in [1, 2, 3, 4, 5] {
+            let slots = slots_by_broker.entry(b_id).or_insert_with(Vec::new);
+            slots.push(CandleSlot {
+                broker_id: b_id,
+                segment_id: 1,
+                period_ms: 1000,
+                start_utc_ms: utc,
+                state: SlotState::Closed,
+                ohlc: Some(Ohlc {
+                    open: 150.0 + b_id as f64 * 0.01,
+                    high: 150.1 + b_id as f64 * 0.01,
+                    low: 149.9 + b_id as f64 * 0.01,
+                    close: 150.05 + b_id as f64 * 0.01,
+                    open_key: (utc, 1),
+                    close_key: (utc, 1),
+                }),
+                tick_count: 5,
+                revision: 1,
+                coverage: SlotCoverage::Full,
+            });
+        }
+    }
+
+    let view = CandleView {
+        period_ms: 1000,
+        slot_starts,
+        slots_by_broker,
+    };
+
+    let overviews = vec![
+        BrokerOverview { broker_id: 1, name: "OANDA".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 2, name: "Axiory".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 3, name: "JFX".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 4, name: "Dukascopy".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 5, name: "Tradeview".to_string(), ..Default::default() },
+    ];
+
+    let ctx = egui::Context::default();
+    let output = ctx.run(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let theme = ChartTheme::default();
+            let rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
+            let painter = ui.painter_at(rect);
+            let mut anchor = None;
+            let mut latch = None;
+
+            // Draw with broker 4 hidden: [1, 2, 3, 5]
+            draw_candlestick_chart_for_brokers(
+                &painter,
+                rect,
+                Some(&view),
+                &[1, 2, 3, 5],
+                &overviews,
+                5.0,
+                CandlePriceScaleMode::Auto,
+                CandleFollowCriteria::Median,
+                0.01,
+                &mut anchor,
+                &mut latch,
+                Some(150.0),
+                1000,
+                MonoNs(100_000_000),
+                PriceMode::Bid,
+                &theme,
+            );
+        });
+    });
+
+    println!("Output shapes count: {}", output.shapes.len());
+}
+

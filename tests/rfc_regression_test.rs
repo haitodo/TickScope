@@ -12,7 +12,7 @@
 //! - RFC §91 Invariant I1 & I2 & I3 & I6 & I7 & I8 & I14 & I15.
 
 use std::sync::Arc;
-use tick_scope::config::{AppConfig, BrokerConfig};
+use tick_scope::config::{AppConfig, BrokerConfig, TimezoneRule};
 use tick_scope::core::models::*;
 use tick_scope::core::types::*;
 use tick_scope::protocol::*;
@@ -60,6 +60,7 @@ fn make_5_broker_config() -> AppConfig {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
         })
 

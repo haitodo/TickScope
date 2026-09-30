@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use support::*;
-use tick_scope::config::BrokerConfig;
+use tick_scope::config::{BrokerConfig, TimezoneRule};
 use tick_scope::core::types::*;
 use tick_scope::protocol::*;
 use tick_scope::transport::tcp::TransportReceiver;
@@ -30,6 +30,7 @@ fn test_transport_receiver_lifecycle_and_ack() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
     };
 
@@ -124,6 +125,7 @@ fn test_transport_receiver_ack_mode_off() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
     };
 
@@ -203,6 +205,7 @@ fn test_transport_receiver_multiple_reconnects_lifecycle() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
     };
 
@@ -328,6 +331,7 @@ fn test_transport_receiver_activity_timeout() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
     };
 
@@ -391,6 +395,7 @@ fn test_transport_router_connection_takeover() {
         utc_offset_sec: 0,
         utc_verified: false,
         auto_utc_offset: true,
+        timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
     };
 

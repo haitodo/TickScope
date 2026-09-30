@@ -4,7 +4,7 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
-use tick_scope::config::{AppConfig, BrokerConfig};
+use tick_scope::config::{AppConfig, BrokerConfig, TimezoneRule};
 use tick_scope::core::ports::SnapshotExchangePort;
 use tick_scope::core::types::*;
 use tick_scope::protocol::*;
@@ -63,6 +63,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: true,
+            timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
         },
         BrokerConfig {
@@ -76,6 +77,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: true,
+            timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
         },
         BrokerConfig {
@@ -89,6 +91,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: true,
+            timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
         },
 
@@ -183,6 +186,7 @@ fn test_ti02_high_frequency_burst_injection() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
         },
         BrokerConfig {
@@ -196,6 +200,7 @@ fn test_ti02_high_frequency_burst_injection() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
         },
         BrokerConfig {
@@ -209,6 +214,7 @@ fn test_ti02_high_frequency_burst_injection() {
             utc_offset_sec: 0,
             utc_verified: true,
             auto_utc_offset: false,
+            timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
         },
 

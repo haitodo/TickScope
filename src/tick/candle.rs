@@ -132,19 +132,42 @@ impl CandleBook {
                 slot.state = SlotState::Active;
             }
 
+            let current_slot = calculate_slot_start(current_utc_now, period);
             let latest_slot = self.latest_slot_by_broker
                 .entry((period, broker_id))
                 .or_insert(slot_start);
-            if slot_start > *latest_slot {
+
+            // Clamp latest_slot so that an erroneous future timestamp (e.g. from an unverified
+            // or misconfigured timezone offset) cannot pull latest_slot into the future.
+            let max_allowed_future = UtcMs(current_slot.0.saturating_add(period.saturating_mul(2)));
+            if slot_start <= max_allowed_future && slot_start > *latest_slot {
                 *latest_slot = slot_start;
+            } else if *latest_slot > max_allowed_future {
+                *latest_slot = current_slot;
             }
+
             let slots = self.retention_slots.get(&period).copied().unwrap_or(1).max(1);
             let keep_slots = slots.saturating_add(5);
-            let cutoff = UtcMs(latest_slot.0.saturating_sub(
+            // Retain window: ensure cutoff never exceeds current_utc_now window,
+            // preventing premature pruning of active candles.
+            let cutoff_from_latest = latest_slot.0.saturating_sub(
                 period.saturating_mul((keep_slots.saturating_sub(1)) as i64),
-            ));
+            );
+            let cutoff_from_now = current_slot.0.saturating_sub(
+                period.saturating_mul((keep_slots.saturating_sub(1)) as i64),
+            );
+            let cutoff = UtcMs(cutoff_from_latest.min(cutoff_from_now));
             broker_map.retain(|start, _| *start >= cutoff);
         }
+    }
+
+    /// Clears all slots and tracked state for a specific broker.
+    /// Used when a broker's UTC offset changes or on resync to cleanly rebuild candles.
+    pub fn clear_broker(&mut self, broker_id: BrokerId) {
+        for broker_map in self.books.values_mut() {
+            broker_map.remove(&broker_id);
+        }
+        self.latest_slot_by_broker.retain(|(_, bid), _| *bid != broker_id);
     }
 
     pub fn advance_utc(&mut self, current_utc_now: UtcMs) {

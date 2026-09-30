@@ -168,8 +168,17 @@ void SendHeartbeat()
    }
    
    // Approximate offset sample for diagnostic
-   int offset_sec = (int)(TimeCurrent() - TimeGMT());
-   flags |= HB_FLAG_HAS_OFFSET_SAMPLE;
+   datetime tc = TimeCurrent();
+   datetime tg = TimeGMT();
+   int offset_sec = 0;
+   if(tc > 0 && tg > 0)
+   {
+      offset_sec = (int)(tc - tg);
+      if(offset_sec >= -43200 && offset_sec <= 50400)
+      {
+         flags |= HB_FLAG_HAS_OFFSET_SAMPLE;
+      }
+   }
 
    ArrayResize(g_packet_buffer, HEADER_LENGTH + HEARTBEAT_PAYLOAD_LENGTH);
    PackHeader(g_packet_buffer, 0, MSG_TYPE_HEARTBEAT, flags,

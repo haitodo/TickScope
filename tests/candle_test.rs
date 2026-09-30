@@ -188,4 +188,28 @@ fn test_tc05_engine_candle_views_use_configured_retention_slots() {
     assert_eq!(cv_m1.slot_starts.len(), 60, "M1 candle view should have 60 slots as configured");
 }
 
+#[test]
+fn test_future_tick_breaks_subsequent_present_candles() {
+    let mut book = CandleBook::new(vec![1000]);
+
+    // Suppose broker sends a tick with offset=0 (so 3 hours in future: 10_800_000 ms)
+    book.on_tick(
+        &make_test_tick(5, 1, 10_800_000, 150.0, 150.02),
+        PriceMode::Bid,
+        UtcMs(10_800_000),
+    );
+
+    // Later, offset is corrected (+10800), and ticks arrive at true present UTC (e.g. 10_000 ms)
+    book.on_tick(
+        &make_test_tick(5, 2, 10_000, 150.0, 150.02),
+        PriceMode::Bid,
+        UtcMs(10_000),
+    );
+
+    // Query present candle view
+    let view = book.get_candle_view(1000, &[5], 10, UtcMs(10_000));
+    let present_slot = &view.slots_by_broker[&5][9];
+    assert!(present_slot.ohlc.is_some(), "Present slot must have OHLC even if a future tick arrived previously");
+}
+
 

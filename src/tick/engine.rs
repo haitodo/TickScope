@@ -1,6 +1,6 @@
 //! Tick Engine: N-broker watermark merge, ledger, and pipeline coordination.
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, TimezoneRule};
 use crate::core::models::*;
 use crate::core::types::*;
 use crate::protocol::*;
@@ -31,6 +31,7 @@ pub(crate) struct BrokerChannelState {
     pub(crate) max_pending_bytes: usize,
     pub(crate) ledger: SequenceLedger,
     pub(crate) session_id: Option<SessionId>,
+    pub(crate) timezone_rule: TimezoneRule,
     pub(crate) auto_utc_offset: bool,
     pub(crate) active_utc_offset_sec: i32,
     pub(crate) utc_verified: bool,
@@ -79,7 +80,18 @@ impl TickEngine {
         let mut repricing_persistence = HashMap::new();
         let mut fingerprint_trackers = HashMap::new();
 
+        let now_sec = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
         for b in &config.brokers {
+            let initial_offset = b.timezone_rule.resolve_offset(now_sec, b.utc_offset_sec);
+            let initial_verified = match b.timezone_rule {
+                TimezoneRule::NyClose | TimezoneRule::Jst | TimezoneRule::Utc => true,
+                TimezoneRule::Fixed => b.utc_verified,
+            };
+
             channels.insert(
                 b.id,
                 BrokerChannelState {
@@ -92,9 +104,10 @@ impl TickEngine {
                     max_pending_bytes: config.ingress.max_bytes_per_broker,
                     ledger: SequenceLedger::new(config.history.ledger_capacity),
                     session_id: None,
+                    timezone_rule: b.timezone_rule,
                     auto_utc_offset: b.auto_utc_offset,
-                    active_utc_offset_sec: b.utc_offset_sec,
-                    utc_verified: b.utc_verified,
+                    active_utc_offset_sec: initial_offset,
+                    utc_verified: initial_verified,
                 },
             );
 
@@ -105,7 +118,7 @@ impl TickEngine {
 
             let h = HealthState {
                 broker_id: b.id,
-                normalization: if b.utc_verified {
+                normalization: if initial_verified {
                     NormalizationState::Verified
                 } else {
                     NormalizationState::Unverified
@@ -399,15 +412,51 @@ impl TickEngine {
                 }
                 ch.session_id = Some(rf.frame.header.session_id);
 
-                // Auto-detection of UTC offset from ticks if enabled
-                if ch.auto_utc_offset {
+                let is_batch_warmup = (rf.frame.header.header_flags & HEADER_FLAG_WARMUP) != 0;
+
+                // For NyClose, check if a DST calendar transition occurred
+                if ch.timezone_rule == TimezoneRule::NyClose {
                     if let Some(unix_ns) = rf.rx_unix_ns {
-                        if let Some(first_tick) = ticks.first() {
+                        let sec = (unix_ns / 1_000_000_000) as i64;
+                        if sec > 0 {
+                            let expected = ch.timezone_rule.resolve_offset(sec, ch.active_utc_offset_sec);
+                            if expected != ch.active_utc_offset_sec {
+                                log::info!(
+                                    "Broker {} ({}) NYClose DST calendar transition: {}s -> {}s ({:+}h)",
+                                    broker_id,
+                                    self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                    ch.active_utc_offset_sec,
+                                    expected,
+                                    expected / 3600
+                                );
+                                ch.active_utc_offset_sec = expected;
+                                self.candle_book.clear_broker(broker_id);
+                                self.mid_candle_book.clear_broker(broker_id);
+                            }
+                        }
+                    }
+                } else if ch.auto_utc_offset && ch.timezone_rule == TimezoneRule::Fixed && !is_batch_warmup {
+                    if let Some(unix_ns) = rf.rx_unix_ns {
+                        if let Some(last_tick) = ticks.last() {
                             let pc_sec = (unix_ns / 1_000_000_000) as f64;
-                            let broker_sec = (first_tick.broker_time_msc as f64) / 1000.0;
+                            let broker_sec = (last_tick.broker_time_msc as f64) / 1000.0;
                             let raw_diff = broker_sec - pc_sec;
-                            ch.active_utc_offset_sec = round_to_hourly_offset(raw_diff);
-                            ch.utc_verified = true;
+                            let detected_offset = round_to_hourly_offset(raw_diff);
+                            if ch.active_utc_offset_sec != detected_offset || !ch.utc_verified {
+                                log::info!(
+                                    "Broker {} ({}) UTC offset auto-detected from ticks: {}s ({:+}h, previous: {}s)",
+                                    broker_id,
+                                    self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                    detected_offset,
+                                    detected_offset / 3600,
+                                    ch.active_utc_offset_sec
+                                );
+                                ch.active_utc_offset_sec = detected_offset;
+                                ch.utc_verified = true;
+                                // Purge any slots that were created with the previous/unverified offset
+                                self.candle_book.clear_broker(broker_id);
+                                self.mid_candle_book.clear_broker(broker_id);
+                            }
                         }
                     }
                 }
@@ -461,8 +510,9 @@ impl TickEngine {
                         // Feed CandleBook if valid
                         if quote.is_valid {
                             if let Ok(norm) = normalize_tick(&obs, utc_offset, utc_verified, 1) {
-                                self.candle_book.on_tick(&norm, PriceMode::Bid, norm.utc_ms);
-                                self.mid_candle_book.on_tick(&norm, PriceMode::Mid, norm.utc_ms);
+                                let rx_utc_now = UtcMs(rf.rx_unix_ns.map(|ns| ns / 1_000_000).unwrap_or(norm.utc_ms.0));
+                                self.candle_book.on_tick(&norm, PriceMode::Bid, rx_utc_now);
+                                self.mid_candle_book.on_tick(&norm, PriceMode::Mid, rx_utc_now);
                             }
                         }
 
@@ -597,13 +647,47 @@ impl TickEngine {
                     h.heartbeat = HeartbeatState::Ok;
                 }
 
-                // Auto-detection from Heartbeat offset sample if enabled
-                if ch.auto_utc_offset
+                if ch.timezone_rule == TimezoneRule::NyClose {
+                    // Passive diagnostic: warn if heartbeat offset sample diverges significantly from NYClose
+                    if (rf.frame.header.header_flags & HB_FLAG_HAS_OFFSET_SAMPLE != 0)
+                        && (-43200..=50400).contains(&hb.server_utc_offset_sec)
+                    {
+                        let sample = hb.server_utc_offset_sec;
+                        let sample_rounded = round_to_hourly_offset(sample as f64);
+                        if (sample_rounded - ch.active_utc_offset_sec).abs() >= 7200 {
+                            log::warn!(
+                                "Broker {} ({}) heartbeat offset sample ({}s) diverges from expected NYClose ({}s). Check server settings.",
+                                broker_id,
+                                self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                sample,
+                                ch.active_utc_offset_sec
+                            );
+                        }
+                    }
+                } else if ch.auto_utc_offset
+                    && ch.timezone_rule == TimezoneRule::Fixed
                     && (rf.frame.header.header_flags & HB_FLAG_HAS_OFFSET_SAMPLE != 0
                         || hb.server_utc_offset_sec != 0)
                 {
-                    ch.active_utc_offset_sec = round_to_hourly_offset(hb.server_utc_offset_sec as f64);
-                    ch.utc_verified = true;
+                    let sample = hb.server_utc_offset_sec;
+                    // Sanity check: valid FX timezone offset is between -12h (-43200s) and +14h (+50400s)
+                    if (-43200..=50400).contains(&sample) {
+                        let detected_offset = round_to_hourly_offset(sample as f64);
+                        if ch.active_utc_offset_sec != detected_offset || !ch.utc_verified {
+                            log::info!(
+                                "Broker {} ({}) UTC offset auto-detected from heartbeat: {}s ({:+}h, previous: {}s)",
+                                broker_id,
+                                self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                detected_offset,
+                                detected_offset / 3600,
+                                ch.active_utc_offset_sec
+                            );
+                            ch.active_utc_offset_sec = detected_offset;
+                            ch.utc_verified = true;
+                            self.candle_book.clear_broker(broker_id);
+                            self.mid_candle_book.clear_broker(broker_id);
+                        }
+                    }
                 }
             }
             FramePayload::Status(st) => {

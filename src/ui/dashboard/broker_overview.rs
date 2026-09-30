@@ -76,6 +76,7 @@ pub fn render_broker_overview(
                             "Spread",
                             "Quote age",
                             "Feed",
+                            "UTC",
                             "Ticks/s",
                             "Target",
                             "Process",
@@ -214,6 +215,26 @@ pub fn render_broker_overview(
                                     "MT5接続待ち: 対象銘柄チャートに共通EA TickCollector を追加してください。既に動作中なら一度外して再追加してください。",
                                 );
                             }
+
+                            // 10. UTC Offset
+                            let utc_hours = b.active_utc_offset_sec as f64 / 3600.0;
+                            let utc_text = if (utc_hours.fract()).abs() < 1e-4 {
+                                format!("{:+0.0}h", utc_hours)
+                            } else {
+                                format!("{:+0.1}h", utc_hours)
+                            };
+                            let auto_indicator = if b.is_auto_offset { "⚡" } else { "" };
+                            ui.label(
+                                RichText::new(format!("{}{}", utc_text, auto_indicator))
+                                    .monospace()
+                                    .color(quote_color),
+                            )
+                            .on_hover_text(format!(
+                                "UTC Offset: {:+} hours ({}s){}",
+                                utc_hours,
+                                b.active_utc_offset_sec,
+                                if b.is_auto_offset { " [Auto-detected]" } else { " [Fixed]" }
+                            ));
 
                             ui.label(
                                 RichText::new(format!("{:.0}", b.tick_rate_1s))

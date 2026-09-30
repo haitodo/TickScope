@@ -1,6 +1,7 @@
 //! Engine projection and snapshot construction.
 //! Builds immutable EngineProjection snapshots for the UI exchange.
 
+use crate::config::TimezoneRule;
 use crate::core::models::*;
 use crate::core::types::*;
 use crate::tick::engine::TickEngine;
@@ -34,7 +35,9 @@ impl TickEngine {
             }
             let ch = self.channels.get(&b.id);
             let active_utc_offset_sec = ch.map(|c| c.active_utc_offset_sec).unwrap_or(b.utc_offset_sec);
-            let is_auto_offset = ch.map(|c| c.auto_utc_offset).unwrap_or(b.auto_utc_offset);
+            let is_auto_offset = ch
+                .map(|c| c.timezone_rule == TimezoneRule::NyClose || c.auto_utc_offset)
+                .unwrap_or(b.timezone_rule == TimezoneRule::NyClose || b.auto_utc_offset);
 
             broker_overviews.push(BrokerOverview {
                 broker_id: b.id,

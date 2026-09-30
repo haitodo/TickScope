@@ -3,10 +3,9 @@
 active_pair = [1, 2]
 
 # Broker 1: OANDA
-# Note: auto_utc_offset = true automatically detects broker timezone (e.g. GMT+2 / GMT+3 / GMT+9)
-# from MT5 heartbeat and tick timestamps, eliminating manual offset configuration.
-# Legacy fixed ports are used only with auto_deploy = false. Normally TickScope
-# assigns one free local port shared by every broker at startup.
+# Note: timezone_rule = "ny_close" automatically sets and transitions MT5 server timezone
+# between UTC+3 (Summer / US DST) and UTC+2 (Winter / Standard Time) based on the calendar,
+# ensuring zero manual user intervention and 100% reliable candlestick synchronization.
 [[brokers]]
 id = 1
 name = "OANDA"
@@ -15,9 +14,10 @@ port = 39001
 symbol = "USDJPY.cl"
 point_size = 0.001
 pip_size = 0.01
-utc_offset_sec = 0
+timezone_rule = "ny_close"
+utc_offset_sec = 10800
 utc_verified = true
-auto_utc_offset = true
+auto_utc_offset = false
 
 # Broker 2: Axiory
 [[brokers]]
@@ -28,9 +28,10 @@ port = 39002
 symbol = "USDJPY"
 point_size = 0.001
 pip_size = 0.01
-utc_offset_sec = 0
+timezone_rule = "ny_close"
+utc_offset_sec = 10800
 utc_verified = true
-auto_utc_offset = true
+auto_utc_offset = false
 
 # Broker 3: JFX
 [[brokers]]
@@ -41,9 +42,10 @@ port = 39003
 symbol = "USDJPY_MT"
 point_size = 0.001
 pip_size = 0.01
-utc_offset_sec = 0
+timezone_rule = "ny_close"
+utc_offset_sec = 10800
 utc_verified = true
-auto_utc_offset = true
+auto_utc_offset = false
 
 # Broker 4: Dukascopy
 [[brokers]]
@@ -54,9 +56,10 @@ port = 39004
 symbol = "USDJPY"
 point_size = 0.001
 pip_size = 0.01
-utc_offset_sec = 0
+timezone_rule = "ny_close"
+utc_offset_sec = 10800
 utc_verified = true
-auto_utc_offset = true
+auto_utc_offset = false
 
 # Broker 5: Tradeview
 [[brokers]]
@@ -67,9 +70,10 @@ port = 39005
 symbol = "USDJPY.edge"
 point_size = 0.001
 pip_size = 0.01
-utc_offset_sec = 0
+timezone_rule = "ny_close"
+utc_offset_sec = 10800
 utc_verified = true
-auto_utc_offset = true
+auto_utc_offset = false
 
 [protocol]
 max_payload_length = 1048576

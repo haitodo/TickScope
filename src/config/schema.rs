@@ -1,5 +1,6 @@
 //! Configuration schema and validation for TickScope.
 
+use crate::config::timezone::*;
 use crate::core::types::*;
 use crate::protocol::HEADER_LENGTH;
 use serde::{Deserialize, Serialize};
@@ -51,11 +52,14 @@ pub struct BrokerConfig {
     pub symbol: String,
     pub point_size: f64,
     pub pip_size: f64,
+    #[serde(default)]
     pub utc_offset_sec: i32,
     #[serde(default)]
     pub utc_verified: bool,
     #[serde(default = "default_auto_utc_offset")]
     pub auto_utc_offset: bool,
+    #[serde(default)]
+    pub timezone_rule: TimezoneRule,
     #[serde(default)]
     pub terminal_path: Option<String>,
 }
@@ -82,6 +86,7 @@ impl Default for BrokerConfig {
             utc_offset_sec: 0,
             utc_verified: false,
             auto_utc_offset: true,
+            timezone_rule: TimezoneRule::NyClose,
             terminal_path: None,
         }
     }
@@ -421,6 +426,7 @@ impl Default for AppConfig {
                     utc_offset_sec: 0,
                     utc_verified: false,
                     auto_utc_offset: true,
+                    timezone_rule: TimezoneRule::NyClose,
                     terminal_path: None,
                 },
                 BrokerConfig {
@@ -434,6 +440,7 @@ impl Default for AppConfig {
                     utc_offset_sec: 0,
                     utc_verified: false,
                     auto_utc_offset: true,
+                    timezone_rule: TimezoneRule::NyClose,
                     terminal_path: None,
                 },
 
