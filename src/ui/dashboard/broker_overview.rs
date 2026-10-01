@@ -1,341 +1,572 @@
 use super::DashboardApp;
-use crate::core::models::UiSnapshot;
-use crate::core::types::{ConnectionState, FreshnessState};
+use crate::core::models::{BrokerOverview, UiSnapshot};
+use crate::core::types::{BrokerId, ConnectionState, FreshnessState};
+use crate::runtime::TerminalProcessStatus;
 use crate::ui::style;
 use eframe::egui;
 use egui::{Color32, RichText};
 
-pub fn render_broker_overview(
-    app: &mut DashboardApp,
-    ctx: &egui::Context,
-    snapshot: &UiSnapshot,
-) {
+const ROW_HEIGHT: f32 = 30.0;
+const GAP: f32 = 8.0;
+const HEADERS: [&str; 11] = [
+    "順序",
+    "表示",
+    "比較",
+    "Broker",
+    "Bid",
+    "Ask",
+    "Spread",
+    "Quote age",
+    "Feed",
+    "対象",
+    "MT5",
+];
+
+// Only the broker name receives extra space. Live values never size columns.
+fn column_widths(available: f32) -> [f32; 11] {
+    let mut widths = [
+        68.0, 30.0, 48.0, 120.0, 80.0, 80.0, 64.0, 76.0, 92.0, 32.0, 92.0,
+    ];
+    let minimum = widths.iter().sum::<f32>() + GAP * 10.0;
+    widths[3] += (available - minimum).max(0.0);
+    widths
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use crate::core::types::{MonoNs, Quote, TickId};
+    use crate::state::snapshot::SnapshotExchange;
+    use std::sync::Arc;
+
+    #[test]
+    fn default_window_columns_stay_inside_viewport_across_feed_changes() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+        let ctx = egui::Context::default();
+        crate::ui::fonts::setup_fonts(&ctx);
+        style::configure(&ctx);
+        let mut snapshot = UiSnapshot::default();
+        let mut broker = BrokerOverview {
+            broker_id: 1,
+            name: "A very long broker name that must not expand the table".into(),
+            symbol: "USDJPY.long-symbol-suffix".into(),
+            ..Default::default()
+        };
+        broker.health.data_freshness = FreshnessState::Live;
+        broker.latest_quote = Some(Quote {
+            tick_id: TickId {
+                broker_id: 1,
+                session_id: 1,
+                sequence: 1,
+            },
+            bid: 155.1,
+            ask: 155.2,
+            mid: 155.15,
+            spread: 0.1,
+            rx_mono_ns: MonoNs::ZERO,
+            utc_ms: None,
+            is_warmup: false,
+            is_valid: true,
+        });
+        snapshot.broker_overviews.push(broker);
+        // egui measures a newly opened panel before painting its full contents.
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1100.0, 750.0),
+                )),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                render_broker_overview(&mut app, ctx, &snapshot)
+            });
+        }
+        let mut expected_positions = None;
+        for (connection, age_ms, expected_age) in [
+            (ConnectionState::Connected, 25, "25 ms"),
+            (ConnectionState::Disconnected, 2_300, "2.3 s"),
+            (ConnectionState::Connecting, 180_000, "3 min"),
+            (ConnectionState::Connected, 3_600_000, "1 h"),
+        ] {
+            snapshot.broker_overviews[0].health.connection = connection;
+            snapshot.built_mono_ns = MonoNs(age_ms * 1_000_000);
+            // Include the first frame after each change, where sizing regressions occur.
+            for _ in 0..2 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1100.0, 750.0),
+                    )),
+                    ..Default::default()
+                };
+                let output = ctx.run(input, |ctx| {
+                    render_broker_overview(&mut app, ctx, &snapshot)
+                });
+                let positions: Vec<_> = HEADERS
+                    .iter()
+                    .map(|header| {
+                        let text = output
+                            .shapes
+                            .iter()
+                            .find_map(|shape| {
+                                if let egui::Shape::Text(text) = &shape.shape {
+                                    if text.galley.job.text == *header {
+                                        return Some(text);
+                                    }
+                                }
+                                None
+                            })
+                            .unwrap_or_else(|| panic!("Missing header: {header}"));
+                        assert!(
+                            text.pos.x + text.galley.size().x <= 1100.0,
+                            "{header} overflowed"
+                        );
+                        text.pos.x
+                    })
+                    .collect();
+                if let Some(expected) = &expected_positions {
+                    assert_eq!(&positions, expected, "Feed changes must not move columns");
+                } else {
+                    expected_positions = Some(positions);
+                }
+                assert!(ctx.used_rect().right() <= 1100.0);
+                let feed_text = format!("● {}", feed_status(&snapshot.broker_overviews[0]).0);
+                let feed = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| {
+                        if let egui::Shape::Text(text) = &shape.shape {
+                            if text.galley.job.text == feed_text {
+                                return Some((text, shape.clip_rect));
+                            }
+                        }
+                        None
+                    })
+                    .expect("Feed status should be visible");
+                assert_eq!(feed.0.galley.rows.len(), 1);
+                assert!(feed.0.pos.x + feed.0.galley.size().x <= feed.1.right());
+                let age = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| {
+                        if let egui::Shape::Text(text) = &shape.shape {
+                            if text.galley.job.text == expected_age {
+                                return Some((text, shape.clip_rect));
+                            }
+                        }
+                        None
+                    })
+                    .expect("Quote age should be visible");
+                assert_eq!(age.0.galley.rows.len(), 1);
+                assert!(
+                    age.0.pos.x <= age.1.right()
+                        && age.0.pos.x - age.0.galley.size().x >= age.1.left(),
+                    "Quote age {expected_age:?} overflowed: pos={:?}, size={:?}, clip={:?}",
+                    age.0.pos,
+                    age.0.galley.size(),
+                    age.1
+                );
+                for shape in &output.shapes {
+                    if let egui::Shape::Text(text) = &shape.shape {
+                        if ["A", "B", "↑", "↓"].contains(&text.galley.job.text.as_str()) {
+                            assert_eq!(text.galley.rows.len(), 1);
+                            assert!(
+                                text.pos.x + text.galley.size().x <= shape.clip_rect.right(),
+                                "Control {} was clipped",
+                                text.galley.job.text
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn cell<R>(ui: &mut egui::Ui, width: f32, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, ROW_HEIGHT), egui::Sense::hover());
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    child.set_clip_rect(ui.clip_rect().intersect(rect));
+    child.spacing_mut().item_spacing.x = 3.0;
+    child.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
+    contents(&mut child)
+}
+
+fn value(ui: &mut egui::Ui, text: String, color: Color32) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.add(egui::Label::new(RichText::new(&text).monospace().color(color)).truncate())
+            .on_hover_text(text);
+    });
+}
+
+fn feed_status(b: &BrokerOverview) -> (&'static str, Color32, &'static str) {
+    match b.health.connection {
+        ConnectionState::Disconnected => (
+            "Offline",
+            style::ERROR,
+            "未接続。MT5の対象チャートでTickCollectorを確認してください。",
+        ),
+        ConnectionState::Connecting => ("Connecting", style::WARNING, "接続中"),
+        ConnectionState::Connected => match b.health.data_freshness {
+            FreshnessState::Live => ("Live", style::LIVE, "接続中・最新の価格を受信"),
+            FreshnessState::Stale => ("Stale", style::WARNING, "接続中・価格の更新が遅れています"),
+            FreshnessState::Unknown => ("Warming", style::MUTED, "接続中・価格の受信待ち"),
+        },
+    }
+}
+
+fn quote_age(age_ms: u64) -> String {
+    if age_ms < 1000 {
+        format!("{age_ms} ms")
+    } else if age_ms < 60_000 {
+        format!("{:.1} s", age_ms as f64 / 1000.0)
+    } else if age_ms < 3_600_000 {
+        format!("{} min", age_ms / 60_000)
+    } else if age_ms < 86_400_000 {
+        format!("{} h", age_ms / 3_600_000)
+    } else {
+        format!("{} d", age_ms / 86_400_000)
+    }
+}
+
+pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snapshot: &UiSnapshot) {
     if !app.show_broker_overview {
         return;
     }
 
     egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.strong("Broker Overview");
-            if !app.hidden_brokers.is_empty()
-                && ui
-                    .small_button("Show All")
-                    .on_hover_text("Show all hidden brokers on charts")
-                    .clicked()
-            {
-                app.show_all_brokers();
-            }
-
-            ui.separator();
-
-            let all_broker_ids: Vec<crate::core::types::BrokerId> = snapshot
-                .broker_overviews
-                .iter()
-                .map(|b| b.broker_id)
-                .collect();
-            let all_selected = !all_broker_ids.is_empty()
-                && all_broker_ids
-                    .iter()
-                    .all(|&id| app.is_mt5_target(id));
-
-            if ui
-                .small_button(if all_selected { "Deselect All MT5" } else { "Select All MT5" })
-                .on_hover_text("Toggle all brokers as MT5 launch targets")
-                .clicked()
-            {
-                if all_selected {
-                    app.mt5_launch_targets.clear();
-                    app.state_dirty = true;
-                } else {
-                    app.select_all_mt5_targets(&all_broker_ids);
-                }
-            }
-
+            ui.strong("Brokers");
+            ui.label(
+                RichText::new("上から順に、ローソク足の左 → 右")
+                    .small()
+                    .color(style::MUTED),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("✕ Close [B]").clicked() {
-                    app.show_broker_overview = false;
+                if ui
+                    .small_button("閉じる")
+                    .on_hover_text("閉じる [B / Esc]")
+                    .clicked()
+                {
+                    app.set_show_broker_overview(false);
                 }
+                ui.menu_button("操作", |ui| {
+                    if ui.button("順序を初期設定に戻す").clicked() {
+                        app.reset_broker_order(&snapshot.broker_overviews);
+                        ui.close_menu();
+                    }
+                    if ui.button("すべての業者を表示").clicked() {
+                        app.show_all_brokers();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("すべてをMT5一括操作の対象にする").clicked() {
+                        let ids: Vec<_> = snapshot
+                            .broker_overviews
+                            .iter()
+                            .map(|b| b.broker_id)
+                            .collect();
+                        app.select_all_mt5_targets(&ids);
+                        ui.close_menu();
+                    }
+                    if ui.button("MT5一括操作の対象をすべて解除").clicked() {
+                        app.mt5_launch_targets.clear();
+                        app.state_dirty = true;
+                        ui.close_menu();
+                    }
+                });
             });
         });
 
-        egui::ScrollArea::vertical()
-            .max_height(140.0)
+        let ids = app.broker_ids_in_order(&snapshot.broker_overviews);
+        let widths = column_widths(ui.available_width() - 16.0);
+        let table_width = widths.iter().sum::<f32>() + GAP * 10.0;
+        let mut movement = None;
+        egui::ScrollArea::both()
+            .id_salt("broker_overview_scroll")
+            .max_height(190.0)
+            .auto_shrink([false, true])
             .show(ui, |ui| {
-                egui::Grid::new("broker_overview_grid")
-                    .striped(true)
-                    .spacing(egui::vec2(16.0, 8.0))
-                    .min_row_height(26.0)
-                    .show(ui, |ui| {
-                        for header in [
-                            "Vis",
-                            "Focus",
-                            "Broker",
-                            "Symbol",
-                            "Bid",
-                            "Ask",
-                            "Spread",
-                            "Quote age",
-                            "Feed",
-                            "UTC",
-                            "Ticks/s",
-                            "Target",
-                            "Process",
-                            "Action",
-                        ] {
-                            ui.label(RichText::new(header).small().color(style::MUTED));
-                        }
-                        ui.end_row();
-
-                        for b in &snapshot.broker_overviews {
-                            let is_vis = app.is_broker_visible(b.broker_id);
-                            let (status, status_color) = match b.health.connection {
-                                ConnectionState::Disconnected => ("DISCONNECTED", style::ERROR),
-                                ConnectionState::Connecting => ("CONNECTING", style::WARNING),
-                                ConnectionState::Connected => match b.health.data_freshness {
-                                    FreshnessState::Live => ("LIVE", style::LIVE),
-                                    FreshnessState::Stale => ("STALE", style::WARNING),
-                                    FreshnessState::Unknown => ("WARMING", style::MUTED),
-                                },
-                            };
-                            let quote_is_live = b.health.connection
-                                == ConnectionState::Connected
-                                && b.health.data_freshness == FreshnessState::Live;
-                            let quote_color = if !is_vis {
-                                Color32::from_gray(90)
-                            } else if quote_is_live {
-                                Color32::WHITE
-                            } else if b.health.connection == ConnectionState::Disconnected {
-                                Color32::from_gray(90)
-                            } else {
-                                Color32::from_gray(145)
-                            };
-
-                            // 1. Visibility Checkbox
-                            let mut vis_checked = is_vis;
-                            let vis_btn = ui.checkbox(&mut vis_checked, "");
-                            if vis_btn
-                                .on_hover_text(if is_vis {
-                                    "Visible on charts. Click to hide."
-                                } else {
-                                    "Hidden from charts. Click to show."
-                                })
-                                .clicked()
-                            {
-                                app.set_broker_visible(
-                                    b.broker_id,
-                                    vis_checked,
-                                    &snapshot.broker_overviews,
-                                );
-                            }
-
-                            // 2. Focus (A / B) Buttons
-                            let is_a = b.broker_id == app.selected_broker_a;
-                            let is_b = b.broker_id == app.selected_broker_b;
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 2.0;
-                                let btn_a = ui.selectable_label(
-                                    is_a,
-                                    RichText::new("A").strong().color(if is_a {
-                                        Color32::from_rgb(0, 220, 255)
-                                    } else if is_vis {
-                                        Color32::from_gray(100)
-                                    } else {
-                                        Color32::from_gray(60)
-                                    }),
-                                );
-                                if btn_a.on_hover_text("Assign as Broker A").clicked() {
-                                    app.set_broker_a(b.broker_id);
+                ui.spacing_mut().item_spacing = egui::vec2(GAP, 2.0);
+                ui.horizontal(|ui| {
+                    for (index, header) in HEADERS.iter().enumerate() {
+                        cell(ui, widths[index], |ui| {
+                            ui.label(RichText::new(*header).small().color(style::MUTED))
+                                .on_hover_text(match index {
+                                    0 => "ハンドルをドラッグ、または↑↓で移動",
+                                    7 => "最後の価格受信からの経過時間",
+                                    9 => "MT5一括起動・終了の対象",
+                                    10 => "端末状態と起動・停止メニュー",
+                                    _ => *header,
+                                });
+                        });
+                    }
+                });
+                for (index, &id) in ids.iter().enumerate() {
+                    let Some((color_index, b)) = snapshot
+                        .broker_overviews
+                        .iter()
+                        .enumerate()
+                        .find(|(_, b)| b.broker_id == id)
+                    else {
+                        continue;
+                    };
+                    let row_rect = egui::Rect::from_min_size(
+                        ui.cursor().min,
+                        egui::vec2(table_width, ROW_HEIGHT),
+                    );
+                    if index % 2 == 0 {
+                        ui.painter()
+                            .rect_filled(row_rect, 3.0, Color32::from_white_alpha(5));
+                    }
+                    let visible = app.is_broker_visible(id);
+                    let (status, status_color, status_help) = feed_status(b);
+                    let live = b.health.connection == ConnectionState::Connected
+                        && b.health.data_freshness == FreshnessState::Live;
+                    let quote_color = if visible && live {
+                        Color32::WHITE
+                    } else {
+                        style::MUTED
+                    };
+                    ui.push_id(id, |ui| {
+                        ui.horizontal(|ui| {
+                            cell(ui, widths[0], |ui| {
+                                ui.dnd_drag_source(
+                                    egui::Id::new(("broker_order_drag", id)),
+                                    id,
+                                    |ui| {
+                                        // Draw the handle so it does not depend on symbol font coverage.
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(16.0, 22.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        for x in [-3.0, 3.0] {
+                                            for y in [-5.0, 0.0, 5.0] {
+                                                ui.painter().circle_filled(
+                                                    rect.center() + egui::vec2(x, y),
+                                                    1.2,
+                                                    style::MUTED,
+                                                );
+                                            }
+                                        }
+                                        response
+                                    },
+                                )
+                                .response
+                                .on_hover_text("行へドラッグして並べ替え");
+                                if ui
+                                    .add_enabled(index > 0, egui::Button::new("↑").small())
+                                    .on_hover_text("上へ移動")
+                                    .clicked()
+                                {
+                                    movement = Some((id, ids[index - 1], false));
                                 }
-                                let btn_b = ui.selectable_label(
-                                    is_b,
-                                    RichText::new("B").strong().color(if is_b {
-                                        Color32::from_rgb(255, 120, 200)
-                                    } else if is_vis {
-                                        Color32::from_gray(100)
-                                    } else {
-                                        Color32::from_gray(60)
-                                    }),
-                                );
-                                if btn_b.on_hover_text("Assign as Broker B").clicked() {
-                                    app.set_broker_b(b.broker_id);
+                                if ui
+                                    .add_enabled(
+                                        index + 1 < ids.len(),
+                                        egui::Button::new("↓").small(),
+                                    )
+                                    .on_hover_text("下へ移動")
+                                    .clicked()
+                                {
+                                    movement = Some((id, ids[index + 1], true));
                                 }
                             });
-
-                            let name_color = if !is_vis {
-                                Color32::from_gray(120)
-                            } else if quote_is_live {
-                                Color32::WHITE
-                            } else {
-                                status_color
-                            };
-                            ui.label(RichText::new(&b.name).strong().color(name_color));
-                            ui.label(RichText::new(&b.symbol).color(quote_color));
-                            if let Some(q) = &b.latest_quote {
-                                ui.label(
-                                    RichText::new(format!("{:.3}", q.bid))
-                                        .monospace()
-                                        .color(quote_color),
+                            cell(ui, widths[1], |ui| {
+                                let mut checked = visible;
+                                if ui
+                                    .checkbox(&mut checked, "")
+                                    .on_hover_text("チャートに表示")
+                                    .changed()
+                                {
+                                    app.set_broker_visible(id, checked, &snapshot.broker_overviews);
+                                }
+                            });
+                            cell(ui, widths[2], |ui| {
+                                if ui
+                                    .selectable_label(app.selected_broker_a == id, "A")
+                                    .on_hover_text("比較対象A")
+                                    .clicked()
+                                {
+                                    app.set_broker_a(id);
+                                }
+                                if ui
+                                    .selectable_label(app.selected_broker_b == id, "B")
+                                    .on_hover_text("比較対象B")
+                                    .clicked()
+                                {
+                                    app.set_broker_b(id);
+                                }
+                            });
+                            cell(ui, widths[3], |ui| {
+                                let color = app.theme.broker_colors
+                                    [color_index % app.theme.broker_colors.len()];
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(4.0, 14.0),
+                                    egui::Sense::hover(),
                                 );
-                                ui.label(
-                                    RichText::new(format!("{:.3}", q.ask))
-                                        .monospace()
-                                        .color(quote_color),
+                                ui.painter().rect_filled(
+                                    rect,
+                                    2.0,
+                                    if visible { color } else { style::MUTED },
                                 );
-                                ui.label(
-                                    RichText::new(format!("{:.3}", q.spread))
-                                        .monospace()
-                                        .color(quote_color),
-                                );
-                                let age_ms = snapshot
-                                    .built_mono_ns
-                                    .0
-                                    .saturating_sub(q.rx_mono_ns.0)
-                                    / 1_000_000;
-                                let age_label = if quote_is_live {
-                                    format!("{} ms", age_ms)
-                                } else {
-                                    format!("{} · {} ms", status, age_ms)
-                                };
-                                ui.label(RichText::new(age_label).monospace().color(
-                                    if quote_is_live {
-                                        Color32::from_gray(210)
-                                    } else {
-                                        status_color
-                                    },
+                                ui.add(
+                                    egui::Label::new(RichText::new(&b.name).strong().color(
+                                        if visible {
+                                            Color32::WHITE
+                                        } else {
+                                            style::MUTED
+                                        },
+                                    ))
+                                    .truncate(),
+                                )
+                                .on_hover_text(format!(
+                                    "{} [{}]\nSymbol: {}\nUTC: {:+.1}h ({})\nTicks/s: {:.0}",
+                                    b.name,
+                                    id,
+                                    b.symbol,
+                                    b.active_utc_offset_sec as f64 / 3600.0,
+                                    if b.is_auto_offset { "Auto" } else { "Fixed" },
+                                    b.tick_rate_1s
                                 ));
-                            } else {
-                                for _ in 0..4 {
-                                    ui.label(RichText::new("—").color(quote_color));
-                                }
-                            }
-
-                            let status_label = ui.colored_label(status_color, status);
-                            if b.health.connection == ConnectionState::Disconnected {
-                                status_label.on_hover_text(
-                                    "MT5接続待ち: 対象銘柄チャートに共通EA TickCollector を追加してください。既に動作中なら一度外して再追加してください。",
-                                );
-                            }
-
-                            // 10. UTC Offset
-                            let utc_hours = b.active_utc_offset_sec as f64 / 3600.0;
-                            let utc_text = if (utc_hours.fract()).abs() < 1e-4 {
-                                format!("{:+0.0}h", utc_hours)
-                            } else {
-                                format!("{:+0.1}h", utc_hours)
-                            };
-                            let auto_indicator = if b.is_auto_offset { "⚡" } else { "" };
-                            ui.label(
-                                RichText::new(format!("{}{}", utc_text, auto_indicator))
-                                    .monospace()
-                                    .color(quote_color),
-                            )
-                            .on_hover_text(format!(
-                                "UTC Offset: {:+} hours ({}s){}",
-                                utc_hours,
-                                b.active_utc_offset_sec,
-                                if b.is_auto_offset { " [Auto-detected]" } else { " [Fixed]" }
-                            ));
-
-                            ui.label(
-                                RichText::new(format!("{:.0}", b.tick_rate_1s))
-                                    .monospace()
-                                    .color(quote_color),
-                            );
-
-                            // 11. MT5 Target Checkbox
-                            let mut is_target = app.is_mt5_target(b.broker_id);
-                            if ui
-                                .checkbox(&mut is_target, "")
-                                .on_hover_text("一括起動／終了の対象に含める")
-                                .clicked()
-                            {
-                                app.set_mt5_target(b.broker_id, is_target);
-                            }
-
-                            // 12. MT5 Process Status
-                            let proc_status = app.terminal_manager.get_status(b.broker_id);
-                            let is_normal_window = app.mt5_non_minimized_broker == Some(b.broker_id);
-                            match proc_status {
-                                crate::runtime::TerminalProcessStatus::Running { pid } => {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new(format!("● PID:{}", pid))
-                                                .small()
-                                                .color(style::LIVE),
-                                        );
-                                        if is_normal_window {
-                                            ui.label(
-                                                RichText::new("[通常]")
-                                                    .small()
-                                                    .color(Color32::from_rgb(100, 220, 255)),
-                                            )
-                                            .on_hover_text("通常表示設定の端末です");
-                                        }
-                                    });
-                                }
-                                crate::runtime::TerminalProcessStatus::Stopped => {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new("○ Stopped")
-                                                .small()
-                                                .color(Color32::from_gray(140)),
-                                        );
-                                        if is_normal_window {
-                                            ui.label(
-                                                RichText::new("[通常]")
-                                                    .small()
-                                                    .color(Color32::from_rgb(100, 220, 255)),
-                                            )
-                                            .on_hover_text("この端末は最小化せず通常ウィンドウで起動します");
-                                        }
-                                    });
-                                }
-                                crate::runtime::TerminalProcessStatus::NotFound => {
-                                    ui.label(
-                                        RichText::new("⚠ No exe")
-                                            .small()
-                                            .color(style::WARNING),
+                            });
+                            for (column, price) in [
+                                (4, b.latest_quote.as_ref().map(|q| q.bid)),
+                                (5, b.latest_quote.as_ref().map(|q| q.ask)),
+                                (6, b.latest_quote.as_ref().map(|q| q.spread)),
+                            ] {
+                                cell(ui, widths[column], |ui| {
+                                    value(
+                                        ui,
+                                        price
+                                            .map(|v| format!("{v:.3}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                        quote_color,
                                     )
-                                    .on_hover_text("MT5実行ファイルが見つかりません。config.tomlでterminal_pathを指定してください。");
-                                }
+                                });
                             }
-
-                            // 13. Individual Action Button
-                            match proc_status {
-                                crate::runtime::TerminalProcessStatus::Running { pid } => {
-                                    let stop_btn = ui.small_button("⏹ 停止");
-                                    if stop_btn
-                                        .on_hover_text(format!("このMT5端末（PID: {}）を終了します", pid))
-                                        .clicked()
-                                    {
-                                        app.terminal_manager.stop(b.broker_id, std::time::Duration::from_secs(5));
+                            cell(ui, widths[7], |ui| {
+                                let age = b.latest_quote.as_ref().map(|q| {
+                                    snapshot.built_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                        / 1_000_000
+                                });
+                                value(
+                                    ui,
+                                    age.map(quote_age).unwrap_or_else(|| "—".into()),
+                                    if live { quote_color } else { status_color },
+                                );
+                            });
+                            cell(ui, widths[8], |ui| {
+                                ui.label(
+                                    RichText::new(format!("● {status}"))
+                                        .small()
+                                        .color(status_color),
+                                )
+                                .on_hover_text(status_help);
+                            });
+                            cell(ui, widths[9], |ui| {
+                                let mut target = app.is_mt5_target(id);
+                                if ui
+                                    .checkbox(&mut target, "")
+                                    .on_hover_text("MT5一括起動・終了の対象")
+                                    .changed()
+                                {
+                                    app.set_mt5_target(id, target);
+                                }
+                            });
+                            cell(ui, widths[10], |ui| {
+                                let process = app.terminal_manager.get_status(id);
+                                let (label, color) = match process {
+                                    TerminalProcessStatus::Running { .. } => {
+                                        ("起動中", style::LIVE)
                                     }
-                                }
-                                crate::runtime::TerminalProcessStatus::Stopped => {
-                                    let minimized = if is_normal_window { false } else { app.mt5_minimized };
-                                    let start_btn = ui.small_button("▶ 起動");
-                                    let hover_text = if is_normal_window {
-                                        "このMT5端末を起動します（モード: 通常表示）".to_string()
-                                    } else {
-                                        format!("このMT5端末を起動します（最小化: {}）", if app.mt5_minimized { "オン" } else { "オフ" })
-                                    };
-                                    if start_btn
-                                        .on_hover_text(hover_text)
-                                        .clicked()
-                                    {
-                                        let _ = app.terminal_manager.launch(b.broker_id, minimized);
-                                        app.terminal_manager.poll_status(&app.broker_configs, &app.discovered_terminals, true);
-                                    }
-                                }
-                                crate::runtime::TerminalProcessStatus::NotFound => {
-                                    ui.label(RichText::new("—").color(Color32::from_gray(100)));
-                                }
-                            }
-
-                            ui.end_row();
-
-                        }
+                                    TerminalProcessStatus::Stopped => ("停止中", style::MUTED),
+                                    TerminalProcessStatus::NotFound => ("未設定", style::WARNING),
+                                };
+                                ui.menu_button(
+                                    RichText::new(format!("{label} ▾")).color(color),
+                                    |ui| {
+                                        let normal = app.mt5_non_minimized_broker == Some(id);
+                                        ui.strong(&b.name);
+                                        ui.label(if normal {
+                                            "起動モード: 通常表示"
+                                        } else if app.mt5_minimized {
+                                            "起動モード: 最小化"
+                                        } else {
+                                            "起動モード: 通常表示"
+                                        });
+                                        match process {
+                                            TerminalProcessStatus::Running { pid } => {
+                                                ui.label(format!("PID: {pid}"));
+                                                if ui.button("MT5を停止").clicked() {
+                                                    app.terminal_manager.stop(
+                                                        id,
+                                                        std::time::Duration::from_secs(5),
+                                                    );
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                            TerminalProcessStatus::Stopped => {
+                                                if ui.button("MT5を起動").clicked() {
+                                                    let _ = app
+                                                        .terminal_manager
+                                                        .launch(id, !normal && app.mt5_minimized);
+                                                    app.terminal_manager.poll_status(
+                                                        &app.broker_configs,
+                                                        &app.discovered_terminals,
+                                                        true,
+                                                    );
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                            TerminalProcessStatus::NotFound => {
+                                                ui.label("MT5実行ファイルが見つかりません。");
+                                                ui.label("設定のterminal_pathを確認してください。");
+                                            }
+                                        }
+                                    },
+                                );
+                            });
+                        });
                     });
+
+                    // Accept drops across the row, including its price and status cells.
+                    if let Some(payload) = egui::DragAndDrop::payload::<BrokerId>(ctx) {
+                        if let Some(pointer) = ctx.pointer_interact_pos() {
+                            if row_rect.intersect(ui.clip_rect()).contains(pointer)
+                                && *payload != id
+                            {
+                                let after = pointer.y > row_rect.center().y;
+                                let y = if after {
+                                    row_rect.bottom()
+                                } else {
+                                    row_rect.top()
+                                };
+                                ui.painter().line_segment(
+                                    [
+                                        egui::pos2(row_rect.left(), y),
+                                        egui::pos2(row_rect.right(), y),
+                                    ],
+                                    egui::Stroke::new(2.0_f32, style::LIVE),
+                                );
+                                if ctx.input(|i| i.pointer.any_released()) {
+                                    egui::DragAndDrop::take_payload::<BrokerId>(ctx);
+                                    movement = Some((*payload, id, after));
+                                }
+                            }
+                        }
+                    }
+                }
             });
+        if let Some((source, target, after)) = movement {
+            app.move_broker_order(source, target, after);
+            ctx.request_repaint();
+        }
     });
 }

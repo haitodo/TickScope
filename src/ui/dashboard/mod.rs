@@ -60,6 +60,7 @@ pub struct DashboardApp {
     pub(crate) show_broker_overview: bool,
     pub(crate) show_quick_settings: bool,
     pub(crate) hidden_brokers: Vec<BrokerId>,
+    pub(crate) broker_order: Vec<BrokerId>,
     pub(crate) ui_state_path: Option<PathBuf>,
     pub(crate) window_geometry: WindowGeometryState,
     pub(crate) window_reset_in_progress: u8,
@@ -115,6 +116,7 @@ impl DashboardApp {
             show_broker_overview: false,
             show_quick_settings: false,
             hidden_brokers: Vec::new(),
+            broker_order: Vec::new(),
             ui_state_path: None,
             window_geometry: WindowGeometryState::default(),
             window_reset_in_progress: 0,
@@ -146,6 +148,7 @@ impl DashboardApp {
         self.show_broker_overview = state.show_broker_overview;
         self.bottom_metric = state.bottom_metric;
         self.hidden_brokers = state.hidden_brokers.clone();
+        self.broker_order = state.broker_order.clone();
         self.window_geometry = state.window.clone();
         self.selected_broker_a = state.active_pair.0;
         self.selected_broker_b = state.active_pair.1;
@@ -220,6 +223,7 @@ impl DashboardApp {
             bottom_metric: self.bottom_metric,
             active_pair: self.selected_pair(),
             hidden_brokers: self.hidden_brokers.clone(),
+            broker_order: self.broker_order.clone(),
             mt5_minimized: self.mt5_minimized,
             mt5_launch_targets: self.mt5_launch_targets.clone(),
             mt5_auto_launch: self.mt5_auto_launch,
@@ -400,15 +404,60 @@ impl DashboardApp {
         }
     }
 
-    pub fn visible_broker_ids(&self, overviews: &[BrokerOverview]) -> Vec<BrokerId> {
-        let mut ids = Vec::with_capacity(overviews.len());
-        ids.extend(
-            overviews
-                .iter()
-                .map(|b| b.broker_id)
-                .filter(|&id| self.is_broker_visible(id)),
-        );
-        ids
+    pub fn broker_ids_in_order(&mut self, overviews: &[BrokerOverview]) -> Vec<BrokerId> {
+        for overview in overviews {
+            if !self.broker_order.contains(&overview.broker_id) {
+                self.broker_order.push(overview.broker_id);
+                self.state_dirty = true;
+            }
+        }
+
+        let mut ordered_ids = Vec::with_capacity(overviews.len());
+        for &broker_id in &self.broker_order {
+            if overviews.iter().any(|overview| overview.broker_id == broker_id)
+                && !ordered_ids.contains(&broker_id)
+            {
+                ordered_ids.push(broker_id);
+            }
+        }
+        ordered_ids
+    }
+
+    pub fn visible_broker_ids(&mut self, overviews: &[BrokerOverview]) -> Vec<BrokerId> {
+        self.broker_ids_in_order(overviews)
+            .into_iter()
+            .filter(|&id| self.is_broker_visible(id))
+            .collect()
+    }
+
+    pub fn move_broker_order(&mut self, broker_id: BrokerId, target_id: BrokerId, after: bool) {
+        if broker_id == target_id {
+            return;
+        }
+
+        let previous_order = self.broker_order.clone();
+        let Some(source_index) = self.broker_order.iter().position(|&id| id == broker_id) else {
+            return;
+        };
+        let source_id = self.broker_order.remove(source_index);
+        let Some(target_index) = self.broker_order.iter().position(|&id| id == target_id) else {
+            self.broker_order.insert(source_index, source_id);
+            return;
+        };
+        let insertion_index = target_index + usize::from(after);
+        self.broker_order.insert(insertion_index, source_id);
+
+        if self.broker_order != previous_order {
+            self.state_dirty = true;
+        }
+    }
+
+    pub fn reset_broker_order(&mut self, overviews: &[BrokerOverview]) {
+        let default_order: Vec<BrokerId> = overviews.iter().map(|b| b.broker_id).collect();
+        if self.broker_order != default_order {
+            self.broker_order = default_order;
+            self.state_dirty = true;
+        }
     }
 
     pub fn with_pip_size(mut self, pip_size: f64) -> Self {

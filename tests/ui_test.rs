@@ -106,7 +106,7 @@ fn test_ts02_ui_headless_render() {
     });
 
     let exchange = Arc::new(SnapshotExchange::new(initial_snap));
-    let mut app = DashboardApp::new(exchange, (1, 2));
+    let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
 
     // Headless egui Context
     let ctx = egui::Context::default();
@@ -751,6 +751,44 @@ fn test_broker_visibility_toggle_and_minimum_guard() {
 }
 
 #[test]
+fn test_broker_order_reordering_visibility_and_new_brokers() {
+    let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+    let mut app = DashboardApp::new(exchange.clone(), (1, 2));
+    let overviews = vec![
+        BrokerOverview { broker_id: 1, name: "Broker 1".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 2, name: "Broker 2".to_string(), ..Default::default() },
+        BrokerOverview { broker_id: 3, name: "Broker 3".to_string(), ..Default::default() },
+    ];
+
+    assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2, 3]);
+    app.move_broker_order(3, 2, false);
+    assert_eq!(app.visible_broker_ids(&overviews), vec![1, 3, 2]);
+
+    app.set_broker_visible(3, false, &overviews);
+    assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2]);
+    let saved_state = app.current_ui_state();
+    assert_eq!(saved_state.broker_order, vec![1, 3, 2]);
+
+    let restored = DashboardApp::new(exchange, (1, 2)).with_ui_state(&saved_state);
+    assert_eq!(restored.current_ui_state().broker_order, vec![1, 3, 2]);
+
+    let overviews_with_new_broker = vec![
+        BrokerOverview { broker_id: 4, name: "Broker 4".to_string(), ..Default::default() },
+        overviews[1].clone(),
+        overviews[0].clone(),
+        overviews[2].clone(),
+    ];
+    assert_eq!(
+        app.broker_ids_in_order(&overviews_with_new_broker),
+        vec![1, 3, 2, 4],
+        "new brokers should be appended without changing stored positions",
+    );
+
+    app.reset_broker_order(&overviews_with_new_broker);
+    assert_eq!(app.broker_ids_in_order(&overviews_with_new_broker), vec![4, 2, 1, 3]);
+}
+
+#[test]
 fn test_candlestick_chart_hides_broker_without_wasted_gap() {
     use tick_scope::ui::chart::{draw_candlestick_chart_for_brokers, ChartTheme};
     use tick_scope::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
@@ -1168,4 +1206,3 @@ fn test_candlestick_5_brokers_hiding_broker_4_tradeview_remains() {
 
     println!("Output shapes count: {}", output.shapes.len());
 }
-

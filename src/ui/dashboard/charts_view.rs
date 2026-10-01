@@ -219,6 +219,13 @@ pub fn render_charts_view(
                         app.set_bottom_x_axis_mode(ChartXAxisMode::ReceiveTime);
                     }
                     ui.label(RichText::new("Bottom X:").color(Color32::from_gray(160)).small());
+                    if ui
+                        .small_button("業者順")
+                        .on_hover_text("ローソク足の業者順を変更")
+                        .clicked()
+                    {
+                        app.set_show_broker_overview(true);
+                    }
                 });
             });
         });

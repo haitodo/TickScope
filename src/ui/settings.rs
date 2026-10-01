@@ -6,6 +6,7 @@ use crate::core::models::PriceMode;
 use crate::core::types::BrokerId;
 use crate::ui::chart::{BottomMetric, ChartXAxisMode};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -178,6 +179,8 @@ pub struct UiState {
     pub candle_follow_criteria: CandleFollowCriteria,
     #[serde(default)]
     pub hidden_brokers: Vec<BrokerId>,
+    #[serde(default)]
+    pub broker_order: Vec<BrokerId>,
     #[serde(default = "default_true")]
     pub mt5_minimized: bool,
     #[serde(default)]
@@ -209,6 +212,7 @@ impl Default for UiState {
             bottom_metric: BottomMetric::default(),
             show_broker_overview: false,
             hidden_brokers: Vec::new(),
+            broker_order: Vec::new(),
             mt5_minimized: true,
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
@@ -276,6 +280,8 @@ impl UiState {
         }
         self.hidden_brokers.sort_unstable();
         self.hidden_brokers.dedup();
+        let mut seen = HashSet::new();
+        self.broker_order.retain(|id| seen.insert(*id));
     }
 
     /// Reconciles the loaded active broker pair with currently configured brokers.
@@ -481,6 +487,7 @@ mod tests {
             bottom_metric: BottomMetric::SpreadDiff,
             show_broker_overview: true,
             hidden_brokers: vec![3, 5],
+            broker_order: vec![3, 1, 2],
             mt5_minimized: true,
             mt5_launch_targets: vec![1, 2],
             mt5_auto_launch: true,
@@ -540,8 +547,21 @@ mod tests {
         assert_eq!(state.top_x_axis_mode, ChartXAxisMode::TickCount);
         assert_eq!(state.bottom_x_axis_mode, ChartXAxisMode::ReceiveTime);
         assert_eq!(state.bottom_metric, BottomMetric::MidDiff);
+        assert!(state.broker_order.is_empty());
         // Should default to Some(1) (OANDA) for legacy configs
         assert_eq!(state.mt5_non_minimized_broker, Some(1));
+    }
+
+    #[test]
+    fn test_broker_order_sanitize_removes_duplicates_without_reordering() {
+        let mut state = UiState {
+            broker_order: vec![3, 1, 3, 2, 1],
+            ..Default::default()
+        };
+
+        state.sanitize();
+
+        assert_eq!(state.broker_order, vec![3, 1, 2]);
     }
 
     #[test]
@@ -598,6 +618,7 @@ mod tests {
             bottom_metric: BottomMetric::MidDiff,
             show_broker_overview: false,
             hidden_brokers: Vec::new(),
+            broker_order: Vec::new(),
             mt5_minimized: true,
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
