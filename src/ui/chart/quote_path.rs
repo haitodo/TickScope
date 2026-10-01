@@ -4,7 +4,7 @@ use super::common::{
     chart_plot_rect, draw_x_axis_caption, is_live, price_decimals_for_pip, x_axis_coordinate,
     CHART_HEADER_HEIGHT,
 };
-use super::theme::{broker_color_for, dim_color, ChartTheme};
+use super::theme::{broker_color_for_name, dim_color, ChartTheme};
 use egui::{Color32, Pos2, Rect, Stroke};
 use serde::{Deserialize, Serialize};
 
@@ -220,7 +220,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
             hidden_legends += 1;
             continue;
         }
-        let base_color = broker_color_for(theme, *index);
+        let base_color = broker_color_for_name(theme, Some(&broker.name), *index);
         painter.line_segment(
             [
                 Pos2::new(legend_x, legend_y + 6.0),
@@ -262,7 +262,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
     // color, while every broker keeps the same line width.
     for (index, broker) in &ordered_brokers {
         let selected = broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1;
-        let color = broker_color_for(theme, *index);
+        let color = broker_color_for_name(theme, Some(&broker.name), *index);
         let line_color = if selected {
             color
         } else {

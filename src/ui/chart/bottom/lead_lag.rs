@@ -1,6 +1,6 @@
 use crate::core::models::{BrokerOverview, MoveDirection, MoveQuality, PairComparison};
 use crate::core::types::BrokerId;
-use crate::ui::chart::theme::ChartTheme;
+use crate::ui::chart::theme::{broker_color_by_name, ChartTheme};
 use egui::{Color32, Pos2, Rect, Stroke};
 
 /// Lead / Lag diagnostics view between broker A and broker B (RFC §29, §61).
@@ -85,6 +85,9 @@ pub fn draw_lead_lag_view(
             Stroke::new(2.0_f32, Color32::from_gray(140)),
         );
 
+        let color_a = broker_color_by_name(&broker_a_name).unwrap_or(theme.candle_up_a);
+        let color_b = broker_color_by_name(&broker_b_name).unwrap_or(theme.candle_up_b);
+
         // Labels for A (Left) and B (Right)
         painter.text(
             Pos2::new(bar_center_x - max_bar_half_width - 8.0, bar_center_y),
@@ -92,7 +95,7 @@ pub fn draw_lead_lag_view(
             format!("{} (A)", broker_a_name),
             egui::FontId::proportional(12.0),
             if m.leader == comp.broker_a {
-                theme.candle_up_a
+                color_a
             } else {
                 Color32::GRAY
             },
@@ -104,7 +107,7 @@ pub fn draw_lead_lag_view(
             format!("{} (B)", broker_b_name),
             egui::FontId::proportional(12.0),
             if m.leader == comp.broker_b {
-                theme.candle_up_b
+                color_b
             } else {
                 Color32::GRAY
             },
@@ -119,7 +122,7 @@ pub fn draw_lead_lag_view(
                     Pos2::new(bar_center_x - bar_len, bar_center_y - 6.0),
                     Pos2::new(bar_center_x, bar_center_y + 6.0),
                 ),
-                theme.candle_up_a,
+                color_a,
             )
         } else {
             (
@@ -127,7 +130,7 @@ pub fn draw_lead_lag_view(
                     Pos2::new(bar_center_x, bar_center_y - 6.0),
                     Pos2::new(bar_center_x + bar_len, bar_center_y + 6.0),
                 ),
-                theme.candle_up_b,
+                color_b,
             )
         };
         painter.rect_filled(bar_rect, 2.0, bar_color);

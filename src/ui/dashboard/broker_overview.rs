@@ -556,8 +556,11 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                                 }
                             });
                             cell(ui, widths[3], |ui| {
-                                let color = app.theme.broker_colors
-                                    [color_index % app.theme.broker_colors.len()];
+                                let color = crate::ui::chart::broker_color_for_name(
+                                    &app.theme,
+                                    Some(&b.name),
+                                    color_index,
+                                );
                                 let (rect, _) = ui.allocate_exact_size(
                                     egui::vec2(4.0, 14.0),
                                     egui::Sense::hover(),

@@ -8,7 +8,7 @@ use super::scale::{
     draw_clip_marker, extract_valid_quote_candidates_for_mode, resolve_candle_follow_scale,
     FollowStatusInfo, MarginEdgeLatchSide,
 };
-use super::theme::{broker_color_for, ChartTheme};
+use super::theme::{broker_color_for_name, dim_candle_color, ChartTheme};
 use egui::{Color32, Pos2, Rect, Stroke};
 
 pub fn draw_candlestick_chart(
@@ -395,7 +395,11 @@ pub fn draw_candlestick_chart_for_brokers(
                             .iter()
                             .position(|b| b.broker_id == *broker_id)
                             .unwrap_or(broker_index);
-                        let color = broker_color_for(theme, color_index);
+                        let broker_name = broker_overviews
+                            .iter()
+                            .find(|b| b.broker_id == *broker_id)
+                            .map(|b| b.name.as_str());
+                        let color = broker_color_for_name(theme, broker_name, color_index);
                         draw_single_candle(
                             &plot_painter,
                             cx,
@@ -429,12 +433,12 @@ pub fn draw_candlestick_chart_for_brokers(
             .iter()
             .position(|b| b.broker_id == *broker_id)
             .unwrap_or(broker_index);
-        let color = broker_color_for(theme, color_index);
         let name = broker_overviews
             .iter()
             .find(|b| b.broker_id == *broker_id)
             .map(|b| b.name.as_str())
             .unwrap_or("Broker");
+        let color = broker_color_for_name(theme, Some(name), color_index);
         let label = format!("{} [{}]", name, broker_id);
         let width = 8.0 + label.len() as f32 * 7.0 + 12.0;
         if legend_x + width > rect.right() - 8.0 {
@@ -471,10 +475,6 @@ pub fn draw_candlestick_chart_for_brokers(
             Color32::from_gray(180),
         );
     }
-}
-
-pub fn dim_candle_color(color: Color32) -> Color32 {
-    Color32::from_rgba_unmultiplied(color.r() / 2, color.g() / 2, color.b() / 2, color.a())
 }
 
 pub fn draw_single_candle<F>(

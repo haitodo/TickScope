@@ -1,6 +1,6 @@
 use crate::core::models::BrokerOverview;
 use crate::core::types::BrokerId;
-use crate::ui::chart::theme::{broker_color_for, ChartTheme};
+use crate::ui::chart::theme::{broker_color_for_name, ChartTheme};
 use egui::{Color32, Pos2, Rect};
 
 /// Quote Persistence View (RFC §45, §61)
@@ -55,7 +55,7 @@ pub fn draw_quote_persistence_view_with_visibility(
         }
         let y = y0 + (row_idx as f32) * rh + rh * 0.5;
         row_idx += 1;
-        let color = broker_color_for(theme, orig_idx);
+        let color = broker_color_for_name(theme, Some(&b.name), orig_idx);
         painter.text(
             Pos2::new(rect.left() + 8.0, y),
             egui::Align2::LEFT_CENTER,

@@ -1,7 +1,7 @@
 use crate::core::models::BrokerOverview;
 use crate::core::types::{BrokerId, ConnectionState, FreshnessState};
 use crate::metrics::ObservedBrokerConsensus;
-use crate::ui::chart::theme::{broker_color_for, ChartTheme};
+use crate::ui::chart::theme::{broker_color_for_name, ChartTheme};
 use egui::{Color32, Pos2, Rect, Stroke};
 
 /// Mid Dispersion View (RFC §26, §61)
@@ -108,7 +108,7 @@ pub fn draw_mid_dispersion_view_with_visibility(
         }
         let y = bar_top + (row_idx as f32) * row_h + row_h * 0.5;
         row_idx += 1;
-        let color = broker_color_for(theme, orig_idx);
+        let color = broker_color_for_name(theme, Some(&b.name), orig_idx);
         painter.text(
             Pos2::new(rect.left() + 8.0, y),
             egui::Align2::LEFT_CENTER,
