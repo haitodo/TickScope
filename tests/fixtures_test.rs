@@ -68,18 +68,6 @@ fn test_load_default_config() {
     assert_eq!(config.active_pair, (1, 2));
 }
 
-#[test]
-fn test_contracts_facade_backward_compatibility() {
-    assert_eq!(tick_scope::contracts::MAGIC_TICK, MAGIC_TICK);
-    assert_eq!(tick_scope::contracts::PROTOCOL_VERSION, PROTOCOL_VERSION);
-    let sample = tick_scope::contracts::ClockReading {
-        run_id: tick_scope::contracts::RunId([0; 16]),
-        mono_ns: tick_scope::contracts::MonoNs(100),
-        unix_ns: Some(100),
-    };
-    assert_eq!(sample.mono_ns.0, 100);
-    let crc = tick_scope::contracts::crc32c::crc32c(CRC32C_INPUT_BYTES);
-    assert_eq!(crc, CRC32C_EXPECTED_U32);
-}
+
 
 

@@ -7,9 +7,6 @@ use crate::core::types::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-// Re-export persistence types for backward compatibility
-pub use super::persistence::{PendingLead, QuotePersistenceTracker, RepricingPersistenceTracker};
-
 /// Statistical context attached to all observational metrics.
 /// Prevents conflating low-sample or short-window observations with high-confidence baselines.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

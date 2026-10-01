@@ -53,9 +53,6 @@ MT5でローカル通信が許可されていない場合は、MT5メニュー�
 2. `エキスパートアドバイザ → TickCollector` を対象銘柄（例: USDJPY）のチャートへドラッグ＆ドロップして適用。
 3. パラメータ入力（ID・ホスト・ポート）は不要です。EAがチャート銘柄と口座サーバー名から自動的に接続先を識別します。
 
-> **※ 以前のバージョンから移行する場合**:
-> チャートに残っている旧ブローカー個別EAを外し、ナビゲータ更新後に共通の `TickCollector` を適用してください（過去のブローカー別EAファイルは `MQL5/Files/TickScope/legacy_broker_eas` に自動退避されます）。
-
 ---
 
 ## 起動オプション（CLI）
@@ -154,7 +151,6 @@ tick-scope.exe [OPTIONS] [CONFIG_PATH]
 id = 1
 name = "OANDA"             # MT5口座サーバー名と照合されるキーワード
 host = "127.0.0.1"
-port = 39001               # auto_deploy=false時の固定ポート
 symbol = "USDJPY.cl"       # ブローカー側の銘柄記号
 point_size = 0.001
 pip_size = 0.01

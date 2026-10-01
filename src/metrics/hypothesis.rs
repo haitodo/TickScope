@@ -7,9 +7,8 @@
 //! - Always present hypotheses with explicit, verifiable evidence chains (RFC Section 50).
 
 use crate::core::types::*;
-use crate::metrics::fingerprint::{
-    BrokerFingerprint, QuotePersistenceTracker, RepricingPersistenceTracker, SampleContext,
-};
+use crate::metrics::fingerprint::{BrokerFingerprint, SampleContext};
+use crate::metrics::persistence::{QuotePersistenceTracker, RepricingPersistenceTracker};
 use serde::{Deserialize, Serialize};
 
 /// Hypothesis categories for broker feed behavior (RFC Beta 0.3 Sections 48, 49, 78).

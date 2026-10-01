@@ -161,7 +161,7 @@ pub struct UiState {
     pub show_candle_context: bool,
     #[serde(default = "default_timeframe_ms")]
     pub selected_timeframe_ms: i64,
-    #[serde(default, alias = "x_axis_mode")]
+    #[serde(default)]
     pub top_x_axis_mode: ChartXAxisMode,
     #[serde(default)]
     pub bottom_x_axis_mode: ChartXAxisMode,
@@ -189,7 +189,7 @@ pub struct UiState {
     pub mt5_auto_launch: bool,
     #[serde(default)]
     pub mt5_auto_close: bool,
-    #[serde(default = "default_non_minimized_broker_id", alias = "mt5_normal_broker_id")]
+    #[serde(default = "default_non_minimized_broker_id")]
     pub mt5_non_minimized_broker: Option<BrokerId>,
     #[serde(default)]
     pub always_on_top: bool,
@@ -351,15 +351,12 @@ impl UiState {
         // 5. Reconcile MT5 normal (non-minimized) window broker
         if let Some(id) = self.mt5_non_minimized_broker {
             if !brokers.iter().any(|bk| bk.id == id) {
-                // Configured ID no longer exists; try config default or fallback to OANDA
+                // Configured ID no longer exists; resolve from config default if available
                 let mut resolved = None;
                 if let Some(name) = default_normal_broker_name {
                     if !name.is_empty() && !name.eq_ignore_ascii_case("none") {
                         resolved = brokers.iter().find(|bk| bk.name.eq_ignore_ascii_case(name) || bk.name.to_lowercase().contains(&name.to_lowercase())).map(|bk| bk.id);
                     }
-                }
-                if resolved.is_none() {
-                    resolved = brokers.iter().find(|bk| bk.name.to_lowercase().contains("oanda")).map(|bk| bk.id);
                 }
                 self.mt5_non_minimized_broker = resolved;
             }
@@ -535,20 +532,19 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_ui_state_deserialization() {
-        let legacy_json = r#"{
+    fn test_ui_state_defaults_deserialization() {
+        let json = r#"{
             "active_pair": [1, 2],
             "show_candle_context": false,
-            "x_axis_mode": "TickCount",
+            "top_x_axis_mode": "TickCount",
             "bottom_metric": "MidDiff"
         }"#;
 
-        let state: UiState = serde_json::from_str(legacy_json).expect("should deserialize legacy json");
+        let state: UiState = serde_json::from_str(json).expect("should deserialize json with defaults");
         assert_eq!(state.top_x_axis_mode, ChartXAxisMode::TickCount);
         assert_eq!(state.bottom_x_axis_mode, ChartXAxisMode::ReceiveTime);
         assert_eq!(state.bottom_metric, BottomMetric::MidDiff);
         assert!(state.broker_order.is_empty());
-        // Should default to Some(1) (OANDA) for legacy configs
         assert_eq!(state.mt5_non_minimized_broker, Some(1));
     }
 
@@ -582,7 +578,7 @@ mod tests {
         let broker2_state: UiState = serde_json::from_str(broker2_json).unwrap();
         assert_eq!(broker2_state.mt5_non_minimized_broker, Some(2));
 
-        // 3. Reconcile fallback when ID doesn't exist: should fallback to OANDA
+        // 3. Reconcile when ID doesn't exist: resolves to config default if matched
         let mut state = UiState {
             mt5_non_minimized_broker: Some(99),
             ..Default::default()
@@ -591,7 +587,7 @@ mod tests {
             BrokerConfig { id: 10, name: "OANDA".to_string(), ..Default::default() },
             BrokerConfig { id: 20, name: "Axiory".to_string(), ..Default::default() },
         ];
-        state.reconcile_with_brokers(&brokers, (10, 20));
+        state.reconcile_with_brokers_and_config(&brokers, (10, 20), Some("OANDA"));
         assert_eq!(state.mt5_non_minimized_broker, Some(10));
 
         // 4. Reconcile with custom default config name

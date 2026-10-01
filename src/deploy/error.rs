@@ -14,9 +14,6 @@ pub enum DeployError {
     #[error("Failed to create directory '{path}': {message}")]
     CreateDir { path: PathBuf, message: String },
 
-    #[error("Archive operation failed: {0}")]
-    Archive(String),
-
     #[error("MetaEditor compilation failed: {0}")]
     CompilationFailed(String),
 

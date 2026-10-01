@@ -5,11 +5,13 @@ active_pair = [1, 2]
 # Note: timezone_rule = "ny_close" automatically sets and transitions MT5 server timezone
 # between UTC+3 (Summer / US DST) and UTC+2 (Winter / Standard Time) based on the calendar,
 # ensuring zero manual user intervention and 100% reliable candlestick synchronization.
+# Note: Connection ports are dynamically assigned on startup (Zero-Config).
+# Manual port configuration is not needed.
+
 [[brokers]]
 id = 1
 name = "OANDA"
 host = "127.0.0.1"
-port = 39001
 symbol = "USDJPY.cl"
 point_size = 0.001
 pip_size = 0.01
@@ -22,7 +24,6 @@ auto_utc_offset = false
 id = 2
 name = "Tradeview"
 host = "127.0.0.1"
-port = 39002
 symbol = "USDJPY.edge"
 point_size = 0.001
 pip_size = 0.01
@@ -35,7 +36,6 @@ auto_utc_offset = false
 id = 3
 name = "Dukascopy"
 host = "127.0.0.1"
-port = 39003
 symbol = "USDJPY"
 point_size = 0.001
 pip_size = 0.01
@@ -48,7 +48,6 @@ auto_utc_offset = false
 id = 4
 name = "Axiory"
 host = "127.0.0.1"
-port = 39004
 symbol = "USDJPY"
 point_size = 0.001
 pip_size = 0.01
@@ -61,7 +60,6 @@ auto_utc_offset = false
 id = 5
 name = "JFX"
 host = "127.0.0.1"
-port = 39005
 symbol = "USDJPY_MT"
 point_size = 0.001
 pip_size = 0.01

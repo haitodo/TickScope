@@ -366,7 +366,7 @@ pub struct Mt5DeployConfig {
     pub auto_close_terminals: bool,
     #[serde(default = "default_true")]
     pub launch_minimized: bool,
-    #[serde(default = "default_non_minimized_broker", alias = "normal_window_broker")]
+    #[serde(default = "default_non_minimized_broker")]
     pub non_minimized_broker: Option<String>,
 }
 
@@ -595,11 +595,11 @@ mod tests {
         let parsed_custom: Mt5DeployConfig = toml::from_str(toml_custom).unwrap();
         assert_eq!(parsed_custom.non_minimized_broker, Some("Axiory".to_string()));
 
-        // 4. Parse alias normal_window_broker
-        let toml_alias = r#"
-            normal_window_broker = "JFX"
+        // 4. Parse explicit non_minimized_broker = "none"
+        let toml_none = r#"
+            non_minimized_broker = "none"
         "#;
-        let parsed_alias: Mt5DeployConfig = toml::from_str(toml_alias).unwrap();
-        assert_eq!(parsed_alias.non_minimized_broker, Some("JFX".to_string()));
+        let parsed_none: Mt5DeployConfig = toml::from_str(toml_none).unwrap();
+        assert_eq!(parsed_none.non_minimized_broker, Some("none".to_string()));
     }
 }

@@ -76,18 +76,6 @@ pub fn deploy_mt5_files_for_brokers(config: &Mt5DeployConfig, brokers: &[BrokerC
                 term.friendly_name
             ));
         }
-        if !brokers.is_empty() {
-            let retired_eas = archive_legacy_generated_broker_eas(term);
-            if retired_eas.iter().any(|result| {
-                matches!(result.status, DeployFileStatus::Archived | DeployFileStatus::Failed(_))
-            }) {
-                warnings.push(format!(
-                    "Archived old broker-specific EA files from '{}'. Remove any old EA instance still attached to a chart, then add the common TickCollector EA. A file that could not be archived is listed in the deployment report.",
-                    term.friendly_name
-                ));
-            }
-            rep.results.extend(retired_eas);
-        }
         terminal_reports.push(rep);
     }
 
@@ -119,7 +107,6 @@ pub fn print_deploy_report(report: &DeployReport) {
                     DeployFileStatus::Created => "Deployed (new)",
                     DeployFileStatus::Updated => "Deployed (updated)",
                     DeployFileStatus::SkippedIdentical => "Up to date (skipped)",
-                    DeployFileStatus::Archived => "Archived legacy duplicate",
                     DeployFileStatus::Failed(err) => {
                         log::error!("    - {}: FAILED ({})", f.rel_name, err);
                         continue;
@@ -150,7 +137,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn broker_eas_follow_config_and_are_idempotent() {
+    fn deploy_common_files_and_connection_map_are_idempotent() {
         let dir = tempdir().unwrap();
         let terminal = DiscoveredTerminal {
             friendly_name: "test".into(),
@@ -163,25 +150,24 @@ mod tests {
             socket_client_mqh: EMBEDDED_SOCKET_CLIENT_MQH.into(),
             source_origin: "test".into(),
         };
-        let mut brokers = crate::config::AppConfig::default().brokers;
-        brokers[0].name = "../Broker/A".into();
-        brokers[0].host = "0.0.0.0".into();
-        let first = deploy_broker_eas(&terminal, &sources, &brokers);
-        assert_eq!(first.len(), 2);
-        for (result, broker) in first.iter().zip(&brokers) {
-            assert_eq!(result.status, DeployFileStatus::Created);
-            assert_eq!(result.target_path.parent().unwrap(), terminal.mql5_dir.join("Experts/TickScope"));
-            let content = fs::read_to_string(&result.target_path).unwrap();
-            assert!(content.contains(&format!("#define TICKSCOPE_BROKER_ID {}\n", broker.id)));
-            assert!(content.contains(&format!("#define TICKSCOPE_SERVER_PORT {}\n", broker.port)));
-            assert!(content.contains("#define TICKSCOPE_SERVER_HOST \"127.0.0.1\""));
-        }
-        assert!(deploy_broker_eas(&terminal, &sources, &brokers).iter().all(|r| r.status == DeployFileStatus::SkippedIdentical));
-        brokers[1].port = 40123;
-        let updated = deploy_broker_eas(&terminal, &sources, &brokers);
-        assert_eq!(updated[0].status, DeployFileStatus::SkippedIdentical);
-        assert_eq!(updated[1].status, DeployFileStatus::Updated);
-        assert!(fs::read_to_string(&updated[1].target_path).unwrap().contains("#define TICKSCOPE_SERVER_PORT 40123"));
+        let brokers = crate::config::AppConfig::default().brokers;
+
+        // Deploy common EA and includes
+        let report = deploy_to_terminal(&terminal, &sources);
+        assert_eq!(report.results.len(), 3);
+        assert!(report.results.iter().all(|r| r.status == DeployFileStatus::Created));
+
+        // Deploy connection map
+        let map_path = terminal.mql5_dir.join("Files/TickScope/connection.tsv");
+        let map_content = connection_map_contents(&brokers);
+        let map_res = deploy_file_idempotent(&map_path, &map_content);
+        assert_eq!(map_res.status, DeployFileStatus::Created);
+
+        // Second deploy: idempotent
+        let report2 = deploy_to_terminal(&terminal, &sources);
+        assert!(report2.results.iter().all(|r| r.status == DeployFileStatus::SkippedIdentical));
+        let map_res2 = deploy_file_idempotent(&map_path, &map_content);
+        assert_eq!(map_res2.status, DeployFileStatus::SkippedIdentical);
     }
 
     #[test]
