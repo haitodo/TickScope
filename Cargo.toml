@@ -18,9 +18,13 @@ crc32fast = "1.4"
 thiserror = "2.0"
 parking_lot = "0.12"
 log = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 tempfile = "3.14"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"

@@ -179,6 +179,10 @@ fn main() -> eframe::Result<()> {
         .with_min_inner_size([800.0, 500.0])
         .with_maximized(ui_state.window.maximized);
 
+    if let Some(icon) = tick_scope::ui::load_app_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+
     if let Some(pos) = ui_state.window.position {
         viewport = viewport.with_position(egui::pos2(pos[0], pos[1]));
     }
@@ -221,5 +225,5 @@ fn main() -> eframe::Result<()> {
     coordinator.wait_for_shutdown();
     cleanup_console();
     result
-
 }
+
