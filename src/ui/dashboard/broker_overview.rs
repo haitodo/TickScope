@@ -25,7 +25,7 @@ const HEADERS: [&str; 11] = [
 // Only the broker name receives extra space. Live values never size columns.
 fn column_widths(available: f32) -> [f32; 11] {
     let mut widths = [
-        68.0, 30.0, 48.0, 120.0, 80.0, 80.0, 64.0, 76.0, 92.0, 32.0, 92.0,
+        72.0, 30.0, 48.0, 120.0, 80.0, 80.0, 64.0, 76.0, 92.0, 32.0, 92.0,
     ];
     let minimum = widths.iter().sum::<f32>() + GAP * 10.0;
     widths[3] += (available - minimum).max(0.0);
@@ -183,16 +183,150 @@ mod layout_tests {
             }
         }
     }
+
+    #[test]
+    fn controls_are_not_clipped_on_left_or_right() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+        let ctx = egui::Context::default();
+        crate::ui::fonts::setup_fonts(&ctx);
+        style::configure(&ctx);
+        let mut snapshot = UiSnapshot::default();
+        let mut broker = BrokerOverview {
+            broker_id: 1,
+            name: "Test Broker".into(),
+            symbol: "USDJPY".into(),
+            ..Default::default()
+        };
+        broker.health.connection = ConnectionState::Connected;
+        broker.health.data_freshness = FreshnessState::Live;
+        snapshot.broker_overviews.push(broker);
+
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1100.0, 750.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(input.clone(), |ctx| {
+            render_broker_overview(&mut app, ctx, &snapshot)
+        });
+        let output = ctx.run(input, |ctx| {
+            render_broker_overview(&mut app, ctx, &snapshot)
+        });
+
+        for shape in &output.shapes {
+            match &shape.shape {
+                egui::Shape::Rect(rect_shape) => {
+                    // Controls with visible strokes must stay inside their clip rect on both sides
+                    if rect_shape.stroke.width > 0.0 && shape.clip_rect.width() < 1000.0 {
+                        assert!(
+                            rect_shape.rect.left() >= shape.clip_rect.left(),
+                            "Control rect left {:?} clipped by {:?}",
+                            rect_shape.rect,
+                            shape.clip_rect
+                        );
+                        assert!(
+                            rect_shape.rect.right() <= shape.clip_rect.right(),
+                            "Control rect right {:?} clipped by {:?}",
+                            rect_shape.rect,
+                            shape.clip_rect
+                        );
+                    }
+                }
+                egui::Shape::Text(text_shape) => {
+                    if ["A", "B", "↑", "↓"].contains(&text_shape.galley.job.text.as_str()) {
+                        assert!(
+                            text_shape.pos.x >= shape.clip_rect.left(),
+                            "Text left clipped: {} at {:?}",
+                            text_shape.galley.job.text,
+                            text_shape.pos
+                        );
+                        assert!(
+                            text_shape.pos.x + text_shape.galley.size().x <= shape.clip_rect.right(),
+                            "Text right clipped: {} at {:?}",
+                            text_shape.galley.job.text,
+                            text_shape.pos
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn auto_fit_height_scales_with_broker_count() {
+        let measure_height = |count: usize| -> f32 {
+            let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+            let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+            let ctx = egui::Context::default();
+            crate::ui::fonts::setup_fonts(&ctx);
+            style::configure(&ctx);
+
+            let mut snapshot = UiSnapshot::default();
+            for id in 1..=count {
+                snapshot.broker_overviews.push(BrokerOverview {
+                    broker_id: id as u32,
+                    name: format!("Broker {id}"),
+                    ..Default::default()
+                });
+            }
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1100.0, 750.0),
+                )),
+                ..Default::default()
+            };
+            // Run 3 frames so egui can measure and resize TopBottomPanel
+            for _ in 0..3 {
+                let _ = ctx.run(input.clone(), |ctx| {
+                    render_broker_overview(&mut app, ctx, &snapshot)
+                });
+            }
+            let output = ctx.run(input, |ctx| {
+                render_broker_overview(&mut app, ctx, &snapshot)
+            });
+            // Find the bottom panel separator line
+            output
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let egui::Shape::LineSegment { points, .. } = &s.shape {
+                        Some(points[0].y)
+                    } else {
+                        None
+                    }
+                })
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(0.0)
+        };
+
+        let h2 = measure_height(2);
+        let h8 = measure_height(8);
+        assert!(
+            h8 > h2 + 100.0,
+            "Overview height must scale with broker count: h2={h2}, h8={h8}"
+        );
+    }
 }
+
+const CELL_PADDING_X: f32 = 4.0;
 
 fn cell<R>(ui: &mut egui::Ui, width: f32, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, ROW_HEIGHT), egui::Sense::hover());
+    let content_rect = egui::Rect::from_min_max(
+        rect.min + egui::vec2(CELL_PADDING_X, 0.0),
+        rect.max - egui::vec2(CELL_PADDING_X, 0.0),
+    );
     let mut child = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(rect)
+            .max_rect(content_rect)
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
-    child.set_clip_rect(ui.clip_rect().intersect(rect));
+    child.set_clip_rect(ui.clip_rect().intersect(rect.expand2(egui::vec2(2.0, 0.0))));
     child.spacing_mut().item_spacing.x = 3.0;
     child.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
     contents(&mut child)
@@ -288,9 +422,17 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
         let widths = column_widths(ui.available_width() - 16.0);
         let table_width = widths.iter().sum::<f32>() + GAP * 10.0;
         let mut movement = None;
+
+        let row_count = ids.len().max(1);
+        let content_height = ROW_HEIGHT + (row_count as f32) * (ROW_HEIGHT + 2.0) + 12.0;
+        let viewport_h = ctx.screen_rect().height();
+        let max_allowed = (viewport_h * 0.60).clamp(190.0, 550.0);
+        let scroll_max_height = content_height.min(max_allowed).max(120.0);
+
         egui::ScrollArea::both()
             .id_salt("broker_overview_scroll")
-            .max_height(190.0)
+            .max_height(scroll_max_height)
+            .min_scrolled_height(scroll_max_height)
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(GAP, 2.0);
@@ -321,9 +463,18 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                         ui.cursor().min,
                         egui::vec2(table_width, ROW_HEIGHT),
                     );
-                    if index % 2 == 0 {
-                        ui.painter()
-                            .rect_filled(row_rect, 3.0, Color32::from_white_alpha(5));
+                    let is_hovered = ctx
+                        .pointer_hover_pos()
+                        .map_or(false, |p| row_rect.contains(p));
+                    let bg_color = if is_hovered {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 6)
+                    } else if index % 2 == 0 {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 2)
+                    } else {
+                        Color32::TRANSPARENT
+                    };
+                    if bg_color != Color32::TRANSPARENT {
+                        ui.painter().rect_filled(row_rect, 3.0, bg_color);
                     }
                     let visible = app.is_broker_visible(id);
                     let (status, status_color, status_help) = feed_status(b);
