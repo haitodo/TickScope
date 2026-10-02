@@ -287,12 +287,6 @@ impl DashboardApp {
             DEFAULT_WINDOW_WIDTH,
             DEFAULT_WINDOW_HEIGHT,
         )));
-        let pos_opt = ctx.input(|i| i.viewport().outer_rect.map(|r| [r.min.x, r.min.y]));
-        if let Some(pos) = pos_opt {
-            if pos[0] < 0.0 || pos[1] < 0.0 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(80.0, 80.0)));
-            }
-        }
         ctx.set_zoom_factor(1.0);
         self.save_state();
     }
