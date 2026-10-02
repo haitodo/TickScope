@@ -66,6 +66,7 @@ pub struct DashboardApp {
     pub(crate) window_reset_in_progress: u8,
     pub(crate) state_dirty: bool,
     pub(crate) repaint_registered: bool,
+    pub(crate) dpi_drag_fix_installed: bool,
     pub(crate) mt5_minimized: bool,
     pub(crate) mt5_launch_targets: Vec<BrokerId>,
     pub(crate) mt5_auto_launch: bool,
@@ -122,6 +123,7 @@ impl DashboardApp {
             window_reset_in_progress: 0,
             state_dirty: false,
             repaint_registered: false,
+            dpi_drag_fix_installed: false,
             mt5_minimized: true,
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
@@ -956,7 +958,17 @@ impl Drop for DashboardApp {
 }
 
 impl eframe::App for DashboardApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        #[cfg(windows)]
+        if !self.dpi_drag_fix_installed {
+            self.dpi_drag_fix_installed = true;
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if let Ok(handle) = frame.window_handle() {
+                if let RawWindowHandle::Win32(win32) = handle.as_ref() {
+                    crate::ui::dpi::install_dpi_drag_fix(win32.hwnd.get());
+                }
+            }
+        }
         self.render_ui(ctx);
     }
 }
