@@ -20,6 +20,25 @@ parking_lot = "0.12"
 log = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+# Optional replay dependencies (Zero overhead when not using --features replay)
+parquet = { version = "53", default-features = false, features = ["arrow", "snap", "zstd"], optional = true }
+arrow = { version = "53", default-features = false, optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"], optional = true }
+tokio-tungstenite = { version = "0.26", optional = true }
+futures-util = { version = "0.3", optional = true }
+chrono = { version = "0.4", optional = true }
+
+[features]
+default = []
+replay = [
+    "dep:parquet",
+    "dep:arrow",
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+    "dep:futures-util",
+    "dep:chrono",
+]
+
 [dev-dependencies]
 tempfile = "3.14"
 
@@ -41,6 +60,11 @@ windows-sys = { version = "0.59", features = [
 [[bin]]
 name = "tick-scope"
 path = "src/main.rs"
+
+[[bin]]
+name = "tick-scope-replay"
+path = "src/bin/replay.rs"
+required-features = ["replay"]
 
 [lib]
 name = "tick_scope"

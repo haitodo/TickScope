@@ -13,3 +13,6 @@ pub mod storage;
 pub mod tick;
 pub mod transport;
 pub mod ui;
+
+#[cfg(feature = "replay")]
+pub mod replay;

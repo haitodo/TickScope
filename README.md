@@ -202,6 +202,40 @@ TickScope は、監視対象ブローカーの MT5 端末の起動や終了を U
 
 ---
 
+## ヒストリカルリプレイモード (TickReplay / Drenhis 同期)
+
+TickScope はリアルタイム取引用の本番バイナリ（`tick-scope.exe`）に加え、過去ティック検証用のリプレイバイナリ（`tick-scope-replay.exe`）を提供します。
+
+### ゼロオーバーヘッド設計（本番取引の安全性担保）
+- Cargo feature flag `replay` により、Parquet/Arrow/WebSocket等の依存関係やリプレイ用コードは**本番バイナリから完全に排除**されています。
+- 通常ビルド（`cargo build --release`）で生成される `tick-scope.exe` は、超低遅延リアルタイム処理専用パイプラインのみで動作し、1バイトのオーバーヘッドもありません。
+
+### リプレイモードの特徴
+1. **Drenhis Parquet 直接高速読込**:
+   - `D:\Drehis\tick`（または `--tick-dir` で指定したパス）の Hive パーティション形式（`broker={broker}/symbol={symbol}/year={YYYY}/month={MM}/data.parquet`）を直接読み込みます。
+   - 対象5社（OANDA, Tradeview, Dukascopy, Axiory, JFX）のティックを内包する k-way マージエンジンにより、ミリ秒未満の時系列順に厳密ソートして供給します。
+2. **TickReplay リアルタイム同期**:
+   - TickReplay の同期サーバー（`ws://127.0.0.1:49210`）と常時双方向接続。
+   - 再生・一時停止・再生倍速（1x〜100x）・SEEK/巻き戻し・A-Bループ操作にミリ秒未満の誤差で追従。
+3. **超高速 SEEK / 巻き戻し（10〜20ms）**:
+   - シーク検知時にエンジン内部状態を瞬時に初期化し、シーク直前60秒間のウォームアップティックを一括ロードしてローソク足やメトリクスを即座に再構築します。
+4. **一時停止中のクォート凍結**:
+   - 一時停止中は仮想時間クロック（`VirtualClock`）を完全凍結し、5社すべてのクォートが `Live` 状態（新鮮な状態）を維持します。
+
+### リプレイの起動方法
+```powershell
+# 開発起動（リプレイ）
+cargo run --features replay --bin tick-scope-replay
+
+# リプレイのリリースビルド
+cargo build --release --features replay --bin tick-scope-replay
+
+# 起動（カスタム設定やディレクトリ指定も可能）
+.\target\release\tick-scope-replay.exe --tick-dir "D:\Drehis\tick" --ws "ws://127.0.0.1:49210"
+```
+
+---
+
 ## 開発・ビルド
 
 ### 必要環境
@@ -210,17 +244,19 @@ TickScope は、監視対象ブローカーの MT5 端末の起動や終了を U
 
 ### コマンド
 ```powershell
-# 開発起動
+# 1. 本番バイナリ（リアルタイム取引専用・ゼロオーバーヘッド）
 cargo run
-
-# 引数付き開発起動（例: コンソールログ付き）
-cargo run -- -c
-
-# リリースビルド
 cargo build --release
+# 生成物: target/release/tick-scope.exe
 
-# テスト実行
-cargo test
+# 2. リプレイバイナリ（Drenhis Parquet + TickReplay WS同期）
+cargo run --features replay --bin tick-scope-replay
+cargo build --release --features replay --bin tick-scope-replay
+# 生成物: target/release/tick-scope-replay.exe
+
+# 3. テスト実行
+cargo test                                   # 通常テスト
+cargo test --features replay --test replay_test # リプレイ統合テスト
 ```
 
 ※ インストール済みMT5への書き込みや稼働中端末を必要とする結合テストは、安全のため通常テスト実行から除外されています。

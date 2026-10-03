@@ -50,6 +50,10 @@ pub struct CliArgs {
     pub show_version: bool,
     /// Whether to reset window geometry to default size and position.
     pub reset_window: bool,
+    /// Optional path to historical tick data directory (replay mode).
+    pub tick_dir: Option<PathBuf>,
+    /// Optional WebSocket URL for TickReplay synchronization (replay mode).
+    pub ws_url: Option<String>,
 }
 
 impl CliArgs {
@@ -89,6 +93,28 @@ impl CliArgs {
                 }
                 "--reset-window" => {
                     cli.reset_window = true;
+                }
+                "-t" | "--tick-dir" => {
+                    let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
+                        option: arg.clone(),
+                        message: "requires a directory path argument".into(),
+                    })?;
+                    cli.tick_dir = Some(PathBuf::from(val));
+                }
+                opt if opt.starts_with("--tick-dir=") => {
+                    let val = &opt["--tick-dir=".len()..];
+                    cli.tick_dir = Some(PathBuf::from(val));
+                }
+                "--ws" => {
+                    let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
+                        option: arg.clone(),
+                        message: "requires a WebSocket URL argument".into(),
+                    })?;
+                    cli.ws_url = Some(val);
+                }
+                opt if opt.starts_with("--ws=") => {
+                    let val = &opt["--ws=".len()..];
+                    cli.ws_url = Some(val.to_string());
                 }
                 "-l" | "--log-level" => {
                     let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
@@ -165,6 +191,8 @@ impl CliArgs {
             "    -l, --log-level <LVL>   Set log level (error, warn, info, debug, trace) [default: info]\n",
             "        --config <PATH>     Alternative way to specify custom configuration file path\n",
             "        --reset-window      Reset window geometry (size 1100x750, unmaximized) to defaults\n",
+            "    -t, --tick-dir <PATH>   Path to historical tick dataset directory (replay)\n",
+            "        --ws <URL>          WebSocket URL for TickReplay synchronization (replay)\n",
             "    -V, --version           Print version information and exit\n",
             "    -h, --help              Print this help information and exit\n"
         )

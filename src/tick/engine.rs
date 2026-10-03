@@ -200,6 +200,14 @@ impl TickEngine {
         self.diagnostics.push_back(diagnostic);
     }
 
+    pub fn latest_quote(&self, broker_id: BrokerId) -> Option<&Quote> {
+        self.latest_quotes.get(&broker_id)
+    }
+
+    pub fn current_watermark(&self) -> MonoNs {
+        self.current_watermark
+    }
+
     pub fn set_active_pair(&mut self, pair: (BrokerId, BrokerId)) {
         if pair.0 != pair.1 && pair != self.active_pair
             && self.channels.contains_key(&pair.0) && self.channels.contains_key(&pair.1) {
@@ -220,6 +228,93 @@ impl TickEngine {
             );
             self.projection_revision += 1;
         }
+    }
+
+    /// Reset volatile engine state (candles, trackers, matcher, latest quotes, quote path history)
+    /// for instantaneous SEEK, rewind, and loop replay while preserving broker channel configurations.
+    pub fn reset_state(&mut self) {
+        for ch in self.channels.values_mut() {
+            ch.watermark = MonoNs::ZERO;
+            ch.pending_frames.clear();
+            ch.pending_frame_bytes = 0;
+            ch.ledger.reset();
+            ch.session_id = None;
+            ch.is_connected = true;
+        }
+
+        self.candle_book = CandleBook::with_retentions(&self.config.history.retentions);
+        self.mid_candle_book = CandleBook::with_retentions(&self.config.history.retentions);
+
+        self.spread_trackers.clear();
+        self.quote_persistence.clear();
+        self.repricing_persistence.clear();
+        self.fingerprint_trackers.clear();
+        self.move_detectors.clear();
+        self.health_states.clear();
+        self.latest_quotes.clear();
+
+        for b in &self.config.brokers {
+            self.spread_trackers.insert(b.id, SpreadTracker::new(b.id));
+            self.quote_persistence.insert(b.id, QuotePersistenceTracker::new(b.id));
+            self.repricing_persistence.insert(b.id, RepricingPersistenceTracker::new(b.id));
+            self.fingerprint_trackers.insert(b.id, BrokerFingerprintTracker::new(b.id));
+
+            let initial_verified = match b.timezone_rule {
+                TimezoneRule::NyClose | TimezoneRule::Jst | TimezoneRule::Utc => true,
+                TimezoneRule::Fixed => b.utc_verified,
+            };
+            self.health_states.insert(
+                b.id,
+                HealthState {
+                    broker_id: b.id,
+                    connection: ConnectionState::Connected,
+                    data_freshness: FreshnessState::Live,
+                    heartbeat: HeartbeatState::Ok,
+                    normalization: if initial_verified {
+                        NormalizationState::Verified
+                    } else {
+                        NormalizationState::Unverified
+                    },
+                    ..Default::default()
+                },
+            );
+
+            self.move_detectors.insert(
+                b.id,
+                SignificantMidMoveDetector::new(
+                    b.id,
+                    b.point_size,
+                    self.config.matcher.trigger_move_points,
+                    self.config.matcher.event_cooldown_ms,
+                    1,
+                ),
+            );
+        }
+
+        let (a, b) = self.active_pair;
+        self.pair_tracker = PairDifferenceTracker::new(
+            a,
+            b,
+            self.config.display.visible_seconds,
+        ).with_max_points(self.config.display.visible_ticks);
+
+        self.matcher = OneToOneEventMatcher::new(
+            a,
+            b,
+            self.config.matcher.matching_window_ms,
+            self.config.matcher.ema_alpha,
+            self.config.matcher.pending_event_capacity,
+            1,
+        );
+
+        self.latest_pair_match = None;
+        self.current_watermark = MonoNs::ZERO;
+        self.diagnostics.clear();
+        self.consensus_calc = ConsensusCalculator::new(self.config.health.stale_after_ms);
+        self.burst_detector = MultiBrokerBurstDetector::new(self.config.matcher.matching_window_ms, 2);
+        self.hypothesis_engine = HypothesisEngine::default();
+        self.realtime_quote_history.clear();
+        self.projection_revision += 1;
     }
 
     pub fn on_ingress_item(&mut self, item: IngressItem) {
@@ -266,7 +361,7 @@ impl TickEngine {
                     ch.pending_frames.push_back(rf);
                 }
                 IngressItem::End { generation, reason, .. } => {
-                    if ch.generation == generation {
+                    if generation == 0 || ch.generation == 0 || ch.generation == generation {
                         ch.is_connected = false;
                         self.latest_quotes.remove(&broker_id);
                         if let Some(h) = self.health_states.get_mut(&broker_id) {
