@@ -54,6 +54,8 @@ pub struct CliArgs {
     pub tick_dir: Option<PathBuf>,
     /// Optional WebSocket URL for TickReplay synchronization (replay mode).
     pub ws_url: Option<String>,
+    /// Optional replay currency pair / symbol (e.g. USDJPY).
+    pub symbol: Option<String>,
 }
 
 impl CliArgs {
@@ -115,6 +117,17 @@ impl CliArgs {
                 opt if opt.starts_with("--ws=") => {
                     let val = &opt["--ws=".len()..];
                     cli.ws_url = Some(val.to_string());
+                }
+                "-s" | "--symbol" => {
+                    let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
+                        option: arg.clone(),
+                        message: "requires a symbol argument (e.g. USDJPY)".into(),
+                    })?;
+                    cli.symbol = Some(val);
+                }
+                opt if opt.starts_with("--symbol=") => {
+                    let val = &opt["--symbol=".len()..];
+                    cli.symbol = Some(val.to_string());
                 }
                 "-l" | "--log-level" => {
                     let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
@@ -193,6 +206,7 @@ impl CliArgs {
             "        --reset-window      Reset window geometry (size 1100x750, unmaximized) to defaults\n",
             "    -t, --tick-dir <PATH>   Path to historical tick dataset directory (replay)\n",
             "        --ws <URL>          WebSocket URL for TickReplay synchronization (replay)\n",
+            "    -s, --symbol <SYMBOL>   Replay currency pair / symbol (e.g. USDJPY)\n",
             "    -V, --version           Print version information and exit\n",
             "    -h, --help              Print this help information and exit\n"
         )
@@ -375,5 +389,21 @@ mod tests {
         assert!(help.contains("--log-level"));
         assert!(help.contains("--version"));
         assert!(help.contains("--help"));
+        assert!(help.contains("--symbol"));
+    }
+
+    #[test]
+    fn test_symbol_flags() {
+        let cli = CliArgs::parse(["-s", "EURUSD"]).unwrap();
+        assert_eq!(cli.symbol, Some("EURUSD".to_string()));
+
+        let cli = CliArgs::parse(["--symbol", "GBPJPY"]).unwrap();
+        assert_eq!(cli.symbol, Some("GBPJPY".to_string()));
+
+        let cli = CliArgs::parse(["--symbol=USDCHF"]).unwrap();
+        assert_eq!(cli.symbol, Some("USDCHF".to_string()));
+
+        let err = CliArgs::parse(["--symbol"]).unwrap_err();
+        assert!(err.to_string().contains("requires a symbol argument"));
     }
 }

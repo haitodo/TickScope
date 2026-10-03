@@ -104,6 +104,21 @@ fn main() -> eframe::Result<()> {
         }
     };
 
+    if let Some(ref sym) = cli.symbol {
+        let clean_sym = sym.trim();
+        if !clean_sym.is_empty() {
+            log::info!("CLI flag --symbol active: overriding replay symbol to '{}'", clean_sym);
+            let is_jpy = clean_sym.to_ascii_uppercase().ends_with("JPY");
+            let pip_size = if is_jpy { 0.01 } else { 0.0001 };
+            let point_size = if is_jpy { 0.001 } else { 0.00001 };
+            for b in &mut config.brokers {
+                b.symbol = clean_sym.to_string();
+                b.pip_size = pip_size;
+                b.point_size = point_size;
+            }
+        }
+    }
+
     let tick_dir = resolve_tick_dir(cli.tick_dir.clone());
     log::info!("Using historical tick directory: {}", tick_dir.display());
 
@@ -148,10 +163,15 @@ fn main() -> eframe::Result<()> {
         .with_mt5_config(coordinator.config.mt5.clone())
         .with_ui_state(&ui_state)
         .with_ui_state_path(ui_state_path)
-        .with_pair_selection_handler(coordinator.pair_selection_handler());
+        .with_pair_selection_handler(coordinator.pair_selection_handler())
+        .with_trade_store(coordinator.trade_store.clone());
 
+    let title = format!(
+        "TickScope [REPLAY] - Multi-Broker FX Historical Replay Scope ({})",
+        cli.symbol.as_deref().unwrap_or("USDJPY")
+    );
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("TickScope [REPLAY] - Multi-Broker FX Historical Replay Scope")
+        .with_title(title)
         .with_inner_size(ui_state.window.inner_size)
         .with_min_inner_size([800.0, 500.0])
         .with_maximized(ui_state.window.maximized);

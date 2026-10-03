@@ -32,6 +32,7 @@ fn test_transport_receiver_lifecycle_and_ack() {
         auto_utc_offset: true,
         timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
+        receive_delay_ms: None,
     };
 
 
@@ -127,6 +128,7 @@ fn test_transport_receiver_ack_mode_off() {
         auto_utc_offset: true,
         timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
+        receive_delay_ms: None,
     };
 
     let receiver = Arc::new(TransportReceiver::new(
@@ -207,6 +209,7 @@ fn test_transport_receiver_multiple_reconnects_lifecycle() {
         auto_utc_offset: true,
         timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
+        receive_delay_ms: None,
     };
 
 
@@ -333,6 +336,7 @@ fn test_transport_receiver_activity_timeout() {
         auto_utc_offset: true,
         timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
+        receive_delay_ms: None,
     };
 
     let receiver = Arc::new(
@@ -397,6 +401,7 @@ fn test_transport_router_connection_takeover() {
         auto_utc_offset: true,
         timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
+        receive_delay_ms: None,
     };
 
     let receiver = Arc::new(TransportReceiver::new(

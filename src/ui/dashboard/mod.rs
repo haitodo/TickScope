@@ -78,6 +78,8 @@ pub struct DashboardApp {
     pub(crate) discovered_terminals: Vec<crate::deploy::DiscoveredTerminal>,
     pub(crate) broker_configs: Vec<crate::config::BrokerConfig>,
     pub(crate) mt5_config: crate::config::Mt5DeployConfig,
+    pub(crate) trade_store: Option<Arc<parking_lot::RwLock<crate::core::models::ReplayTradeStore>>>,
+    pub(crate) show_trade_overlay: bool,
 }
 
 impl DashboardApp {
@@ -135,7 +137,17 @@ impl DashboardApp {
             discovered_terminals: Vec::new(),
             broker_configs: Vec::new(),
             mt5_config: crate::config::Mt5DeployConfig::default(),
+            trade_store: None,
+            show_trade_overlay: true,
         }
+    }
+
+    pub fn with_trade_store(
+        mut self,
+        store: Arc<parking_lot::RwLock<crate::core::models::ReplayTradeStore>>,
+    ) -> Self {
+        self.trade_store = Some(store);
+        self
     }
 
     pub fn with_ui_state(mut self, state: &UiState) -> Self {
@@ -863,6 +875,8 @@ impl DashboardApp {
                 } else {
                     self.bottom_metric = self.bottom_metric.next();
                 }
+            } else if i.key_pressed(egui::Key::V) || ((i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::P)) {
+                self.show_trade_overlay = !self.show_trade_overlay;
             } else if i.key_pressed(egui::Key::P) {
                 let broker_ids: Vec<BrokerId> = self.visible_broker_ids(&snapshot.broker_overviews);
                 self.cycle_pair(&broker_ids, !i.modifiers.shift);

@@ -19,6 +19,7 @@ timezone_rule = "ny_close"
 utc_offset_sec = 10800
 utc_verified = true
 auto_utc_offset = false
+receive_delay_ms = 20
 
 [[brokers]]
 id = 2
@@ -31,6 +32,7 @@ timezone_rule = "ny_close"
 utc_offset_sec = 10800
 utc_verified = true
 auto_utc_offset = false
+receive_delay_ms = 180
 
 [[brokers]]
 id = 3
@@ -43,6 +45,7 @@ timezone_rule = "ny_close"
 utc_offset_sec = 10800
 utc_verified = true
 auto_utc_offset = false
+receive_delay_ms = 190
 
 [[brokers]]
 id = 4
@@ -55,6 +58,7 @@ timezone_rule = "ny_close"
 utc_offset_sec = 10800
 utc_verified = true
 auto_utc_offset = false
+receive_delay_ms = 170
 
 [[brokers]]
 id = 5
@@ -67,6 +71,7 @@ timezone_rule = "ny_close"
 utc_offset_sec = 10800
 utc_verified = true
 auto_utc_offset = false
+receive_delay_ms = 20
 
 [protocol]
 max_payload_length = 1048576

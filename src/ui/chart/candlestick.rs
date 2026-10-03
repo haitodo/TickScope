@@ -1,4 +1,4 @@
-use crate::core::models::{BrokerOverview, CandleView, Ohlc, PriceMode, SlotState};
+use crate::core::models::{BrokerOverview, CandleView, Ohlc, PriceMode, ReplayTrade, SlotState};
 use crate::core::types::{BrokerId, MonoNs};
 use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
 use super::common::{
@@ -145,6 +145,46 @@ pub fn draw_candlestick_chart_for_brokers(
     now_mono: MonoNs,
     price_mode: PriceMode,
     theme: &ChartTheme,
+) {
+    draw_candlestick_chart_for_brokers_with_trades(
+        painter,
+        rect,
+        candle_view,
+        broker_ids,
+        broker_overviews,
+        bar_width,
+        scale_mode,
+        follow_criteria,
+        pip_size,
+        chart_anchor,
+        margin_edge_latch,
+        fallback_price,
+        chart_max_quote_age_ms,
+        now_mono,
+        price_mode,
+        theme,
+        None,
+    );
+}
+
+pub fn draw_candlestick_chart_for_brokers_with_trades(
+    painter: &egui::Painter,
+    rect: Rect,
+    candle_view: Option<&CandleView>,
+    broker_ids: &[BrokerId],
+    broker_overviews: &[BrokerOverview],
+    bar_width: f32,
+    scale_mode: CandlePriceScaleMode,
+    follow_criteria: CandleFollowCriteria,
+    pip_size: f64,
+    chart_anchor: &mut Option<f64>,
+    margin_edge_latch: &mut Option<MarginEdgeLatchSide>,
+    fallback_price: Option<f64>,
+    chart_max_quote_age_ms: u64,
+    now_mono: MonoNs,
+    price_mode: PriceMode,
+    theme: &ChartTheme,
+    trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
     let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
@@ -474,6 +514,257 @@ pub fn draw_candlestick_chart_for_brokers(
             egui::FontId::monospace(11.0),
             Color32::from_gray(180),
         );
+    }
+
+    if let Some((open_pos, hist)) = trade_items {
+        draw_trade_overlays(
+            painter,
+            plot_rect,
+            view,
+            right_slot_center_x,
+            slot_width,
+            price_to_y,
+            open_pos,
+            hist,
+            pip_size,
+        );
+    }
+}
+
+/// Draw trade entry lines, execution markers, and profit tags onto the candlestick chart plot.
+pub fn draw_trade_overlays(
+    painter: &egui::Painter,
+    plot_rect: Rect,
+    view: &CandleView,
+    right_slot_center_x: f32,
+    slot_width: f32,
+    price_to_y: impl Fn(f64) -> f32,
+    open_positions: &[ReplayTrade],
+    history: &[ReplayTrade],
+    pip_size: f64,
+) {
+    if view.slot_starts.is_empty() || view.period_ms <= 0 {
+        return;
+    }
+    let latest_slot_start = view.slot_starts.last().map(|s| s.0).unwrap_or(0);
+    let latest_slot_center_time = latest_slot_start + (view.period_ms / 2);
+    let time_to_x = |utc_ms: i64| -> f32 {
+        let dt = (utc_ms - latest_slot_center_time) as f64;
+        let slot_offset = dt / (view.period_ms as f64);
+        right_slot_center_x + (slot_offset as f32) * slot_width
+    };
+
+    let clip_painter = painter.with_clip_rect(plot_rect);
+
+    // 1. Draw closed trade history within visible range
+    for h in history {
+        let open_x = time_to_x(h.open_utc_ms);
+        let close_x = h.close_utc_ms.map(&time_to_x).unwrap_or(open_x);
+        if (open_x < plot_rect.left() - 100.0 && close_x < plot_rect.left() - 100.0)
+            || (open_x > plot_rect.right() + 100.0 && close_x > plot_rect.right() + 100.0)
+        {
+            continue;
+        }
+
+        let is_buy = h.side.eq_ignore_ascii_case("BUY");
+        let open_y = price_to_y(h.open_price);
+        let close_y = h.close_price.map(&price_to_y).unwrap_or(open_y);
+
+        let trade_color = if is_buy {
+            Color32::from_rgb(0, 200, 255)
+        } else {
+            Color32::from_rgb(255, 120, 180)
+        };
+
+        // Dashed / solid line connecting entry to exit
+        if (close_x - open_x).abs() > 2.0 || (close_y - open_y).abs() > 2.0 {
+            clip_painter.line_segment(
+                [Pos2::new(open_x, open_y), Pos2::new(close_x, close_y)],
+                Stroke::new(1.0_f32, trade_color.gamma_multiply(0.6)),
+            );
+        }
+
+        // Entry marker
+        if open_x >= plot_rect.left() - 10.0 && open_x <= plot_rect.right() + 10.0 {
+            draw_entry_marker(&clip_painter, open_x, open_y, is_buy, trade_color);
+        }
+
+        // Exit marker & profit tag
+        if close_x >= plot_rect.left() - 10.0 && close_x <= plot_rect.right() + 10.0 {
+            clip_painter.circle_filled(
+                Pos2::new(close_x, close_y),
+                3.5,
+                if h.profit >= 0.0 {
+                    Color32::from_rgb(0, 230, 120)
+                } else {
+                    Color32::from_rgb(255, 60, 60)
+                },
+            );
+
+            let profit_text = format!("{:+.0}円", h.profit);
+            let text_color = if h.profit >= 0.0 {
+                Color32::from_rgb(0, 255, 140)
+            } else {
+                Color32::from_rgb(255, 80, 80)
+            };
+            clip_painter.text(
+                Pos2::new(close_x, close_y - 8.0),
+                egui::Align2::CENTER_BOTTOM,
+                profit_text,
+                egui::FontId::monospace(10.0),
+                text_color,
+            );
+        }
+    }
+
+    // 2. Draw open positions
+    let mut placed_badge_ys: Vec<f32> = Vec::new();
+    for pos in open_positions {
+        let is_buy = pos.side.eq_ignore_ascii_case("BUY");
+        let open_y = price_to_y(pos.open_price);
+        let open_x = time_to_x(pos.open_utc_ms);
+
+        let line_color = if is_buy {
+            Color32::from_rgb(0, 230, 200)
+        } else {
+            Color32::from_rgb(255, 80, 120)
+        };
+
+        // Horizontal entry price line from open_x (clamped) to right edge
+        let start_x = open_x.clamp(plot_rect.left(), plot_rect.right());
+        clip_painter.line_segment(
+            [Pos2::new(start_x, open_y), Pos2::new(plot_rect.right(), open_y)],
+            Stroke::new(1.5_f32, line_color),
+        );
+
+        // Entry marker at (open_x, open_y)
+        if open_x >= plot_rect.left() - 10.0 && open_x <= plot_rect.right() + 10.0 {
+            draw_entry_marker(&clip_painter, open_x, open_y, is_buy, line_color);
+        }
+
+        // Draw SL line if set
+        if let Some(sl) = pos.sl {
+            if sl > 0.0 {
+                let sl_y = price_to_y(sl);
+                clip_painter.line_segment(
+                    [Pos2::new(start_x, sl_y), Pos2::new(plot_rect.right(), sl_y)],
+                    Stroke::new(1.0_f32, Color32::from_rgb(255, 60, 60)),
+                );
+                clip_painter.text(
+                    Pos2::new(plot_rect.right() - 4.0, sl_y - 2.0),
+                    egui::Align2::RIGHT_BOTTOM,
+                    format!("SL {:.3}", sl),
+                    egui::FontId::monospace(10.0),
+                    Color32::from_rgb(255, 100, 100),
+                );
+            }
+        }
+
+        // Draw TP line if set
+        if let Some(tp) = pos.tp {
+            if tp > 0.0 {
+                let tp_y = price_to_y(tp);
+                clip_painter.line_segment(
+                    [Pos2::new(start_x, tp_y), Pos2::new(plot_rect.right(), tp_y)],
+                    Stroke::new(1.0_f32, Color32::from_rgb(0, 220, 100)),
+                );
+                clip_painter.text(
+                    Pos2::new(plot_rect.right() - 4.0, tp_y - 2.0),
+                    egui::Align2::RIGHT_BOTTOM,
+                    format!("TP {:.3}", tp),
+                    egui::FontId::monospace(10.0),
+                    Color32::from_rgb(50, 255, 140),
+                );
+            }
+        }
+
+        // Profit badge tag at right edge
+        let pips = if pip_size > 0.0 {
+            if let Some(cur) = pos.current_price {
+                let diff = if is_buy { cur - pos.open_price } else { pos.open_price - cur };
+                diff / pip_size
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        let badge_text = format!(
+            "{} {:.2}L @ {:.3} | {:+.1}p ({:+.0}円)",
+            if is_buy { "BUY" } else { "SELL" },
+            pos.volume,
+            pos.open_price,
+            pips,
+            pos.profit
+        );
+
+        let badge_bg = if pos.profit >= 0.0 {
+            Color32::from_rgba_unmultiplied(0, 120, 60, 230)
+        } else {
+            Color32::from_rgba_unmultiplied(160, 30, 30, 230)
+        };
+
+        let font_id = egui::FontId::monospace(11.0);
+        let galley = clip_painter.layout_no_wrap(badge_text, font_id, Color32::WHITE);
+        let text_size = galley.size();
+
+        // Clamp vertically within plot_rect so badge never bleeds into headers/metric chart
+        let min_y = plot_rect.top() + text_size.y * 0.5 + 4.0;
+        let max_y = plot_rect.bottom() - text_size.y * 0.5 - 4.0;
+        let mut badge_y = open_y.clamp(min_y, max_y);
+
+        // Anti-collision offset for stacked or closely-priced open position badges
+        for &placed_y in &placed_badge_ys {
+            if (badge_y - placed_y).abs() < (text_size.y + 6.0) {
+                badge_y = placed_y + text_size.y + 6.0;
+            }
+        }
+        if badge_y > max_y {
+            badge_y = max_y;
+        }
+        placed_badge_ys.push(badge_y);
+
+        let badge_pos = Pos2::new(plot_rect.right() - 6.0, badge_y);
+        let badge_rect = Rect::from_min_size(
+            Pos2::new(badge_pos.x - text_size.x - 6.0, badge_pos.y - text_size.y * 0.5 - 2.0),
+            egui::Vec2::new(text_size.x + 6.0, text_size.y + 4.0),
+        );
+        clip_painter.rect_filled(badge_rect, 3.0, badge_bg);
+        clip_painter.rect_stroke(badge_rect, 3.0, Stroke::new(1.0_f32, line_color));
+        clip_painter.galley(Pos2::new(badge_rect.min.x + 3.0, badge_rect.min.y + 2.0), galley, Color32::WHITE);
+    }
+}
+
+fn draw_entry_marker(
+    painter: &egui::Painter,
+    x: f32,
+    y: f32,
+    is_buy: bool,
+    color: Color32,
+) {
+    if is_buy {
+        let pts = [
+            Pos2::new(x, y - 8.0),
+            Pos2::new(x - 5.0, y - 1.0),
+            Pos2::new(x + 5.0, y - 1.0),
+        ];
+        painter.add(egui::Shape::convex_polygon(
+            pts.to_vec(),
+            color,
+            Stroke::new(1.0_f32, Color32::BLACK),
+        ));
+    } else {
+        let pts = [
+            Pos2::new(x, y + 8.0),
+            Pos2::new(x - 5.0, y + 1.0),
+            Pos2::new(x + 5.0, y + 1.0),
+        ];
+        painter.add(egui::Shape::convex_polygon(
+            pts.to_vec(),
+            color,
+            Stroke::new(1.0_f32, Color32::BLACK),
+        ));
     }
 }
 

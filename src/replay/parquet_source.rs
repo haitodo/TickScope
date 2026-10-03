@@ -36,6 +36,8 @@ pub struct BrokerParquetSource {
     pub current_partition_idx: Option<usize>,
     pub current_ticks: Arc<Vec<ReplayTick>>,
     pub cursor: usize,
+    /// Physical network reception delay profile in milliseconds (Domestic: 15-30ms, Overseas: 120-220ms)
+    pub receive_delay_ms: i64,
     /// In-memory partition cache by partition index
     partition_cache: HashMap<usize, Arc<Vec<ReplayTick>>>,
 }
@@ -185,8 +187,32 @@ impl BrokerParquetSource {
             current_partition_idx: None,
             current_ticks: Arc::new(Vec::new()),
             cursor: 0,
+            receive_delay_ms: 0,
             partition_cache: HashMap::new(),
         })
+    }
+
+    pub fn with_receive_delay_ms(mut self, delay_ms: i64) -> Self {
+        self.receive_delay_ms = delay_ms;
+        self
+    }
+
+    /// Apply measured physical network reception delay profile:
+    /// Domestic brokers (JFX, OANDA): 15-30ms (default 20ms)
+    /// Overseas brokers (Tradeview, Dukascopy, Axiory): 120-220ms (default 180ms)
+    pub fn with_receive_delay_profile(mut self) -> Self {
+        let name_lower = self.broker_name.to_lowercase();
+        self.receive_delay_ms = if name_lower.contains("jfx") || name_lower.contains("oanda") {
+            20
+        } else {
+            180
+        };
+        self
+    }
+
+    #[inline]
+    pub fn effective_utc_ms(&self, tick: &ReplayTick) -> i64 {
+        tick.utc_ms + self.receive_delay_ms
     }
 
     /// Load the partition corresponding to the given year and month.

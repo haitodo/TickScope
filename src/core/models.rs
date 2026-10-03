@@ -246,3 +246,44 @@ impl Default for UiSnapshot {
         }
     }
 }
+
+/// Trade data overlay for historical replay visualization.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReplayTrade {
+    pub ticket: i32,
+    #[serde(default)]
+    pub symbol: String,
+    #[serde(rename = "type", default)]
+    pub side: String,
+    #[serde(default)]
+    pub volume: f64,
+    #[serde(default)]
+    pub open_price: f64,
+    #[serde(default)]
+    pub open_time_msc: i64,
+    #[serde(default)]
+    pub close_price: Option<f64>,
+    #[serde(default)]
+    pub close_time_msc: Option<i64>,
+    #[serde(default)]
+    pub sl: Option<f64>,
+    #[serde(default)]
+    pub tp: Option<f64>,
+    #[serde(default)]
+    pub current_price: Option<f64>,
+    #[serde(default)]
+    pub profit: f64,
+    #[serde(default)]
+    pub close_reason: Option<String>,
+    #[serde(default)]
+    pub open_utc_ms: i64,
+    #[serde(default)]
+    pub close_utc_ms: Option<i64>,
+}
+
+/// Shared repository of active open positions and completed historical trades.
+#[derive(Debug, Clone, Default)]
+pub struct ReplayTradeStore {
+    pub open_positions: Vec<ReplayTrade>,
+    pub history: Vec<ReplayTrade>,
+}

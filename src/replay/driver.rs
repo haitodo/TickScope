@@ -4,7 +4,7 @@
 use super::clock::VirtualClock;
 use super::merge_stream::MergeStream;
 use super::parquet_source::ReplayTick;
-use crate::core::types::{BrokerId, MonoNs, RunId, SessionId};
+use crate::core::types::{BrokerId, MonoNs, RunId, SessionId, UtcMs};
 use crate::protocol::*;
 use crate::tick::engine::TickEngine;
 use futures_util::{SinkExt, StreamExt};
@@ -114,6 +114,7 @@ pub struct ReplayDriver {
     pub running: Arc<AtomicBool>,
     pub tick_wake: Arc<(Mutex<bool>, Condvar)>,
     pub session_epoch: Arc<AtomicU64>,
+    pub trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
     ws_cmd_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>,
     threads: Vec<JoinHandle<()>>,
 }
@@ -125,6 +126,7 @@ impl ReplayDriver {
         engine: Arc<Mutex<TickEngine>>,
         merge_stream: Arc<RwLock<MergeStream>>,
         tick_wake: Arc<(Mutex<bool>, Condvar)>,
+        trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
     ) -> Self {
         Self {
             run_id,
@@ -134,6 +136,7 @@ impl ReplayDriver {
             running: Arc::new(AtomicBool::new(true)),
             tick_wake,
             session_epoch: Arc::new(AtomicU64::new(1)),
+            trade_store,
             ws_cmd_tx: Arc::new(Mutex::new(None)),
             threads: Vec::new(),
         }
@@ -180,6 +183,7 @@ impl ReplayDriver {
         let run_ws = running.clone();
         let wake_ws = tick_wake.clone();
         let session_ws = session_epoch.clone();
+        let trade_ws = self.trade_store.clone();
 
         let ws_handle = thread::spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread()
@@ -203,6 +207,7 @@ impl ReplayDriver {
                     run_ws,
                     wake_ws,
                     session_ws,
+                    trade_ws,
                     ws_cmd_tx_holder,
                 )
                 .await;
@@ -326,6 +331,7 @@ impl ReplayDriver {
         running: Arc<AtomicBool>,
         tick_wake: Arc<(Mutex<bool>, Condvar)>,
         session_epoch: Arc<AtomicU64>,
+        trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
         ws_cmd_tx_holder: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>,
     ) {
         let mut last_observed_mt5_ms = 0i64;
@@ -352,6 +358,7 @@ impl ReplayDriver {
                                             &merge_stream,
                                             &tick_wake,
                                             &session_epoch,
+                                            &trade_store,
                                             &mut last_observed_mt5_ms,
                                         );
                                     }
@@ -403,6 +410,7 @@ impl ReplayDriver {
         merge_stream: &Arc<RwLock<MergeStream>>,
         tick_wake: &Arc<(Mutex<bool>, Condvar)>,
         session_epoch: &Arc<AtomicU64>,
+        trade_store: &Arc<RwLock<crate::core::models::ReplayTradeStore>>,
         last_observed_mt5_ms: &mut i64,
     ) {
         let val: serde_json::Value = match serde_json::from_str(text) {
@@ -421,6 +429,53 @@ impl ReplayDriver {
             .unwrap_or(1.0);
 
         let target_utc_ms = mt5_to_utc_ms(virtual_time_msc);
+        let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
+        let mut data_updated = false;
+
+        // 1. Direct JFX Quote Synchronization (0ms lag matching)
+        let jfx_bid_opt = val.get("jfx_bid").and_then(|v| v.as_f64());
+        let jfx_ask_opt = val.get("jfx_ask").and_then(|v| v.as_f64());
+        if let (Some(jfx_bid), Some(jfx_ask)) = (jfx_bid_opt, jfx_ask_opt) {
+            if jfx_bid > 0.0 && jfx_ask >= jfx_bid {
+                let mut eng = engine.lock();
+                let jfx_id = eng.config.brokers.iter()
+                    .find(|b| b.name.eq_ignore_ascii_case("JFX"))
+                    .map(|b| b.id)
+                    .unwrap_or(5);
+                eng.update_direct_quote(
+                    jfx_id,
+                    jfx_bid,
+                    jfx_ask,
+                    UtcMs(target_utc_ms),
+                    target_mono,
+                );
+                data_updated = true;
+            }
+        }
+
+        // 2. Positions & Trade History Overlay Synchronization
+        if val.get("positions").is_some() || val.get("history").is_some() {
+            let mut positions: Vec<crate::core::models::ReplayTrade> = val.get("positions")
+                .and_then(|p| serde_json::from_value(p.clone()).ok())
+                .unwrap_or_default();
+            let mut history: Vec<crate::core::models::ReplayTrade> = val.get("history")
+                .and_then(|h| serde_json::from_value(h.clone()).ok())
+                .unwrap_or_default();
+
+            for p in &mut positions {
+                p.open_utc_ms = mt5_to_utc_ms(p.open_time_msc);
+                p.close_utc_ms = p.close_time_msc.map(mt5_to_utc_ms);
+            }
+            for h in &mut history {
+                h.open_utc_ms = mt5_to_utc_ms(h.open_time_msc);
+                h.close_utc_ms = h.close_time_msc.map(mt5_to_utc_ms);
+            }
+
+            let mut store = trade_store.write();
+            store.open_positions = positions;
+            store.history = history;
+            data_updated = true;
+        }
 
         // Adaptive SEEK Detection:
         // - Initial message is always a seek/rebuild
@@ -545,6 +600,13 @@ impl ReplayDriver {
             // Smooth progress update
             clock.set_playing(is_playing);
             clock.set_multiplier(multiplier);
+
+            if data_updated {
+                let (lock, cvar) = &**tick_wake;
+                let mut pending = lock.lock();
+                *pending = true;
+                cvar.notify_one();
+            }
         }
 
         *last_observed_mt5_ms = virtual_time_msc;

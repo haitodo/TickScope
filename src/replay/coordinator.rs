@@ -25,6 +25,7 @@ pub struct ReplayCoordinator {
     pub running: Arc<AtomicBool>,
     pub engine: Arc<Mutex<TickEngine>>,
     pub driver: Option<ReplayDriver>,
+    pub trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -47,7 +48,13 @@ impl ReplayCoordinator {
         let mut sources = Vec::new();
         for b in &config.brokers {
             match BrokerParquetSource::new(b.id, &b.name, &b.symbol, tick_dir) {
-                Ok(src) => sources.push(src),
+                Ok(mut src) => {
+                    src = src.with_receive_delay_profile();
+                    if let Some(delay) = b.receive_delay_ms {
+                        src.receive_delay_ms = delay;
+                    }
+                    sources.push(src);
+                }
                 Err(e) => {
                     log::warn!(
                         "[ReplayCoordinator] Could not initialize source for broker {} ({}): {}",
@@ -75,6 +82,7 @@ impl ReplayCoordinator {
         let exchange = Arc::new(SnapshotExchange::new_empty(run_id));
 
         let tick_wake = Arc::new((Mutex::new(false), Condvar::new()));
+        let trade_store = Arc::new(RwLock::new(crate::core::models::ReplayTradeStore::default()));
 
         // Start ReplayDriver
         let mut driver = ReplayDriver::new(
@@ -83,6 +91,7 @@ impl ReplayCoordinator {
             engine.clone(),
             merge_stream,
             tick_wake.clone(),
+            trade_store.clone(),
         );
         driver.start(ws_url.to_string());
 
@@ -134,6 +143,7 @@ impl ReplayCoordinator {
             running,
             engine,
             driver: Some(driver),
+            trade_store,
             threads: vec![pub_handle],
         })
     }

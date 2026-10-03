@@ -62,6 +62,8 @@ pub struct BrokerConfig {
     pub timezone_rule: TimezoneRule,
     #[serde(default)]
     pub terminal_path: Option<String>,
+    #[serde(default)]
+    pub receive_delay_ms: Option<i64>,
 }
 
 
@@ -88,6 +90,7 @@ impl Default for BrokerConfig {
             auto_utc_offset: true,
             timezone_rule: TimezoneRule::NyClose,
             terminal_path: None,
+            receive_delay_ms: None,
         }
     }
 
@@ -428,6 +431,7 @@ impl Default for AppConfig {
                     auto_utc_offset: true,
                     timezone_rule: TimezoneRule::NyClose,
                     terminal_path: None,
+                    receive_delay_ms: None,
                 },
                 BrokerConfig {
                     id: 2,
@@ -442,6 +446,7 @@ impl Default for AppConfig {
                     auto_utc_offset: true,
                     timezone_rule: TimezoneRule::NyClose,
                     terminal_path: None,
+                    receive_delay_ms: None,
                 },
 
             ],

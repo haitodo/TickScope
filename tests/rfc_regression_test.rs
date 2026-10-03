@@ -62,6 +62,7 @@ fn make_5_broker_config() -> AppConfig {
             auto_utc_offset: false,
             timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
+            receive_delay_ms: None,
         })
 
         .collect();

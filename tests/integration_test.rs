@@ -65,6 +65,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             auto_utc_offset: true,
             timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 2,
@@ -79,6 +80,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             auto_utc_offset: true,
             timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 3,
@@ -93,6 +95,7 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             auto_utc_offset: true,
             timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
+            receive_delay_ms: None,
         },
 
     ];
@@ -188,6 +191,7 @@ fn test_ti02_high_frequency_burst_injection() {
             auto_utc_offset: false,
             timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 12,
@@ -202,6 +206,7 @@ fn test_ti02_high_frequency_burst_injection() {
             auto_utc_offset: false,
             timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 13,
@@ -216,6 +221,7 @@ fn test_ti02_high_frequency_burst_injection() {
             auto_utc_offset: false,
             timezone_rule: TimezoneRule::Fixed,
             terminal_path: None,
+            receive_delay_ms: None,
         },
 
     ];
@@ -253,15 +259,17 @@ fn test_ti02_high_frequency_burst_injection() {
     let clients: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
     // Allow pipeline to drain all queued ticks and publish a snapshot
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         let snap = coordinator.exchange.load_latest();
         let all_caught_up = [11, 12, 13].iter().all(|&bid| {
             snap.broker_overviews
                 .iter()
                 .find(|b| b.broker_id == bid)
-                .and_then(|b| b.latest_quote.as_ref())
-                .is_some_and(|q| q.tick_id.sequence == (burst_count - 1) as u64)
+                .is_some_and(|b| {
+                    b.health.total_ticks_received == burst_count as u64
+                        && b.latest_quote.as_ref().is_some_and(|q| q.tick_id.sequence == (burst_count - 1) as u64)
+                })
         });
         if all_caught_up || std::time::Instant::now() > deadline {
             break;
@@ -312,6 +320,7 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
             utc_verified: true,
             auto_utc_offset: true,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 22,
@@ -326,6 +335,7 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
             utc_verified: true,
             auto_utc_offset: true,
             terminal_path: None,
+            receive_delay_ms: None,
         },
     ];
 

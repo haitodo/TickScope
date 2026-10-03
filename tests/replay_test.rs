@@ -33,6 +33,7 @@ fn make_test_config() -> AppConfig {
             utc_verified: true,
             auto_utc_offset: false,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 2,
@@ -47,6 +48,7 @@ fn make_test_config() -> AppConfig {
             utc_verified: true,
             auto_utc_offset: false,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 3,
@@ -61,6 +63,7 @@ fn make_test_config() -> AppConfig {
             utc_verified: true,
             auto_utc_offset: false,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 4,
@@ -75,6 +78,7 @@ fn make_test_config() -> AppConfig {
             utc_verified: true,
             auto_utc_offset: false,
             terminal_path: None,
+            receive_delay_ms: None,
         },
         BrokerConfig {
             id: 5,
@@ -89,6 +93,7 @@ fn make_test_config() -> AppConfig {
             utc_verified: true,
             auto_utc_offset: false,
             terminal_path: None,
+            receive_delay_ms: None,
         },
     ];
     config.active_pair = (1, 2);
@@ -203,6 +208,63 @@ fn test_5_broker_k_way_merge_stream_chronological_ordering() {
             );
         }
     }
+}
+
+#[test]
+fn test_merge_stream_receive_delay_ordering_and_seek() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    // Domestic broker (e.g. JFX: delay = 20ms)
+    let mut s_dom = BrokerParquetSource::new(5, "JFX", "usdjpy", root).unwrap()
+        .with_receive_delay_ms(20);
+    s_dom.current_ticks = Arc::new(vec![
+        // utc 1100 -> effective 1120
+        ReplayTick { broker_id: 5, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02 },
+        // utc 1200 -> effective 1220
+        ReplayTick { broker_id: 5, utc_ms: 1200, mt5_ms: 1200, bid: 150.0, ask: 150.02 },
+    ]);
+
+    // Overseas broker (e.g. Tradeview: delay = 180ms)
+    let mut s_ovs = BrokerParquetSource::new(2, "Tradeview", "usdjpy", root).unwrap()
+        .with_receive_delay_ms(180);
+    s_ovs.current_ticks = Arc::new(vec![
+        // utc 1000 -> effective 1180
+        ReplayTick { broker_id: 2, utc_ms: 1000, mt5_ms: 1000, bid: 150.0, ask: 150.02 },
+        // utc 1100 -> effective 1280
+        ReplayTick { broker_id: 2, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02 },
+    ]);
+
+    let mut merge = MergeStream::new(vec![s_dom, s_ovs]);
+
+    // 1. Physical latency ordering:
+    // Even though Tradeview tick 1 was generated earlier (utc 1000 < 1100),
+    // JFX tick arrives at 1120, while Tradeview arrives at 1180.
+    // JFX must be popped FIRST!
+    let t1 = merge.pop_next().expect("First tick");
+    assert_eq!(t1.broker_id, 5, "Domestic broker must arrive first despite later server time");
+    assert_eq!(t1.utc_ms, 1100);
+
+    let t2 = merge.pop_next().expect("Second tick");
+    assert_eq!(t2.broker_id, 2, "Overseas broker arrives second");
+    assert_eq!(t2.utc_ms, 1000);
+
+    let t3 = merge.pop_next().expect("Third tick");
+    assert_eq!(t3.broker_id, 5); // 1220 vs 1280
+    assert_eq!(t3.utc_ms, 1200);
+
+    let t4 = merge.pop_next().expect("Fourth tick");
+    assert_eq!(t4.broker_id, 2);
+    assert_eq!(t4.utc_ms, 1100);
+
+    // 2. Seeking with receive delay:
+    // Seeking to effective time 1150:
+    // - JFX: target_utc = 1150 - 20 = 1130 -> cursor at tick utc 1200 (eff 1220)
+    // - Tradeview: target_utc = 1150 - 180 = 970 -> cursor at tick utc 1000 (eff 1180)
+    merge.seek_to_utc(1150);
+    let after_seek = merge.pop_next().expect("Next tick after seek to 1150");
+    assert_eq!(after_seek.broker_id, 2, "Tradeview tick with arrival 1180 >= 1150 must NOT be skipped");
+    assert_eq!(after_seek.utc_ms, 1000);
 }
 
 #[test]
@@ -382,6 +444,7 @@ async fn test_replay_driver_mock_websocket_sync() {
     let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config)));
     let stream = Arc::new(parking_lot::RwLock::new(MergeStream::new(vec![])));
     let tick_wake = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+    let trade_store = Arc::new(parking_lot::RwLock::new(tick_scope::core::models::ReplayTradeStore::default()));
 
     let mut driver = tick_scope::replay::driver::ReplayDriver::new(
         run_id,
@@ -389,6 +452,7 @@ async fn test_replay_driver_mock_websocket_sync() {
         engine,
         stream,
         tick_wake,
+        trade_store.clone(),
     );
     driver.start(ws_url);
 
@@ -576,6 +640,7 @@ fn test_rapid_seek_scrubbing_race_safety() {
     let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config)));
     let stream = Arc::new(parking_lot::RwLock::new(MergeStream::new(vec![])));
     let tick_wake = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+    let trade_store = Arc::new(parking_lot::RwLock::new(tick_scope::core::models::ReplayTradeStore::default()));
 
     let driver = tick_scope::replay::driver::ReplayDriver::new(
         run_id,
@@ -583,6 +648,7 @@ fn test_rapid_seek_scrubbing_race_safety() {
         engine.clone(),
         stream,
         tick_wake,
+        trade_store,
     );
 
     // Simulate 30 rapid seek commands in succession (scrubbing slider back and forth)

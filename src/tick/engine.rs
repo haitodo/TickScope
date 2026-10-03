@@ -317,6 +317,53 @@ impl TickEngine {
         self.projection_revision += 1;
     }
 
+    /// Update a broker's latest quote directly (used for 0-ms synchronized replay rate feeds).
+    pub fn update_direct_quote(
+        &mut self,
+        broker_id: BrokerId,
+        bid: f64,
+        ask: f64,
+        utc_ms: UtcMs,
+        rx_mono_ns: MonoNs,
+    ) {
+        if !bid.is_finite() || !ask.is_finite() || bid <= 0.0 || ask < bid {
+            return;
+        }
+        let spread = ask - bid;
+        let quote = Quote {
+            tick_id: TickId {
+                broker_id,
+                session_id: 1,
+                sequence: 0,
+            },
+            bid,
+            ask,
+            mid: (bid + ask) / 2.0,
+            spread,
+            rx_mono_ns,
+            utc_ms: Some(utc_ms),
+            is_warmup: false,
+            is_valid: true,
+        };
+        self.latest_quotes.insert(broker_id, quote);
+        if let Some(ch) = self.channels.get_mut(&broker_id) {
+            ch.is_connected = true;
+            if rx_mono_ns > ch.watermark {
+                ch.watermark = rx_mono_ns;
+            }
+        }
+        if let Some(h) = self.health_states.get_mut(&broker_id) {
+            h.connection = ConnectionState::Connected;
+            h.data_freshness = FreshnessState::Live;
+            h.last_live_tick_rx_mono = Some(rx_mono_ns);
+            h.heartbeat = HeartbeatState::Ok;
+        }
+        if let Some(st) = self.spread_trackers.get_mut(&broker_id) {
+            st.on_quote(spread, rx_mono_ns);
+        }
+        self.projection_revision += 1;
+    }
+
     pub fn on_ingress_item(&mut self, item: IngressItem) {
         self.on_ingress_item_at(item, MonoNs::ZERO);
     }

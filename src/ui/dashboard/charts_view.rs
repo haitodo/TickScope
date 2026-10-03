@@ -5,7 +5,8 @@ use super::DashboardApp;
 use crate::core::models::UiSnapshot;
 use crate::ui::settings::CandlePriceMode;
 use crate::ui::chart::{
-    draw_bid_ask_diff_chart, draw_candlestick_chart_for_brokers, draw_lead_lag_view,
+    draw_bid_ask_diff_chart,
+    draw_candlestick_chart_for_brokers_with_trades, draw_lead_lag_view,
     draw_mid_diff_chart, draw_mid_dispersion_view_with_visibility, draw_move_breadth_view,
     draw_quote_persistence_view_with_visibility, draw_realtime_quote_path_chart_with_visibility,
     draw_spread_diff_chart, BottomMetric, BottomMetricCategory, ChartXAxisMode,
@@ -55,8 +56,18 @@ pub fn render_charts_view(
 
         let visible_broker_ids = app.visible_broker_ids(&snapshot.broker_overviews);
 
+        let trade_data = if app.show_trade_overlay {
+            app.trade_store.as_ref().map(|s| {
+                let guard = s.read();
+                (guard.open_positions.clone(), guard.history.clone())
+            })
+        } else {
+            None
+        };
+        let trade_slices = trade_data.as_ref().map(|(o, h)| (o.as_slice(), h.as_slice()));
+
         if app.show_candle_context {
-            draw_candlestick_chart_for_brokers(
+            draw_candlestick_chart_for_brokers_with_trades(
                 &painter,
                 candle_rect,
                 candle_view,
@@ -73,6 +84,7 @@ pub fn render_charts_view(
                 snapshot.built_mono_ns,
                 app.candle_price_mode.price_mode(),
                 &app.theme,
+                trade_slices,
             );
         } else {
             draw_realtime_quote_path_chart_with_visibility(
@@ -208,8 +220,23 @@ pub fn render_charts_view(
                     );
                 }
 
-                // Right Zone: Bottom X-Axis Mode
+                // Right Zone: Bottom X-Axis Mode & Replay Mode Toggle
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if app.trade_store.is_some() {
+                        let (btn_text, btn_color) = if app.show_trade_overlay {
+                            ("[検証モード: 建玉ON]", Color32::from_rgb(0, 240, 160))
+                        } else {
+                            ("[リアル本番モード: 建玉OFF]", Color32::from_gray(150))
+                        };
+                        if ui
+                            .small_button(RichText::new(btn_text).color(btn_color).strong())
+                            .on_hover_text("建玉ライン・約定マーカーの表示/非表示を切り替え (ショートカット: V または Ctrl+P)")
+                            .clicked()
+                        {
+                            app.show_trade_overlay = !app.show_trade_overlay;
+                        }
+                    }
+
                     let is_b_ticks = app.bottom_x_axis_mode == ChartXAxisMode::TickCount;
                     if ui.selectable_label(is_b_ticks, "Ticks").clicked() {
                         app.set_bottom_x_axis_mode(ChartXAxisMode::TickCount);
