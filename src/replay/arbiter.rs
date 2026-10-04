@@ -30,6 +30,8 @@ pub enum ArbiterAction {
 
 pub struct SyncArbiter {
     last_observed_mt5_ms: i64,
+    last_observed_seek_epoch: u64,
+    last_observed_trade_revision: u64,
 }
 
 impl Default for SyncArbiter {
@@ -42,12 +44,16 @@ impl SyncArbiter {
     pub fn new() -> Self {
         Self {
             last_observed_mt5_ms: 0,
+            last_observed_seek_epoch: 0,
+            last_observed_trade_revision: 0,
         }
     }
 
     /// Reset internal tracking (e.g. on new connection).
     pub fn reset(&mut self) {
         self.last_observed_mt5_ms = 0;
+        self.last_observed_seek_epoch = 0;
+        self.last_observed_trade_revision = 0;
     }
 
     /// Evaluates raw JSON or typed status and returns the appropriate action.
@@ -86,34 +92,54 @@ impl SyncArbiter {
             }
         };
 
-        // 2. Positions & History Overlay Sync
-        if val.get("positions").is_some() || val.get("history").is_some() {
-            let mut positions: Vec<ReplayTrade> = val
-                .get("positions")
-                .and_then(|p| serde_json::from_value(p.clone()).ok())
-                .unwrap_or_default();
-            let mut history: Vec<ReplayTrade> = val
-                .get("history")
-                .and_then(|h| serde_json::from_value(h.clone()).ok())
-                .unwrap_or_default();
+        // 2. Positions & History Overlay Sync (Optimized with trade_revision check)
+        let trade_revision = val
+            .get("trade_revision")
+            .or_else(|| val.get("history_revision"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let trade_changed = trade_revision == 0 || trade_revision != self.last_observed_trade_revision;
 
-            for p in &mut positions {
-                p.open_utc_ms = mt5_to_utc_ms(p.open_time_msc);
-                p.close_utc_ms = p.close_time_msc.map(mt5_to_utc_ms);
-            }
-            for h in &mut history {
-                h.open_utc_ms = mt5_to_utc_ms(h.open_time_msc);
-                h.close_utc_ms = h.close_time_msc.map(mt5_to_utc_ms);
-            }
-
+        if trade_changed {
             let mut store = trade_store.write();
-            store.open_positions = positions;
-            store.history = history;
-            data_updated = true;
+            let mut updated = false;
+
+            if let Some(pos_val) = val.get("positions") {
+                if let Ok(mut positions) = serde_json::from_value::<Vec<ReplayTrade>>(pos_val.clone()) {
+                    for p in &mut positions {
+                        p.open_utc_ms = mt5_to_utc_ms(p.open_time_msc);
+                        p.close_utc_ms = p.close_time_msc.map(mt5_to_utc_ms);
+                    }
+                    store.open_positions = positions;
+                    updated = true;
+                }
+            }
+
+            if let Some(hist_val) = val.get("history") {
+                if let Ok(mut history) = serde_json::from_value::<Vec<ReplayTrade>>(hist_val.clone()) {
+                    for h in &mut history {
+                        h.open_utc_ms = mt5_to_utc_ms(h.open_time_msc);
+                        h.close_utc_ms = h.close_time_msc.map(mt5_to_utc_ms);
+                    }
+                    store.history = history;
+                    updated = true;
+                }
+            }
+
+            if updated {
+                data_updated = true;
+            }
+            if trade_revision > 0 {
+                self.last_observed_trade_revision = trade_revision;
+            }
         }
 
-        // 3. Adaptive SEEK Detection with Hysteresis
-        let is_seek = if self.last_observed_mt5_ms == 0 {
+        // 3. Adaptive SEEK Detection with seek_epoch check & Hysteresis fallback
+        let seek_epoch = val.get("seek_epoch").and_then(|v| v.as_u64()).unwrap_or(0);
+        let is_seek = if seek_epoch > 0 && self.last_observed_seek_epoch > 0 && seek_epoch != self.last_observed_seek_epoch {
+            // 明示的 seek_epoch 変更による確定的シーク
+            true
+        } else if self.last_observed_mt5_ms == 0 {
             true
         } else if !is_playing {
             (virtual_time_msc - self.last_observed_mt5_ms).abs() > 200
@@ -124,6 +150,9 @@ impl SyncArbiter {
             time_diff < -250 || time_diff > forward_threshold
         };
 
+        if seek_epoch > 0 {
+            self.last_observed_seek_epoch = seek_epoch;
+        }
         self.last_observed_mt5_ms = virtual_time_msc;
 
         let action = if is_seek {
@@ -201,5 +230,100 @@ mod tests {
         });
         let (action, _) = arbiter.evaluate(&v4, &clock, &trade_store);
         assert!(matches!(action, ArbiterAction::Seek { .. }), "Large backward jump must trigger SEEK");
+    }
+
+    #[test]
+    fn test_seek_epoch_explicit_trigger() {
+        let clock = VirtualClock::new(RunId::new_random(), 1_000_000);
+        let trade_store = Arc::new(RwLock::new(ReplayTradeStore::default()));
+        let mut arbiter = SyncArbiter::new();
+
+        // 1. Initial message with epoch 1
+        let v1 = serde_json::json!({
+            "virtual_time_msc": 100_000,
+            "is_playing": true,
+            "multiplier": 1.0,
+            "seek_epoch": 1
+        });
+        let (action, _) = arbiter.evaluate(&v1, &clock, &trade_store);
+        assert!(matches!(action, ArbiterAction::Seek { .. }));
+
+        // 2. Playback update same epoch
+        let v2 = serde_json::json!({
+            "virtual_time_msc": 100_010,
+            "is_playing": true,
+            "multiplier": 1.0,
+            "seek_epoch": 1
+        });
+        let (action, _) = arbiter.evaluate(&v2, &clock, &trade_store);
+        assert!(matches!(action, ArbiterAction::PlaybackUpdate { .. }));
+
+        // 3. Increment seek_epoch -> Must trigger SEEK even if time difference is tiny (0ms)
+        let v3 = serde_json::json!({
+            "virtual_time_msc": 100_010,
+            "is_playing": true,
+            "multiplier": 1.0,
+            "seek_epoch": 2
+        });
+        let (action, _) = arbiter.evaluate(&v3, &clock, &trade_store);
+        assert!(matches!(action, ArbiterAction::Seek { .. }), "seek_epoch change must trigger SEEK");
+    }
+
+    #[test]
+    fn test_trade_revision_preserves_history_when_omitted() {
+        let clock = VirtualClock::new(RunId::new_random(), 1_000_000);
+        let trade_store = Arc::new(RwLock::new(ReplayTradeStore::default()));
+        let mut arbiter = SyncArbiter::new();
+
+        // 1. Initial message with history and revision 1
+        let v1 = serde_json::json!({
+            "virtual_time_msc": 100_000,
+            "trade_revision": 1,
+            "history": [{
+                "ticket": 101,
+                "type": "BUY",
+                "volume": 1.0,
+                "open_price": 150.0,
+                "open_time_msc": 100_000,
+                "profit": 500.0
+            }]
+        });
+        arbiter.evaluate(&v1, &clock, &trade_store);
+        assert_eq!(trade_store.read().history.len(), 1);
+
+        // 2. Next message without history (delta sync), same revision -> history must NOT be cleared!
+        let v2 = serde_json::json!({
+            "virtual_time_msc": 100_020,
+            "trade_revision": 1,
+            "is_playing": true
+        });
+        arbiter.evaluate(&v2, &clock, &trade_store);
+        assert_eq!(trade_store.read().history.len(), 1, "History must be retained when omitted in same revision");
+
+        // 3. New trade with revision 2
+        let v3 = serde_json::json!({
+            "virtual_time_msc": 100_050,
+            "trade_revision": 2,
+            "history": [
+                {
+                    "ticket": 101,
+                    "type": "BUY",
+                    "volume": 1.0,
+                    "open_price": 150.0,
+                    "open_time_msc": 100_000,
+                    "profit": 500.0
+                },
+                {
+                    "ticket": 102,
+                    "type": "SELL",
+                    "volume": 2.0,
+                    "open_price": 150.5,
+                    "open_time_msc": 100_040,
+                    "profit": 1000.0
+                }
+            ]
+        });
+        arbiter.evaluate(&v3, &clock, &trade_store);
+        assert_eq!(trade_store.read().history.len(), 2, "History must update on revision change");
     }
 }
