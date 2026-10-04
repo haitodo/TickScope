@@ -1,21 +1,21 @@
 //! Replay Driver: WebSocket synchronization with TickReplay (ws://127.0.0.1:49210),
 //! high-speed k-way merge tick streaming, and instant SEEK state rebuild.
 
+use super::arbiter::{ArbiterAction, SyncArbiter};
 use super::clock::VirtualClock;
 use super::merge_stream::MergeStream;
 use super::parquet_source::ReplayTick;
+use super::pump::PlaybackPump;
+use super::rebuilder::StateRebuilder;
+use super::sync_client::WsSyncClient;
 use crate::core::types::{BrokerId, MonoNs, RunId, SessionId, UtcMs};
 use crate::protocol::*;
 use crate::tick::engine::TickEngine;
-use futures_util::{SinkExt, StreamExt};
 use parking_lot::{Condvar, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
-use tokio_tungstenite::tungstenite::Message;
+use std::thread::JoinHandle;
 
 pub const DEFAULT_SYNC_URL: &str = "ws://127.0.0.1:49210";
 
@@ -115,6 +115,7 @@ pub struct ReplayDriver {
     pub tick_wake: Arc<(Mutex<bool>, Condvar)>,
     pub session_epoch: Arc<AtomicU64>,
     pub trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
+    pub arbiter: Arc<Mutex<SyncArbiter>>,
     ws_cmd_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>,
     threads: Vec<JoinHandle<()>>,
 }
@@ -137,82 +138,56 @@ impl ReplayDriver {
             tick_wake,
             session_epoch: Arc::new(AtomicU64::new(1)),
             trade_store,
+            arbiter: Arc::new(Mutex::new(SyncArbiter::new())),
             ws_cmd_tx: Arc::new(Mutex::new(None)),
             threads: Vec::new(),
         }
     }
 
-    /// Start the replay driver with background WebSocket listener and tick playback loop.
+    /// Start the replay driver with background WebSocket listener and adaptive tick pump.
     pub fn start(&mut self, ws_url: String) {
         log::info!("[ReplayDriver] Starting ReplayDriver (ws: {})", ws_url);
 
+        // 1. Spawn High-Throughput Playback Pump
+        let pump_handle = PlaybackPump::spawn(
+            self.run_id,
+            self.clock.clone(),
+            self.engine.clone(),
+            self.merge_stream.clone(),
+            self.running.clone(),
+            self.tick_wake.clone(),
+            self.session_epoch.clone(),
+        );
+        self.threads.push(pump_handle);
+
+        // 2. Spawn WebSocket Sync Client
         let run_id = self.run_id;
         let clock = self.clock.clone();
         let engine = self.engine.clone();
         let merge_stream = self.merge_stream.clone();
-        let running = self.running.clone();
         let tick_wake = self.tick_wake.clone();
         let session_epoch = self.session_epoch.clone();
+        let trade_store = self.trade_store.clone();
+        let arbiter = self.arbiter.clone();
 
-        // 1. Spawn Playback Worker Thread
-        let clock_pb = clock.clone();
-        let engine_pb = engine.clone();
-        let merge_pb = merge_stream.clone();
-        let run_pb = running.clone();
-        let wake_pb = tick_wake.clone();
-        let session_pb = session_epoch.clone();
-
-        let pb_handle = thread::spawn(move || {
-            Self::playback_worker_loop(
-                run_id,
-                clock_pb,
-                engine_pb,
-                merge_pb,
-                run_pb,
-                wake_pb,
-                session_pb,
-            );
-        });
-        self.threads.push(pb_handle);
-
-        // 2. Spawn Tokio WebSocket Sync Client Thread
-        let ws_cmd_tx_holder = self.ws_cmd_tx.clone();
-        let clock_ws = clock.clone();
-        let engine_ws = engine.clone();
-        let merge_ws = merge_stream.clone();
-        let run_ws = running.clone();
-        let wake_ws = tick_wake.clone();
-        let session_ws = session_epoch.clone();
-        let trade_ws = self.trade_store.clone();
-
-        let ws_handle = thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    log::error!("[ReplayDriver] Failed to build Tokio runtime: {}", e);
-                    return;
-                }
-            };
-
-            rt.block_on(async move {
-                Self::ws_sync_loop(
-                    ws_url,
+        let ws_handle = WsSyncClient::spawn(
+            ws_url,
+            self.running.clone(),
+            self.ws_cmd_tx.clone(),
+            move |text| {
+                Self::handle_ws_message(
+                    text,
                     run_id,
-                    clock_ws,
-                    engine_ws,
-                    merge_ws,
-                    run_ws,
-                    wake_ws,
-                    session_ws,
-                    trade_ws,
-                    ws_cmd_tx_holder,
-                )
-                .await;
-            });
-        });
+                    &clock,
+                    &engine,
+                    &merge_stream,
+                    &tick_wake,
+                    &session_epoch,
+                    &trade_store,
+                    &arbiter,
+                );
+            },
+        );
         self.threads.push(ws_handle);
     }
 
@@ -223,185 +198,7 @@ impl ReplayDriver {
         }
     }
 
-    /// High-speed tick playback loop when `clock.is_playing() == true`.
-    fn playback_worker_loop(
-        run_id: RunId,
-        clock: VirtualClock,
-        engine: Arc<Mutex<TickEngine>>,
-        merge_stream: Arc<RwLock<MergeStream>>,
-        running: Arc<AtomicBool>,
-        tick_wake: Arc<(Mutex<bool>, Condvar)>,
-        session_epoch: Arc<AtomicU64>,
-    ) {
-        let mut next_sequences: HashMap<BrokerId, u64> = HashMap::new();
-        let mut last_session = session_epoch.load(Ordering::SeqCst);
-
-        while running.load(Ordering::SeqCst) {
-            let current_session = session_epoch.load(Ordering::SeqCst);
-            if current_session != last_session {
-                next_sequences.clear();
-                last_session = current_session;
-            }
-
-            if !clock.is_playing() {
-                thread::sleep(Duration::from_millis(10));
-                continue;
-            }
-
-            let current_utc = clock.current_utc_ms();
-            let ticks = {
-                let mut stream = merge_stream.write();
-                stream.pop_up_to(current_utc, 256)
-            };
-
-            let post_pop_session = session_epoch.load(Ordering::SeqCst);
-            if post_pop_session != current_session {
-                // A seek occurred while popping ticks; discard stale ticks
-                continue;
-            }
-
-            let current_mono = MonoNs((current_utc.max(0) as u64).saturating_mul(1_000_000));
-
-            let mut eng = engine.lock();
-            // Re-check session under lock to prevent any race condition
-            if session_epoch.load(Ordering::SeqCst) != current_session {
-                drop(eng);
-                continue;
-            }
-
-            if !ticks.is_empty() {
-                // Group ticks by broker for efficient WireFrame dispatch
-                let mut broker_groups: HashMap<BrokerId, Vec<ReplayTick>> = HashMap::new();
-                for t in ticks {
-                    broker_groups.entry(t.broker_id).or_default().push(t);
-                }
-
-                for (b_id, b_ticks) in broker_groups {
-                    let seq = next_sequences.entry(b_id).or_insert(1);
-                    let ingress_item = make_ingress_tick_batch(
-                        b_id,
-                        current_session,
-                        &b_ticks,
-                        *seq,
-                        false,
-                        run_id,
-                    );
-                    *seq += b_ticks.len() as u64;
-                    eng.on_ingress_item(ingress_item);
-                }
-            }
-
-            // Advance watermark for all connected channels to current_mono so quiet brokers
-            // do not stall the global watermark merge
-            let active_broker_ids: Vec<BrokerId> = eng
-                .channels
-                .iter()
-                .filter(|(_, ch)| ch.is_connected)
-                .map(|(&id, _)| id)
-                .collect();
-
-            for b_id in active_broker_ids {
-                eng.on_ingress_item(IngressItem::Progress {
-                    broker_id: b_id,
-                    watermark_ns: current_mono,
-                });
-            }
-
-            drop(eng);
-
-            // Wake publisher immediately to reflect latest quotes & chart updates
-            let (lock, cvar) = &*tick_wake;
-            let mut pending = lock.lock();
-            *pending = true;
-            cvar.notify_one();
-
-            // Yield briefly when caught up with virtual time
-            thread::yield_now();
-            thread::sleep(Duration::from_millis(2));
-        }
-    }
-
-    /// Background WebSocket loop connecting to ws://127.0.0.1:49210.
-    async fn ws_sync_loop(
-        ws_url: String,
-        run_id: RunId,
-        clock: VirtualClock,
-        engine: Arc<Mutex<TickEngine>>,
-        merge_stream: Arc<RwLock<MergeStream>>,
-        running: Arc<AtomicBool>,
-        tick_wake: Arc<(Mutex<bool>, Condvar)>,
-        session_epoch: Arc<AtomicU64>,
-        trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
-        ws_cmd_tx_holder: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>,
-    ) {
-        let mut last_observed_mt5_ms = 0i64;
-
-        while running.load(Ordering::SeqCst) {
-            log::info!("[ReplayDriver] Connecting to TickReplay WS at {}...", ws_url);
-            match tokio_tungstenite::connect_async(&ws_url).await {
-                Ok((ws_stream, _resp)) => {
-                    log::info!("[ReplayDriver] Connected to TickReplay WebSocket server!");
-                    let (mut write, mut read) = ws_stream.split();
-                    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-                    *ws_cmd_tx_holder.lock() = Some(cmd_tx);
-
-                    loop {
-                        tokio::select! {
-                            msg_opt = read.next() => {
-                                match msg_opt {
-                                    Some(Ok(Message::Text(text))) => {
-                                        Self::handle_ws_message(
-                                            &text,
-                                            run_id,
-                                            &clock,
-                                            &engine,
-                                            &merge_stream,
-                                            &tick_wake,
-                                            &session_epoch,
-                                            &trade_store,
-                                            &mut last_observed_mt5_ms,
-                                        );
-                                    }
-                                    Some(Ok(Message::Ping(p))) => {
-                                        let _ = write.send(Message::Pong(p)).await;
-                                    }
-                                    Some(Ok(Message::Close(_))) | None => {
-                                        log::warn!("[ReplayDriver] TickReplay WS connection closed.");
-                                        break;
-                                    }
-                                    Some(Err(e)) => {
-                                        log::warn!("[ReplayDriver] WS read error: {}", e);
-                                        break;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            cmd_opt = cmd_rx.recv() => {
-                                match cmd_opt {
-                                    Some(cmd) => {
-                                        if let Err(e) = write.send(Message::Text(cmd.into())).await {
-                                            log::warn!("[ReplayDriver] WS write error: {}", e);
-                                            break;
-                                        }
-                                    }
-                                    None => break,
-                                }
-                            }
-                        }
-                    }
-
-                    *ws_cmd_tx_holder.lock() = None;
-                }
-                Err(e) => {
-                    log::debug!("[ReplayDriver] WS connect failed ({}), retrying in 1s...", e);
-                }
-            }
-
-            tokio::time::sleep(Duration::from_millis(1000)).await;
-        }
-    }
-
-    /// Process status message received from TickReplay WebSocket server.
+    /// Process incoming status message from TickReplay WebSocket server.
     fn handle_ws_message(
         text: &str,
         run_id: RunId,
@@ -411,205 +208,64 @@ impl ReplayDriver {
         tick_wake: &Arc<(Mutex<bool>, Condvar)>,
         session_epoch: &Arc<AtomicU64>,
         trade_store: &Arc<RwLock<crate::core::models::ReplayTradeStore>>,
-        last_observed_mt5_ms: &mut i64,
+        arbiter: &Arc<Mutex<SyncArbiter>>,
     ) {
         let val: serde_json::Value = match serde_json::from_str(text) {
             Ok(v) => v,
             Err(_) => return,
         };
 
-        let virtual_time_msc = val.get("virtual_time_msc").and_then(|v| v.as_i64()).unwrap_or(0);
-        if virtual_time_msc <= 0 {
-            return;
-        }
+        let (action, jfx_quote) = arbiter.lock().evaluate(&val, clock, trade_store);
 
-        let is_playing = val.get("is_playing").and_then(|p| p.as_bool()).unwrap_or(false);
-        let multiplier = val.get("multiplier")
-            .and_then(|m| m.as_f64().or_else(|| m.as_str().and_then(|s| s.parse().ok())))
-            .unwrap_or(1.0);
-
-        let target_utc_ms = mt5_to_utc_ms(virtual_time_msc);
-        let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
-        let mut data_updated = false;
-
-        // 1. Direct JFX Quote Synchronization (0ms lag matching)
-        let jfx_bid_opt = val.get("jfx_bid").and_then(|v| v.as_f64());
-        let jfx_ask_opt = val.get("jfx_ask").and_then(|v| v.as_f64());
-        if let (Some(jfx_bid), Some(jfx_ask)) = (jfx_bid_opt, jfx_ask_opt) {
-            if jfx_bid > 0.0 && jfx_ask >= jfx_bid {
-                let mut eng = engine.lock();
-                let jfx_id = eng.config.brokers.iter()
-                    .find(|b| b.name.eq_ignore_ascii_case("JFX"))
-                    .map(|b| b.id)
-                    .unwrap_or(5);
-                eng.update_direct_quote(
-                    jfx_id,
-                    jfx_bid,
-                    jfx_ask,
-                    UtcMs(target_utc_ms),
-                    target_mono,
-                );
-                data_updated = true;
-            }
-        }
-
-        // 2. Positions & Trade History Overlay Synchronization
-        if val.get("positions").is_some() || val.get("history").is_some() {
-            let mut positions: Vec<crate::core::models::ReplayTrade> = val.get("positions")
-                .and_then(|p| serde_json::from_value(p.clone()).ok())
-                .unwrap_or_default();
-            let mut history: Vec<crate::core::models::ReplayTrade> = val.get("history")
-                .and_then(|h| serde_json::from_value(h.clone()).ok())
-                .unwrap_or_default();
-
-            for p in &mut positions {
-                p.open_utc_ms = mt5_to_utc_ms(p.open_time_msc);
-                p.close_utc_ms = p.close_time_msc.map(mt5_to_utc_ms);
-            }
-            for h in &mut history {
-                h.open_utc_ms = mt5_to_utc_ms(h.open_time_msc);
-                h.close_utc_ms = h.close_time_msc.map(mt5_to_utc_ms);
-            }
-
-            let mut store = trade_store.write();
-            store.open_positions = positions;
-            store.history = history;
-            data_updated = true;
-        }
-
-        // Adaptive SEEK Detection:
-        // - Initial message is always a seek/rebuild
-        // - While paused, any movement > 200ms is a user seek
-        // - While playing, any backward movement is a seek (or loop jump),
-        //   and forward movement exceeding speed-scaled threshold is a seek
-        let is_seek = if *last_observed_mt5_ms == 0 {
-            true
-        } else if !is_playing {
-            (virtual_time_msc - *last_observed_mt5_ms).abs() > 200
-        } else {
-            let threshold = (multiplier * 2000.0).max(3000.0) as i64;
-            virtual_time_msc < *last_observed_mt5_ms
-                || (virtual_time_msc - *last_observed_mt5_ms) > threshold
-        };
-
-        if is_seek {
-            let session = session_epoch.fetch_add(1, Ordering::SeqCst) + 1;
-            log::info!(
-                "[ReplayDriver] SEEK detected (target_mt5: {}, target_utc: {}, session: {}) -> Instant state rebuild",
-                virtual_time_msc,
-                target_utc_ms,
-                session
-            );
-
-            // 1. Reset engine transient state
-            let mut eng = engine.lock();
-            eng.reset_state();
-
-            // 2. Ensure partitions are loaded for target time
-            let mut stream = merge_stream.write();
-            let _ = stream.load_for_utc_ms(target_utc_ms);
-
+        // Handle JFX Direct Quote Synchronization (0ms lag matching)
+        if let Some((jfx_bid, jfx_ask, target_utc_ms)) = jfx_quote {
             let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
-
-            // 3. Reconcile broker connection states
-            for s in &stream.sources {
-                if s.partitions.is_empty() || s.current_ticks.is_empty() {
-                    eng.on_ingress_item(IngressItem::End {
-                        broker_id: s.broker_id,
-                        generation: 1,
-                        reason: format!("No historical data for broker {}", s.broker_name),
-                    });
-                } else {
-                    eng.on_ingress_item(IngressItem::Connected {
-                        broker_id: s.broker_id,
-                        generation: 1,
-                        connected_at_mono: target_mono,
-                    });
-                }
-            }
-
-            // 4. Batch load 60-second warm-up ticks to instantaneously rebuild candlestick history & metrics
-            let warmup_from_utc = target_utc_ms.saturating_sub(60_000);
-            let warmup_ticks = stream.get_warmup_ticks(warmup_from_utc, target_utc_ms);
-
-            if !warmup_ticks.is_empty() {
-                let mut broker_groups: HashMap<BrokerId, Vec<ReplayTick>> = HashMap::new();
-                for t in warmup_ticks {
-                    broker_groups.entry(t.broker_id).or_default().push(t);
-                }
-
-                for (b_id, b_ticks) in broker_groups {
-                    if b_ticks.len() > 1 {
-                        let hist_ticks = &b_ticks[..b_ticks.len() - 1];
-                        let hist_item = make_ingress_tick_batch(
-                            b_id,
-                            session,
-                            hist_ticks,
-                            1,
-                            true,
-                            run_id,
-                        );
-                        eng.on_ingress_item(hist_item);
-                    }
-                    // Final tick sent as is_warmup = false so latest_quotes and FreshnessState::Live are established
-                    let last_tick = &b_ticks[b_ticks.len() - 1..];
-                    let live_item = make_ingress_tick_batch(
-                        b_id,
-                        session,
-                        last_tick,
-                        b_ticks.len() as u64,
-                        false,
-                        run_id,
-                    );
-                    eng.on_ingress_item(live_item);
-                }
-            }
-
-            // 5. Advance watermark for all connected brokers to target_mono so all warmup frames drain
-            let connected_ids: Vec<BrokerId> = eng
-                .channels
+            let mut eng = engine.lock();
+            let jfx_id = eng
+                .config
+                .brokers
                 .iter()
-                .filter(|(_, ch)| ch.is_connected)
-                .map(|(&id, _)| id)
-                .collect();
-
-            for b_id in connected_ids {
-                eng.on_ingress_item(IngressItem::Progress {
-                    broker_id: b_id,
-                    watermark_ns: target_mono,
-                });
-            }
-
-            drop(eng);
-
-            // 6. Seek stream cursor to target timestamp
-            stream.seek_to_utc(target_utc_ms);
-            drop(stream);
-
-            // 7. Update clock
-            clock.set_time(target_utc_ms);
-            clock.set_playing(is_playing);
-            clock.set_multiplier(multiplier);
-
-            // 8. Signal snapshot publisher immediately
-            let (lock, cvar) = &**tick_wake;
-            let mut pending = lock.lock();
-            *pending = true;
-            cvar.notify_one();
-        } else {
-            // Smooth progress update
-            clock.set_playing(is_playing);
-            clock.set_multiplier(multiplier);
-
-            if data_updated {
-                let (lock, cvar) = &**tick_wake;
-                let mut pending = lock.lock();
-                *pending = true;
-                cvar.notify_one();
-            }
+                .find(|b| b.name.eq_ignore_ascii_case("JFX"))
+                .map(|b| b.id)
+                .unwrap_or(5);
+            eng.update_direct_quote(
+                jfx_id,
+                jfx_bid,
+                jfx_ask,
+                UtcMs(target_utc_ms),
+                target_mono,
+            );
         }
 
-        *last_observed_mt5_ms = virtual_time_msc;
+        match action {
+            ArbiterAction::Seek {
+                target_utc_ms,
+                is_playing,
+                multiplier,
+            } => {
+                let session = session_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+                StateRebuilder::rebuild_at(
+                    target_utc_ms,
+                    is_playing,
+                    multiplier,
+                    session,
+                    run_id,
+                    clock,
+                    engine,
+                    merge_stream,
+                    tick_wake,
+                );
+            }
+            ArbiterAction::PlaybackUpdate { data_updated, .. } => {
+                if data_updated {
+                    let (lock, cvar) = &**tick_wake;
+                    let mut pending = lock.lock();
+                    *pending = true;
+                    cvar.notify_one();
+                }
+            }
+            ArbiterAction::Ignore => {}
+        }
     }
 
     /// Stop the driver and join threads.
@@ -636,6 +292,28 @@ pub fn make_ingress_tick_batch(
     start_seq: u64,
     is_warmup: bool,
     run_id: RunId,
+) -> IngressItem {
+    make_ingress_tick_batch_with_mono(
+        broker_id,
+        session_id,
+        ticks,
+        start_seq,
+        is_warmup,
+        run_id,
+        None,
+    )
+}
+
+/// Helper function to create an `IngressItem::Frame` with an optional explicit `rx_mono_ns` override.
+/// Used during SEEK atomic state rebuild to anchor the final quote to `target_mono`, preventing false Stale flags.
+pub fn make_ingress_tick_batch_with_mono(
+    broker_id: BrokerId,
+    session_id: SessionId,
+    ticks: &[ReplayTick],
+    start_seq: u64,
+    is_warmup: bool,
+    run_id: RunId,
+    rx_mono_override: Option<MonoNs>,
 ) -> IngressItem {
     let mut raw_ticks = Vec::with_capacity(ticks.len());
     let mut max_utc = 0;
@@ -674,7 +352,7 @@ pub fn make_ingress_tick_batch(
         payload: FramePayload::TickBatch(raw_ticks),
     };
 
-    let rx_mono_ns = MonoNs((max_utc as u64).saturating_mul(1_000_000));
+    let rx_mono_ns = rx_mono_override.unwrap_or_else(|| MonoNs((max_utc as u64).saturating_mul(1_000_000)));
     let rx_unix_ns = Some(max_utc.saturating_mul(1_000_000));
 
     IngressItem::Frame(ReceivedFrame {

@@ -93,6 +93,33 @@ impl VirtualClock {
         }
     }
 
+    /// Synchronize phase with an authoritative external clock (e.g. TickReplay).
+    /// Locks phase to the authoritative master clock to eliminate cumulative drift during playback.
+    /// Absorbs drift within the forward threshold (±5000ms), maintaining strict sync with TickReplay.
+    pub fn sync_phase(&self, target_utc_ms: i64) {
+        let mut state = self.state.write();
+        if !state.is_playing {
+            state.virtual_utc_ms = target_utc_ms;
+            state.virtual_mono_ns = (target_utc_ms.max(0) as u64).saturating_mul(1_000_000);
+            state.last_real_instant = Instant::now();
+            return;
+        }
+
+        // Apply elapsed real time first to evaluate true drift at this moment
+        let now = Instant::now();
+        let elapsed = now.duration_since(state.last_real_instant);
+        let advance_ns = (elapsed.as_nanos() as f64 * state.multiplier) as u64;
+        state.virtual_mono_ns = state.virtual_mono_ns.saturating_add(advance_ns);
+        state.virtual_utc_ms = (state.virtual_mono_ns / 1_000_000) as i64;
+        state.last_real_instant = now;
+
+        let drift_ms = target_utc_ms - state.virtual_utc_ms;
+        if drift_ms.abs() <= 5000 {
+            state.virtual_utc_ms = target_utc_ms;
+            state.virtual_mono_ns = (target_utc_ms.max(0) as u64).saturating_mul(1_000_000);
+        }
+    }
+
     /// Get current virtual UTC millisecond timestamp.
     pub fn current_utc_ms(&self) -> i64 {
         let state = self.state.read();

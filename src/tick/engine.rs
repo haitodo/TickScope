@@ -22,25 +22,25 @@ use std::time::Instant;
 
 const MAX_DIAGNOSTICS: usize = 2_048;
 
-pub(crate) struct BrokerChannelState {
-    pub(crate) is_connected: bool,
-    pub(crate) generation: u64,
-    pub(crate) watermark: MonoNs,
-    pub(crate) pending_frames: VecDeque<ReceivedFrame>,
-    pub(crate) pending_frame_bytes: usize,
-    pub(crate) max_pending_frames: usize,
-    pub(crate) max_pending_bytes: usize,
-    pub(crate) ledger: SequenceLedger,
-    pub(crate) session_id: Option<SessionId>,
-    pub(crate) timezone_rule: TimezoneRule,
-    pub(crate) auto_utc_offset: bool,
-    pub(crate) active_utc_offset_sec: i32,
-    pub(crate) utc_verified: bool,
+pub struct BrokerChannelState {
+    pub is_connected: bool,
+    pub generation: u64,
+    pub watermark: MonoNs,
+    pub pending_frames: VecDeque<ReceivedFrame>,
+    pub pending_frame_bytes: usize,
+    pub max_pending_frames: usize,
+    pub max_pending_bytes: usize,
+    pub ledger: SequenceLedger,
+    pub session_id: Option<SessionId>,
+    pub timezone_rule: TimezoneRule,
+    pub auto_utc_offset: bool,
+    pub active_utc_offset_sec: i32,
+    pub utc_verified: bool,
 }
 
 pub struct TickEngine {
     pub(crate) config: AppConfig,
-    pub(crate) channels: HashMap<BrokerId, BrokerChannelState>,
+    pub channels: HashMap<BrokerId, BrokerChannelState>,
     pub(crate) candle_book: CandleBook,
     pub(crate) mid_candle_book: CandleBook,
     pub(crate) spread_trackers: HashMap<BrokerId, SpreadTracker>,

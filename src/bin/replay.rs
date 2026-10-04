@@ -203,6 +203,10 @@ fn main() -> eframe::Result<()> {
         }),
     );
 
+    if let Err(ref e) = result {
+        log::error!("eframe::run_native failed: {:?}", e);
+    }
+
     coordinator.stop();
     coordinator.wait_for_shutdown();
     cleanup_console();

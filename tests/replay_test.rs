@@ -672,3 +672,312 @@ fn test_rapid_seek_scrubbing_race_safety() {
     let eng_guard = engine.lock();
     assert_eq!(eng_guard.current_watermark(), MonoNs::ZERO);
 }
+
+#[test]
+fn test_simulate_replay_seek_and_playback_candles() {
+    let tick_dir = std::path::Path::new(r"D:\Drehis\tick");
+    if !tick_dir.exists() {
+        eprintln!("D:\\Drehis\\tick does not exist on this machine; skipping simulation test");
+        return;
+    }
+
+    let config = make_test_config();
+    let run_id = RunId::new_random();
+    let clock = VirtualClock::new(run_id, 0);
+    let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config.clone())));
+
+    let mut sources = Vec::new();
+    for &(b_id, name) in &[(1, "OANDA"), (2, "Tradeview"), (3, "Dukascopy"), (4, "Axiory"), (5, "JFX")] {
+        if let Ok(mut src) = BrokerParquetSource::new(b_id, name, "usdjpy", tick_dir) {
+            let _ = src.load_partition(2026, 8);
+            sources.push(src);
+        }
+    }
+    let merge_stream = Arc::new(parking_lot::RwLock::new(MergeStream::new(sources)));
+    let tick_wake = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+
+    // 1. Initial SEEK at 2026-08-20 12:00:00 UTC (1787227200000)
+    let start_utc_ms = 1_787_227_200_000i64;
+    println!("\n=== STEP 1: Rebuilding state at start_utc_ms: {} ===", start_utc_ms);
+    tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
+        start_utc_ms,
+        true,
+        1.0,
+        1,
+        run_id,
+        &clock,
+        &engine,
+        &merge_stream,
+        &tick_wake,
+    );
+
+    // Check projection immediately after rebuild
+    {
+        let eng = engine.lock();
+        let proj = eng.make_projection_at(UtcMs(start_utc_ms), MonoNs(start_utc_ms as u64 * 1_000_000));
+        println!("Projection after rebuild:");
+        for bo in &proj.broker_overviews {
+            println!("  Broker {}: quote={:?}, health={:?}", bo.broker_id, bo.latest_quote.is_some(), bo.health.data_freshness);
+        }
+        for (&period, cv) in &proj.candle_views {
+            for (bid, slots) in &cv.slots_by_broker {
+                let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
+                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+            }
+        }
+    }
+
+    // 2. Play 5 seconds forward: pop ticks and feed
+    let mut current_utc = start_utc_ms;
+    for sec in 1..=5 {
+        current_utc += 1000;
+        clock.set_time(current_utc);
+        let ticks = {
+            let mut st = merge_stream.write();
+            st.pop_up_to(current_utc, 1024)
+        };
+        println!("Second {}: popped {} ticks up to {}", sec, ticks.len(), current_utc);
+
+        let mut eng = engine.lock();
+        if !ticks.is_empty() {
+            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> = std::collections::HashMap::new();
+            for t in ticks {
+                broker_groups.entry(t.broker_id).or_default().push(t);
+            }
+            for (b_id, b_ticks) in broker_groups {
+                let item = make_ingress_tick_batch(b_id, 1, &b_ticks, sec as u64 * 1000, false, run_id);
+                eng.on_ingress_item(item);
+            }
+        }
+        for &b_id in &[1, 2, 3, 4, 5] {
+            eng.on_ingress_item(IngressItem::Progress {
+                broker_id: b_id,
+                watermark_ns: MonoNs(current_utc as u64 * 1_000_000),
+            });
+        }
+        drop(eng);
+    }
+
+    // Check projection after 5 seconds of playback
+    {
+        let eng = engine.lock();
+        let proj = eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
+        println!("\nProjection after 5s playback (current_utc: {}):", current_utc);
+        for (&period, cv) in &proj.candle_views {
+            for (bid, slots) in &cv.slots_by_broker {
+                let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
+                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+            }
+        }
+    }
+
+    // 3. JUMP +10 MINUTES (600,000ms)
+    let jump_utc_ms = current_utc + 600_000;
+    println!("\n=== STEP 3: JUMP +10M to {} ===", jump_utc_ms);
+    tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
+        jump_utc_ms,
+        true,
+        1.0,
+        2,
+        run_id,
+        &clock,
+        &engine,
+        &merge_stream,
+        &tick_wake,
+    );
+
+    // Check projection immediately after +10M jump
+    {
+        let eng = engine.lock();
+        let proj = eng.make_projection_at(UtcMs(jump_utc_ms), MonoNs(jump_utc_ms as u64 * 1_000_000));
+        println!("Projection immediately after +10M jump:");
+        for bo in &proj.broker_overviews {
+            println!("  Broker {}: quote={:?}, health={:?}", bo.broker_id, bo.latest_quote.is_some(), bo.health.data_freshness);
+        }
+        for (&period, cv) in &proj.candle_views {
+            for (bid, slots) in &cv.slots_by_broker {
+                let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
+                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+            }
+        }
+    }
+
+    // 4. Play 5 seconds forward after jump
+    current_utc = jump_utc_ms;
+    for sec in 1..=5 {
+        current_utc += 1000;
+        clock.set_time(current_utc);
+        let ticks = {
+            let mut st = merge_stream.write();
+            st.pop_up_to(current_utc, 1024)
+        };
+        println!("After jump Second {}: popped {} ticks up to {}", sec, ticks.len(), current_utc);
+
+        let mut eng = engine.lock();
+        if !ticks.is_empty() {
+            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> = std::collections::HashMap::new();
+            for t in ticks {
+                broker_groups.entry(t.broker_id).or_default().push(t);
+            }
+            for (b_id, b_ticks) in broker_groups {
+                let item = make_ingress_tick_batch(b_id, 2, &b_ticks, 10000 + sec as u64 * 1000, false, run_id);
+                eng.on_ingress_item(item);
+            }
+        }
+        for &b_id in &[1, 2, 3, 4, 5] {
+            eng.on_ingress_item(IngressItem::Progress {
+                broker_id: b_id,
+                watermark_ns: MonoNs(current_utc as u64 * 1_000_000),
+            });
+        }
+        drop(eng);
+    }
+
+    // Check projection after 5 seconds of playback post-jump
+    {
+        let eng = engine.lock();
+        let proj = eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
+        println!("\nProjection after 5s playback post-jump (current_utc: {}):", current_utc);
+        for (&period, cv) in &proj.candle_views {
+            for (bid, slots) in &cv.slots_by_broker {
+                let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
+                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+            }
+        }
+    }
+}
+
+#[test]
+fn test_simulate_august_3_live_issue() {
+    let tick_dir = std::path::Path::new(r"D:\Drehis\tick");
+    if !tick_dir.exists() {
+        eprintln!("D:\\Drehis\\tick does not exist on this machine; skipping simulation test");
+        return;
+    }
+
+    let config = make_test_config();
+    let run_id = RunId::new_random();
+    let clock = VirtualClock::new(run_id, 0);
+    let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config.clone())));
+
+    let mut sources = Vec::new();
+    for &(b_id, name) in &[(1, "OANDA"), (2, "Tradeview"), (3, "Dukascopy"), (4, "Axiory"), (5, "JFX")] {
+        if let Ok(mut src) = BrokerParquetSource::new(b_id, name, "usdjpy", tick_dir) {
+            let _ = src.load_partition(2026, 8);
+            sources.push(src);
+        }
+    }
+    let merge_stream = Arc::new(parking_lot::RwLock::new(MergeStream::new(sources)));
+    let tick_wake = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+
+    // Target from live user session: 1785725353921 MT5 ms -> UTC
+    let live_mt5_ms = 1785725353921i64;
+    let start_utc_ms = mt5_to_utc_ms(live_mt5_ms);
+    println!("\n=== LIVE TEST: Rebuilding state at start_utc_ms: {} (MT5: {}) ===", start_utc_ms, live_mt5_ms);
+    tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
+        start_utc_ms,
+        true,
+        1.0,
+        1,
+        run_id,
+        &clock,
+        &engine,
+        &merge_stream,
+        &tick_wake,
+    );
+
+    // Check engine status immediately after rebuild
+    {
+        let eng = engine.lock();
+        let target_mono = MonoNs(start_utc_ms as u64 * 1_000_000);
+        let proj = eng.make_projection_at(UtcMs(start_utc_ms), target_mono);
+        println!("Projection after rebuild on Aug 3:");
+        for bo in &proj.broker_overviews {
+            println!(
+                "  Broker {} ({}): connected={:?}, freshness={:?}, latest_quote={:?}",
+                bo.broker_id,
+                bo.name,
+                bo.health.connection,
+                bo.health.data_freshness,
+                bo.latest_quote.map(|q| (q.bid, q.ask, q.rx_mono_ns))
+            );
+        }
+        for (&period, cv) in &proj.candle_views {
+            for (bid, slots) in &cv.slots_by_broker {
+                let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
+                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+            }
+        }
+        for (bid, ch) in &eng.channels {
+            println!(
+                "  Channel {}: connected={}, watermark={}, pending_frames={}, expected_seq={}",
+                bid, ch.is_connected, ch.watermark.0, ch.pending_frames.len(), ch.ledger.expected_sequence()
+            );
+        }
+        println!("  Realtime quote history len: {}", eng.realtime_quote_history.len());
+    }
+
+    // Simulate PlaybackPump popping ticks
+    let mut current_utc = start_utc_ms;
+    let mut next_sequences: std::collections::HashMap<BrokerId, u64> = std::collections::HashMap::new();
+    for sec in 1..=5 {
+        current_utc += 1000;
+        clock.set_time(current_utc);
+        let current_mono = MonoNs(current_utc as u64 * 1_000_000);
+        let ticks = {
+            let mut st = merge_stream.write();
+            st.pop_up_to(current_utc, 1024)
+        };
+        println!("Second {}: popped {} ticks up to {}", sec, ticks.len(), current_utc);
+        for t in &ticks {
+            println!("   -> popped tick: broker={}, utc_ms={}, mt5_ms={}, bid={}, ask={}", t.broker_id, t.utc_ms, t.mt5_ms, t.bid, t.ask);
+        }
+
+        let mut eng = engine.lock();
+        if !ticks.is_empty() {
+            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> = std::collections::HashMap::new();
+            for t in ticks {
+                broker_groups.entry(t.broker_id).or_default().push(t);
+            }
+            for (b_id, b_ticks) in broker_groups {
+                let seq = next_sequences.entry(b_id).or_insert_with(|| eng.channels.get(&b_id).map(|c| c.ledger.expected_sequence().max(1)).unwrap_or(1));
+                let item = make_ingress_tick_batch(b_id, 1, &b_ticks, *seq, false, run_id);
+                *seq += b_ticks.len() as u64;
+                eng.on_ingress_item(item);
+            }
+        }
+
+        let active_ids: Vec<BrokerId> = eng.channels.iter().filter(|(_, ch)| ch.is_connected).map(|(&id, _)| id).collect();
+        for b_id in active_ids {
+            eng.on_ingress_item(IngressItem::Progress {
+                broker_id: b_id,
+                watermark_ns: current_mono,
+            });
+        }
+
+        for (bid, ch) in &eng.channels {
+            println!(
+                "  [Sec {}] Channel {}: connected={}, watermark={}, pending_frames={}",
+                sec, bid, ch.is_connected, ch.watermark.0, ch.pending_frames.len()
+            );
+        }
+        println!("  [Sec {}] Realtime quote history len: {}", sec, eng.realtime_quote_history.len());
+
+        let proj = eng.make_projection_at(UtcMs(current_utc), current_mono);
+        for (&period, cv) in &proj.candle_views {
+            if period == 1000 || period == 60000 {
+                for (bid, slots) in &cv.slots_by_broker {
+                    let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
+                    let latest_slot = slots.last().and_then(|s| s.ohlc.as_ref());
+                    println!("    [Sec {}] Period {}ms, Broker {}: {} / {} slots populated, latest_slot_ohlc={:?}", sec, period, bid, populated, slots.len(), latest_slot.map(|o| o.close));
+                }
+            }
+        }
+        if sec == 5 {
+            let s1_latest = proj.candle_views.get(&1000).unwrap().slots_by_broker.get(&1).unwrap().last().and_then(|s| s.ohlc.as_ref());
+            assert!(s1_latest.is_some(), "S1 latest candle must be populated with incoming ticks");
+        }
+        drop(eng);
+    }
+}
+
