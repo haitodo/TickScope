@@ -1,6 +1,7 @@
 //! Binary log verification reader.
 
 use crate::core::types::*;
+use crate::protocol::bytes::{le_i64, le_u16, le_u32, le_u64};
 use crate::protocol::crc32c::crc32c;
 use crate::storage::error::StorageError;
 use crate::storage::tlog_writer::*;
@@ -32,20 +33,20 @@ impl<R: Read + Seek> LogFileReader<R> {
             return Err(StorageError::InvalidMagic);
         }
 
-        let version = u16::from_le_bytes(hdr_buf[4..6].try_into().unwrap());
+        let version = le_u16(&hdr_buf, 4);
         if version != STORAGE_VERSION {
             return Err(StorageError::UnsupportedVersion(version));
         }
 
-        let header_len = u16::from_le_bytes(hdr_buf[6..8].try_into().unwrap());
+        let header_len = le_u16(&hdr_buf, 6);
         if header_len as usize != FILE_HEADER_LEN {
             return Err(StorageError::InvalidHeaderLength(header_len));
         }
 
         let mut run_id_bytes = [0u8; 16];
         run_id_bytes.copy_from_slice(&hdr_buf[8..24]);
-        let file_id = u64::from_le_bytes(hdr_buf[24..32].try_into().unwrap());
-        let broker_id = u32::from_le_bytes(hdr_buf[32..36].try_into().unwrap());
+        let file_id = le_u64(&hdr_buf, 24);
+        let broker_id = le_u32(&hdr_buf, 32);
 
         Ok(Self {
             reader,
@@ -85,11 +86,11 @@ impl<R: Read + Seek> LogFileReader<R> {
             Err(e) => return ReadResult::Corrupt(format!("I/O error reading envelope: {}", e)),
         }
 
-        let total_length = u32::from_le_bytes(envelope[0..4].try_into().unwrap()) as usize;
-        let kind = u16::from_le_bytes(envelope[4..6].try_into().unwrap());
-        let flags = u16::from_le_bytes(envelope[6..8].try_into().unwrap());
-        let record_index = u64::from_le_bytes(envelope[8..16].try_into().unwrap());
-        let stored_crc = u32::from_le_bytes(envelope[16..20].try_into().unwrap());
+        let total_length = le_u32(&envelope, 0) as usize;
+        let kind = le_u16(&envelope, 4);
+        let flags = le_u16(&envelope, 6);
+        let record_index = le_u64(&envelope, 8);
+        let stored_crc = le_u32(&envelope, 16);
 
         if total_length < RECORD_ENVELOPE_LEN {
             return ReadResult::Corrupt(format!(
@@ -127,22 +128,22 @@ impl<R: Read + Seek> LogFileReader<R> {
                 if payload.len() < 60 {
                     return ReadResult::Corrupt("RawFrame payload too short".to_string());
                 }
-                let broker_id = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                let broker_id = le_u32(&payload, 0);
                 if self.broker_id != 0 && broker_id != self.broker_id {
                     return ReadResult::Corrupt(format!(
                         "RawFrame broker {} does not match file broker {}",
                         broker_id, self.broker_id
                     ));
                 }
-                let connection_generation = u64::from_le_bytes(payload[4..12].try_into().unwrap());
-                let frame_index = u64::from_le_bytes(payload[12..20].try_into().unwrap());
-                let rx_mono_ns = MonoNs(u64::from_le_bytes(payload[20..28].try_into().unwrap()));
-                let rx_unix = i64::from_le_bytes(payload[28..36].try_into().unwrap());
+                let connection_generation = le_u64(&payload, 4);
+                let frame_index = le_u64(&payload, 12);
+                let rx_mono_ns = MonoNs(le_u64(&payload, 20));
+                let rx_unix = le_i64(&payload, 28);
                 let rx_unix_ns = if (flags & 1) != 0 { Some(rx_unix) } else { None };
-                let config_epoch = u64::from_le_bytes(payload[36..44].try_into().unwrap());
-                let analysis_segment = u64::from_le_bytes(payload[44..52].try_into().unwrap());
-                let wire_length = u32::from_le_bytes(payload[52..56].try_into().unwrap()) as usize;
-                let disp_count = u32::from_le_bytes(payload[56..60].try_into().unwrap()) as usize;
+                let config_epoch = le_u64(&payload, 36);
+                let analysis_segment = le_u64(&payload, 44);
+                let wire_length = le_u32(&payload, 52) as usize;
+                let disp_count = le_u32(&payload, 56) as usize;
 
                 if payload.len() < 60 + wire_length + disp_count {
                     return ReadResult::Corrupt("RawFrame wire/dispositions truncated".to_string());
@@ -177,9 +178,9 @@ impl<R: Read + Seek> LogFileReader<R> {
                 if payload.len() < 20 {
                     return ReadResult::Corrupt("Metadata payload too short".to_string());
                 }
-                let config_epoch = u64::from_le_bytes(payload[0..8].try_into().unwrap());
-                let observed_mono_ns = MonoNs(u64::from_le_bytes(payload[8..16].try_into().unwrap()));
-                let text_len = u32::from_le_bytes(payload[16..20].try_into().unwrap()) as usize;
+                let config_epoch = le_u64(&payload, 0);
+                let observed_mono_ns = MonoNs(le_u64(&payload, 8));
+                let text_len = le_u32(&payload, 16) as usize;
                 if payload.len() < 20 + text_len {
                     return ReadResult::Corrupt("Metadata text truncated".to_string());
                 }
@@ -196,28 +197,28 @@ impl<R: Read + Seek> LogFileReader<R> {
                 if payload.len() < 64 {
                     return ReadResult::Corrupt("Diagnostic payload too short".to_string());
                 }
-                let mono_ns = MonoNs(u64::from_le_bytes(payload[0..8].try_into().unwrap()));
-                let broker_id = u32::from_le_bytes(payload[8..12].try_into().unwrap());
+                let mono_ns = MonoNs(le_u64(&payload, 0));
+                let broker_id = le_u32(&payload, 8);
                 if self.broker_id != 0 && broker_id != self.broker_id {
                     return ReadResult::Corrupt(format!(
                         "Diagnostic broker {} does not match file broker {}",
                         broker_id, self.broker_id
                     ));
                 }
-                let severity_num = u16::from_le_bytes(payload[12..14].try_into().unwrap());
-                let d_flags = u16::from_le_bytes(payload[14..16].try_into().unwrap());
-                let session_raw = u64::from_le_bytes(payload[16..24].try_into().unwrap());
+                let severity_num = le_u16(&payload, 12);
+                let d_flags = le_u16(&payload, 14);
+                let session_raw = le_u64(&payload, 16);
                 let session_id = if (d_flags & (1 << 0)) != 0 { Some(session_raw) } else { None };
 
-                let first = u64::from_le_bytes(payload[24..32].try_into().unwrap());
-                let last = u64::from_le_bytes(payload[32..40].try_into().unwrap());
+                let first = le_u64(&payload, 24);
+                let last = le_u64(&payload, 32);
                 let sequence_range = if (d_flags & (1 << 1)) != 0 { Some((first, last)) } else { None };
 
-                let count_raw = u64::from_le_bytes(payload[40..48].try_into().unwrap());
+                let count_raw = le_u64(&payload, 40);
                 let known_count = if (d_flags & (1 << 2)) != 0 { Some(count_raw) } else { None };
-                let detail_value = i64::from_le_bytes(payload[48..56].try_into().unwrap());
-                let code_len = u32::from_le_bytes(payload[56..60].try_into().unwrap()) as usize;
-                let msg_len = u32::from_le_bytes(payload[60..64].try_into().unwrap()) as usize;
+                let detail_value = le_i64(&payload, 48);
+                let code_len = le_u32(&payload, 56) as usize;
+                let msg_len = le_u32(&payload, 60) as usize;
 
                 if payload.len() < 64 + code_len + msg_len {
                     return ReadResult::Corrupt("Diagnostic text truncated".to_string());

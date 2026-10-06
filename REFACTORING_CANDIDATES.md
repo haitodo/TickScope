@@ -46,10 +46,11 @@ let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_o
 リグレッションテストは 4 層（`core::civil_date` の既知日付・暦の連続性、`config::timezone` の DST 遷移、
 `ui::chart::candlestick` のタイムスタンプ整形、`logging` の 2026-02-28 整形）にあり、
 共通実装を一時的に壊すと **4 層すべてが落ちる**ことを確認済み。
-`cargo test` 195 passed / `cargo test --features replay` 218 passed / clippy 警告 13 件（いずれも変化なし）。
+`cargo test` 197 passed / `cargo test --features replay` 220 passed / clippy 警告 13 件（いずれも変化なし）。
 
 **残タスク**: なし。暦変換の 4 コピー（`logging.rs` / `config/timezone.rs` /
 `storage/tlog_writer.rs` / `ui/chart/candlestick.rs`）は `core::civil_date` に統合済み（§8 参照）。
+§3 のバイト列デコード共通化も対応済みで、本番コードの `unwrap()` が 68 件減っている。
 
 ### 推奨する実施順序
 
@@ -58,7 +59,7 @@ let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_o
 | 0 | ~~**`days_to_ymd` のバグ修正**~~（**対応済み**・下記 §0 参照） | 1 関数（定数 2 箇所） | §0 | ○ |
 | 1 | `cargo clippy --fix` 一括自動修正 | 本番 601 / 全体 1,246 箇所 | §1 | ○ |
 | 2 | テストフィクスチャの共通化 | 80 箇所以上 | §4 | ○ |
-| 3 | バイト列デコードのヘルパー化 | 69 箇所 | §3 | ○ |
+| 3 | ~~バイト列デコードのヘルパー化~~（**対応済み**） | 68 箇所 | §3 | ○ |
 | 4 | UI 色リテラルの定数化 | 84 箇所 | §5 | ○ |
 | 5 | `std::sync` → `parking_lot` 統一 | 14 箇所 | §6 | ○ |
 | 6 | 未使用の公開関数 26 件の整理 | 26 箇所 | §7 | ○ |
@@ -154,7 +155,16 @@ cargo test --features replay
 
 ---
 
-## 3. バイト列デコードのヘルパー化（68 箇所 → 0）
+## 3. バイト列デコードのヘルパー化（68 箇所 → 0）★対応済み
+
+**対応状況**: 完了。`src/protocol/bytes.rs` に `le_u16` / `le_u32` / `le_u64` / `le_i32` /
+`le_i64` / `le_f64` を追加し、`packet.rs` 34・`tlog_reader.rs` 32・`codec.rs` 1・`router.rs` 1 の
+計 68 箇所を置換した（置換前に全 68 箇所のスライス幅が型幅と一致することを機械的に検証）。
+`Vec<u8>` / 固定長配列を渡す箇所は参照 (`&`) が必要な点にだけ注意。
+本番コードの `unwrap()` は 68 件減り、`src/` に残る `try_into().unwrap()` は
+`src/metrics/latency.rs:228` の 1 件（配列変換であり対象外）のみになった。
+
+以下は実施時に使った調査内容（記録として残す）。
 
 ### 修正方針
 

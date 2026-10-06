@@ -1,3 +1,4 @@
+use super::bytes::le_u32;
 use super::packet::*;
 use super::wire::*;
 use std::sync::{Arc, OnceLock};
@@ -157,7 +158,7 @@ impl StreamingDecoder {
         for i in 1..limit {
             if i + 4 <= self.buffer_len() {
                 let start = self.consumed + i;
-                let magic = u32::from_le_bytes(self.buffer[start..start + 4].try_into().unwrap());
+                let magic = le_u32(&self.buffer, start);
                 if magic == MAGIC_TICK {
                     self.consumed += i;
                     return true;

@@ -1,4 +1,5 @@
 use crate::core::types::*;
+use super::bytes::{le_f64, le_i32, le_i64, le_u16, le_u32, le_u64};
 use super::wire::*;
 use thiserror::Error;
 
@@ -34,23 +35,23 @@ pub fn decode_header(buf: &[u8]) -> Result<Header, ProtocolError> {
         });
     }
 
-    let magic = u32::from_le_bytes(buf[0..4].try_into().unwrap());
+    let magic = le_u32(buf, 0);
     if magic != MAGIC_TICK {
         return Err(ProtocolError::InvalidMagic(magic));
     }
 
-    let protocol_version = u16::from_le_bytes(buf[4..6].try_into().unwrap());
+    let protocol_version = le_u16(buf, 4);
     if protocol_version != PROTOCOL_VERSION {
         return Err(ProtocolError::UnsupportedVersion(protocol_version));
     }
 
-    let message_type = u16::from_le_bytes(buf[6..8].try_into().unwrap());
-    let header_length = u16::from_le_bytes(buf[8..10].try_into().unwrap());
+    let message_type = le_u16(buf, 6);
+    let header_length = le_u16(buf, 8);
     if header_length != HEADER_LENGTH {
         return Err(ProtocolError::InvalidHeaderLength(header_length));
     }
 
-    let header_flags = u16::from_le_bytes(buf[10..12].try_into().unwrap());
+    let header_flags = le_u16(buf, 10);
     match message_type {
         MSG_TYPE_TICK_BATCH => {
             if (header_flags & !HEADER_FLAG_WARMUP) != 0 {
@@ -79,11 +80,11 @@ pub fn decode_header(buf: &[u8]) -> Result<Header, ProtocolError> {
         _ => return Err(ProtocolError::UnknownMessageType(message_type)),
     }
 
-    let broker_id = u32::from_le_bytes(buf[12..16].try_into().unwrap());
-    let session_id = u64::from_le_bytes(buf[16..24].try_into().unwrap());
-    let sequence_start = u64::from_le_bytes(buf[24..32].try_into().unwrap());
-    let tick_count = u32::from_le_bytes(buf[32..36].try_into().unwrap());
-    let payload_length = u32::from_le_bytes(buf[36..40].try_into().unwrap());
+    let broker_id = le_u32(buf, 12);
+    let session_id = le_u64(buf, 16);
+    let sequence_start = le_u64(buf, 24);
+    let tick_count = le_u32(buf, 32);
+    let payload_length = le_u32(buf, 36);
 
     if payload_length > MAX_PAYLOAD_LENGTH {
         return Err(ProtocolError::PayloadLengthExceedsMax(payload_length));
@@ -177,16 +178,16 @@ pub fn encode_header(hdr: &Header, buf: &mut [u8]) {
 }
 
 pub fn decode_tick_record(buf: &[u8]) -> (TickRecord, Option<String>) {
-    let sequence = u64::from_le_bytes(buf[0..8].try_into().unwrap());
-    let broker_time_msc = i64::from_le_bytes(buf[8..16].try_into().unwrap());
-    let ea_elapsed_us = u64::from_le_bytes(buf[16..24].try_into().unwrap());
-    let bid = f64::from_le_bytes(buf[24..32].try_into().unwrap());
-    let ask = f64::from_le_bytes(buf[32..40].try_into().unwrap());
-    let last = f64::from_le_bytes(buf[40..48].try_into().unwrap());
-    let volume = u64::from_le_bytes(buf[48..56].try_into().unwrap());
-    let volume_real = f64::from_le_bytes(buf[56..64].try_into().unwrap());
-    let flags = u32::from_le_bytes(buf[64..68].try_into().unwrap());
-    let reserved = u32::from_le_bytes(buf[68..72].try_into().unwrap());
+    let sequence = le_u64(buf, 0);
+    let broker_time_msc = le_i64(buf, 8);
+    let ea_elapsed_us = le_u64(buf, 16);
+    let bid = le_f64(buf, 24);
+    let ask = le_f64(buf, 32);
+    let last = le_f64(buf, 40);
+    let volume = le_u64(buf, 48);
+    let volume_real = le_f64(buf, 56);
+    let flags = le_u32(buf, 64);
+    let reserved = le_u32(buf, 68);
 
     let warn = if reserved != 0 {
         Some(format!(
@@ -228,11 +229,11 @@ pub fn encode_tick_record(t: &TickRecord, buf: &mut [u8]) {
 }
 
 pub fn decode_heartbeat(buf: &[u8]) -> HeartbeatPayload {
-    let session_id = u64::from_le_bytes(buf[0..8].try_into().unwrap());
-    let last_sequence = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-    let last_tick_time_msc = i64::from_le_bytes(buf[16..24].try_into().unwrap());
-    let server_utc_offset_sec = i32::from_le_bytes(buf[24..28].try_into().unwrap());
-    let heartbeat_elapsed_us = u64::from_le_bytes(buf[28..36].try_into().unwrap());
+    let session_id = le_u64(buf, 0);
+    let last_sequence = le_u64(buf, 8);
+    let last_tick_time_msc = le_i64(buf, 16);
+    let server_utc_offset_sec = le_i32(buf, 24);
+    let heartbeat_elapsed_us = le_u64(buf, 28);
 
     HeartbeatPayload {
         session_id,
@@ -252,7 +253,7 @@ pub fn encode_heartbeat(hb: &HeartbeatPayload, buf: &mut [u8]) {
 }
 
 pub fn decode_batch_ack(buf: &[u8]) -> BatchAckPayload {
-    let sequence_end = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+    let sequence_end = le_u64(buf, 0);
     BatchAckPayload { sequence_end }
 }
 
@@ -261,14 +262,14 @@ pub fn encode_batch_ack(ack: &BatchAckPayload, buf: &mut [u8]) {
 }
 
 pub fn decode_status(buf: &[u8]) -> Result<StatusPayload, ProtocolError> {
-    let status_code = u16::from_le_bytes(buf[0..2].try_into().unwrap());
-    let phase = u16::from_le_bytes(buf[2..4].try_into().unwrap());
-    let detail_flags = u32::from_le_bytes(buf[4..8].try_into().unwrap());
-    let sequence_first = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-    let sequence_last = u64::from_le_bytes(buf[16..24].try_into().unwrap());
-    let affected_count = u64::from_le_bytes(buf[24..32].try_into().unwrap());
-    let ea_elapsed_us = u64::from_le_bytes(buf[32..40].try_into().unwrap());
-    let detail_value = i64::from_le_bytes(buf[40..48].try_into().unwrap());
+    let status_code = le_u16(buf, 0);
+    let phase = le_u16(buf, 2);
+    let detail_flags = le_u32(buf, 4);
+    let sequence_first = le_u64(buf, 8);
+    let sequence_last = le_u64(buf, 16);
+    let affected_count = le_u64(buf, 24);
+    let ea_elapsed_us = le_u64(buf, 32);
+    let detail_value = le_i64(buf, 40);
 
     if (detail_flags & !(STATUS_FLAG_HAS_SEQUENCE_RANGE | STATUS_FLAG_HAS_EXACT_COUNT)) != 0 {
         return Err(ProtocolError::MalformedPayload(format!(

@@ -1,6 +1,7 @@
 //! Shared loopback listener that routes EA connections to broker receivers.
 
 use crate::core::types::BrokerId;
+use crate::protocol::bytes::le_u32;
 use crate::transport::tcp::TransportReceiver;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -135,7 +136,7 @@ impl TransportRouter {
             return;
         }
 
-        let broker_id = u32::from_le_bytes(hello[4..8].try_into().unwrap());
+        let broker_id = le_u32(&hello, 4);
         let Some(receiver) = self.receivers.get(&broker_id).cloned() else {
             log::warn!("Rejected MT5 connection for unknown broker id {broker_id}.");
             return;
