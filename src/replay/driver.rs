@@ -217,9 +217,8 @@ impl ReplayDriver {
 
         let (action, jfx_quote) = arbiter.lock().evaluate(&val, clock, trade_store);
 
-        // Handle JFX Direct Quote Synchronization (0ms lag matching)
+        // Handle JFX Direct Quote Synchronization (only if JFX is not streamed via parquet merge stream)
         if let Some((jfx_bid, jfx_ask, target_utc_ms)) = jfx_quote {
-            let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
             let mut eng = engine.lock();
             let jfx_id = eng
                 .config
@@ -228,13 +227,17 @@ impl ReplayDriver {
                 .find(|b| b.name.eq_ignore_ascii_case("JFX"))
                 .map(|b| b.id)
                 .unwrap_or(5);
-            eng.update_direct_quote(
-                jfx_id,
-                jfx_bid,
-                jfx_ask,
-                UtcMs(target_utc_ms),
-                target_mono,
-            );
+            let has_jfx_in_parquet = merge_stream.read().sources.iter().any(|s| s.broker_id == jfx_id);
+            if !has_jfx_in_parquet {
+                let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
+                eng.update_direct_quote(
+                    jfx_id,
+                    jfx_bid,
+                    jfx_ask,
+                    UtcMs(target_utc_ms),
+                    target_mono,
+                );
+            }
         }
 
         match action {

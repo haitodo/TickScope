@@ -17,7 +17,7 @@ impl TickEngine {
 
         for b in &self.config.brokers {
             let st = self.spread_trackers.get(&b.id);
-            let latest_q = self.latest_quotes.get(&b.id).copied();
+            let latest_q = self.fast_quotes.get(&b.id).or_else(|| self.latest_quotes.get(&b.id)).copied();
             let mut health = self.health_states.get(&b.id).copied().unwrap_or_default();
             if health.connection == ConnectionState::Connected {
                 health.data_freshness = match health.last_live_tick_rx_mono {

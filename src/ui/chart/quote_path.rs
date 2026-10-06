@@ -24,6 +24,11 @@ pub fn advance_chart_anchor(
     match chart_anchor {
         Some(anchor) => {
             let delta = center_price - *anchor;
+            // If price moved far outside the visible range (e.g. seek / market jump), snap immediately
+            if delta.abs() > half_span * 3.0 {
+                *anchor = center_price;
+                return center_price;
+            }
             let deadzone_half = half_span * (1.0 - deadzone_pct.clamp(0.0, 0.95));
             let required_shift = (delta.abs() - deadzone_half).max(0.0) * delta.signum();
             // Move at most 12% of the visible range per repaint. This keeps a

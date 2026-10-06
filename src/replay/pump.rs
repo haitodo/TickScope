@@ -43,6 +43,45 @@ impl PlaybackPump {
         })
     }
 
+    /// Feeds chronologically merged ticks into the engine.
+    ///
+    /// The engine stamps every tick of a frame with the frame's `rx_mono_ns`, which is what the
+    /// Realtime Quote Path uses as its X coordinate. Ticks are therefore only grouped when they
+    /// share the same broker and the same effective receive time; grouping any further (e.g. a
+    /// whole broker batch popped after a clock catch-up jump) would collapse many ticks onto a
+    /// single X position and draw them as vertical zig-zag noise.
+    pub fn dispatch_replay_ticks(
+        eng: &mut TickEngine,
+        ticks: &[super::parquet_source::ReplayTick],
+        session: crate::core::types::SessionId,
+        run_id: RunId,
+        next_sequences: &mut HashMap<BrokerId, u64>,
+    ) {
+        let mut start = 0;
+        while start < ticks.len() {
+            let b_id = ticks[start].broker_id;
+            let eff = ticks[start].effective_utc_ms();
+            let mut end = start + 1;
+            while end < ticks.len()
+                && ticks[end].broker_id == b_id
+                && ticks[end].effective_utc_ms() == eff
+            {
+                end += 1;
+            }
+            let group = &ticks[start..end];
+            let seq = next_sequences.entry(b_id).or_insert_with(|| {
+                eng.channels
+                    .get(&b_id)
+                    .map(|c| c.ledger.expected_sequence())
+                    .unwrap_or(0)
+            });
+            let item = make_ingress_tick_batch(b_id, session, group, *seq, false, run_id);
+            *seq += group.len() as u64;
+            eng.on_ingress_item(item);
+            start = end;
+        }
+    }
+
     /// Adaptive dynamic batching loop.
     /// When behind virtual time (e.g. high multiplier or burst activity), pulls up to
     /// 4096 ticks per pass without sleeping to ensure instantaneous catch-up.
@@ -105,34 +144,13 @@ impl PlaybackPump {
             }
 
             if !ticks.is_empty() {
-                // Dispatch consecutive runs of ticks per broker to preserve chronological
-                // interleaving and monotonically non-decreasing receive timestamps across all brokers.
-                let mut start = 0;
-                while start < ticks.len() {
-                    let b_id = ticks[start].broker_id;
-                    let mut end = start + 1;
-                    while end < ticks.len() && ticks[end].broker_id == b_id {
-                        end += 1;
-                    }
-                    let run_ticks = &ticks[start..end];
-                    let seq = next_sequences.entry(b_id).or_insert_with(|| {
-                        eng.channels
-                            .get(&b_id)
-                            .map(|c| c.ledger.expected_sequence())
-                            .unwrap_or(0)
-                    });
-                    let ingress_item = make_ingress_tick_batch(
-                        b_id,
-                        current_session,
-                        run_ticks,
-                        *seq,
-                        false,
-                        run_id,
-                    );
-                    *seq += run_ticks.len() as u64;
-                    eng.on_ingress_item(ingress_item);
-                    start = end;
-                }
+                Self::dispatch_replay_ticks(
+                    &mut eng,
+                    &ticks,
+                    current_session,
+                    run_id,
+                    &mut next_sequences,
+                );
             }
 
             // Advance watermark for all connected channels to current_mono so quiet brokers

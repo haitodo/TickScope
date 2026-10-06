@@ -121,9 +121,11 @@ impl ConsensusCalculator {
             if !q.is_valid || q.is_warmup || q.bid.is_nan() || q.ask.is_nan() || q.mid.is_nan() {
                 continue;
             }
-            let age_ns = now_mono.0.saturating_sub(q.rx_mono_ns.0);
-            if age_ns <= stale_after_ns {
-                fresh_quotes.push(q);
+            if q.rx_mono_ns <= now_mono {
+                let age_ns = now_mono.0 - q.rx_mono_ns.0;
+                if age_ns <= stale_after_ns {
+                    fresh_quotes.push(q);
+                }
             }
         }
 

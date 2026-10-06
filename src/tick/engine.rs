@@ -45,6 +45,7 @@ pub struct TickEngine {
     pub(crate) mid_candle_book: CandleBook,
     pub(crate) spread_trackers: HashMap<BrokerId, SpreadTracker>,
     pub(crate) latest_quotes: HashMap<BrokerId, Quote>,
+    pub(crate) fast_quotes: HashMap<BrokerId, Quote>,
     pub(crate) health_states: HashMap<BrokerId, HealthState>,
     pub(crate) pair_tracker: PairDifferenceTracker,
     pub(crate) move_detectors: HashMap<BrokerId, SignificantMidMoveDetector>,
@@ -167,6 +168,7 @@ impl TickEngine {
             mid_candle_book,
             spread_trackers,
             latest_quotes: HashMap::new(),
+            fast_quotes: HashMap::new(),
             health_states,
             pair_tracker,
             move_detectors,
@@ -252,6 +254,7 @@ impl TickEngine {
         self.move_detectors.clear();
         self.health_states.clear();
         self.latest_quotes.clear();
+        self.fast_quotes.clear();
 
         for b in &self.config.brokers {
             self.spread_trackers.insert(b.id, SpreadTracker::new(b.id));
@@ -346,6 +349,7 @@ impl TickEngine {
             is_valid: true,
         };
         self.latest_quotes.insert(broker_id, quote);
+        self.fast_quotes.insert(broker_id, quote);
         if let Some(ch) = self.channels.get_mut(&broker_id) {
             ch.is_connected = true;
             if rx_mono_ns > ch.watermark {
@@ -385,6 +389,7 @@ impl TickEngine {
                     ch.is_connected = true;
                     ch.generation = generation;
                     self.latest_quotes.remove(&broker_id);
+                    self.fast_quotes.remove(&broker_id);
                     if let Some(h) = self.health_states.get_mut(&broker_id) {
                         h.connection = ConnectionState::Connected;
                         h.data_freshness = FreshnessState::Unknown;
@@ -411,6 +416,7 @@ impl TickEngine {
                     if generation == 0 || ch.generation == 0 || ch.generation == generation {
                         ch.is_connected = false;
                         self.latest_quotes.remove(&broker_id);
+                        self.fast_quotes.remove(&broker_id);
                         if let Some(h) = self.health_states.get_mut(&broker_id) {
                             h.connection = ConnectionState::Disconnected;
                         }
@@ -445,6 +451,7 @@ impl TickEngine {
         self.drain_and_process_merge();
         if is_disconnected {
             self.latest_quotes.remove(&broker_id);
+            self.fast_quotes.remove(&broker_id);
         }
     }
 
@@ -480,8 +487,14 @@ impl TickEngine {
 
             for (&bid, ch) in &self.channels {
                 if let Some(front) = ch.pending_frames.front() {
-                    if front.rx_mono_ns <= global_watermark {
-                        let key = (front.rx_mono_ns, bid, front.connection_generation, front.frame_index);
+                    let is_warmup = (front.frame.header.header_flags & HEADER_FLAG_WARMUP) != 0;
+                    if is_warmup || front.rx_mono_ns <= global_watermark {
+                        let key = (
+                            if is_warmup { MonoNs::ZERO } else { front.rx_mono_ns },
+                            bid,
+                            front.connection_generation,
+                            front.frame_index,
+                        );
                         if key < best_key {
                             best_key = key;
                             best_broker = Some(bid);
@@ -528,7 +541,7 @@ impl TickEngine {
     }
 
     fn apply_fast_path_quote(&mut self, broker_id: BrokerId, quote: Quote, rx_mono_ns: MonoNs, is_warmup: bool) {
-        let should_update = match self.latest_quotes.get(&broker_id) {
+        let should_update = match self.fast_quotes.get(&broker_id) {
             Some(existing) => {
                 quote.tick_id.session_id != existing.tick_id.session_id
                     || quote.tick_id.sequence >= existing.tick_id.sequence
@@ -547,7 +560,7 @@ impl TickEngine {
                     h.data_freshness = FreshnessState::Live;
                 }
             }
-            self.latest_quotes.insert(broker_id, quote);
+            self.fast_quotes.insert(broker_id, quote);
             self.projection_revision += 1;
         }
     }
@@ -731,18 +744,11 @@ impl TickEngine {
                             ft.record_tick(false, false, !is_warmup && quote.is_valid, rf.rx_mono_ns);
                         }
 
-                        // Store latest quote only if not superseded by a newer fast-path quote
+                        // Store latest quote in chronological merge order
                         if quote.is_valid {
-                            let should_insert = match self.latest_quotes.get(&broker_id) {
-                                Some(existing) => {
-                                    quote.tick_id.session_id != existing.tick_id.session_id
-                                        || quote.tick_id.sequence >= existing.tick_id.sequence
-                                        || rf.rx_mono_ns >= existing.rx_mono_ns
-                                }
-                                None => true,
-                            };
-                            if should_insert {
-                                self.latest_quotes.insert(broker_id, quote);
+                            self.latest_quotes.insert(broker_id, quote);
+                            if self.fast_quotes.get(&broker_id).map(|fq| fq.rx_mono_ns <= rf.rx_mono_ns).unwrap_or(true) {
+                                self.fast_quotes.insert(broker_id, quote);
                             }
                         }
 
@@ -754,7 +760,8 @@ impl TickEngine {
                                 let total_b = self.config.brokers.len();
                                 let fresh_c = self.latest_quotes.values().filter(|q| {
                                     q.is_valid && !q.is_warmup && q.mid.is_finite()
-                                        && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                        && q.rx_mono_ns <= rf.rx_mono_ns
+                                        && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
                                             <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
                                 }).count();
 
@@ -786,7 +793,8 @@ impl TickEngine {
                         if (broker_id == a || broker_id == b) && quote.is_valid && !quote.is_warmup {
                             let fresh = |id| self.latest_quotes.get(&id).filter(|q| {
                                 q.is_valid && !q.is_warmup
-                                    && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                    && q.rx_mono_ns <= rf.rx_mono_ns
+                                    && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
                                         <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
                             });
                             let q_a = fresh(a);
@@ -825,7 +833,8 @@ impl TickEngine {
                                 if is_warmup {
                                     mids.insert(bid, q.mid);
                                 } else if !q.is_warmup
-                                    && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                    && q.rx_mono_ns <= rf.rx_mono_ns
+                                    && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
                                         <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
                                 {
                                     mids.insert(bid, q.mid);
@@ -833,12 +842,7 @@ impl TickEngine {
                             }
                         }
 
-                        let consensus_mid = if is_warmup {
-                            compute_median_from_mids(&mids)
-                        } else {
-                            let consensus = self.consensus_calc.compute(self.latest_quotes.values(), rf.rx_mono_ns);
-                            consensus.consensus_mid
-                        };
+                        let consensus_mid = compute_median_from_mids(&mids);
 
                         let pt = RealtimeQuotePoint {
                             mono_ns: tick_mono_ns,
