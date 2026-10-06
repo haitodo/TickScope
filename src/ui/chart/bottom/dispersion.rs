@@ -4,24 +4,6 @@ use crate::metrics::ObservedBrokerConsensus;
 use crate::ui::chart::theme::{broker_color_for_name, ChartTheme};
 use egui::{Color32, Pos2, Rect, Stroke};
 
-/// Mid Dispersion View (RFC §26, §61)
-pub fn draw_mid_dispersion_view(
-    painter: &egui::Painter,
-    rect: Rect,
-    consensus: &Option<ObservedBrokerConsensus>,
-    broker_overviews: &[BrokerOverview],
-    theme: &ChartTheme,
-) {
-    draw_mid_dispersion_view_with_visibility(
-        painter,
-        rect,
-        consensus,
-        broker_overviews,
-        None,
-        theme,
-    );
-}
-
 pub fn draw_mid_dispersion_view_with_visibility(
     painter: &egui::Painter,
     rect: Rect,

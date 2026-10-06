@@ -3,16 +3,6 @@ use crate::core::types::BrokerId;
 use crate::ui::chart::theme::{broker_color_for_name, ChartTheme};
 use egui::{Color32, Pos2, Rect};
 
-/// Quote Persistence View (RFC §45, §61)
-pub fn draw_quote_persistence_view(
-    painter: &egui::Painter,
-    rect: Rect,
-    broker_overviews: &[BrokerOverview],
-    theme: &ChartTheme,
-) {
-    draw_quote_persistence_view_with_visibility(painter, rect, broker_overviews, None, theme);
-}
-
 pub fn draw_quote_persistence_view_with_visibility(
     painter: &egui::Painter,
     rect: Rect,

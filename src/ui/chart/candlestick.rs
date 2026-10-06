@@ -12,41 +12,6 @@ use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
 use crate::ui::shared::broker_name;
 use egui::{Color32, Pos2, Rect, Stroke};
 
-pub fn draw_candlestick_chart(
-    painter: &egui::Painter,
-    rect: Rect,
-    candle_view: Option<&CandleView>,
-    broker_a: BrokerId,
-    broker_b: BrokerId,
-    bar_width: f32,
-    scale_mode: CandlePriceScaleMode,
-    pip_size: f64,
-    chart_anchor: &mut Option<f64>,
-    fallback_price: Option<f64>,
-    theme: &ChartTheme,
-) {
-    let broker_ids = [broker_a, broker_b];
-    let mut latch = None;
-    draw_candlestick_chart_for_brokers(
-        painter,
-        rect,
-        candle_view,
-        &broker_ids,
-        &[],
-        bar_width,
-        scale_mode,
-        CandleFollowCriteria::Median,
-        pip_size,
-        chart_anchor,
-        &mut latch,
-        fallback_price,
-        1000,
-        MonoNs(0),
-        PriceMode::Bid,
-        theme,
-    );
-}
-
 /// Multiple broker Candlestick Chart (RFC §84, §85, §86, §87)
 /// Distinguishes brokers by identity colors and distinguish up/down bars
 /// by brightness so colors do not imply buy or sell semantics.
@@ -620,40 +585,6 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             live_market_price,
         );
     }
-}
-
-/// Draw compact trade markers without interactive hover details.
-pub fn draw_trade_overlays(
-    painter: &egui::Painter,
-    plot_rect: Rect,
-    view: &CandleView,
-    right_slot_center_x: f32,
-    slot_width: f32,
-    price_to_y: impl Fn(f64) -> f32,
-    open_positions: &[ReplayTrade],
-    history: &[ReplayTrade],
-    pip_size: f64,
-) {
-    let dummy_chart_rect = Rect::from_min_max(
-        plot_rect.min,
-        Pos2::new(plot_rect.right() + PRICE_AXIS_WIDTH, plot_rect.bottom()),
-    );
-    draw_trade_overlays_impl(
-        None,
-        painter,
-        dummy_chart_rect,
-        plot_rect,
-        view,
-        (slot_width - 4.0).max(8.0),
-        right_slot_center_x,
-        slot_width,
-        price_to_y,
-        open_positions,
-        history,
-        pip_size,
-        price_decimals_for_pip(pip_size),
-        None,
-    );
 }
 
 fn draw_trade_overlays_impl(

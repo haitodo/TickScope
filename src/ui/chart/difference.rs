@@ -5,30 +5,6 @@ use crate::core::models::{DiffPoint, PairComparison};
 use crate::core::types::MonoNs;
 use egui::{Color32, Pos2, Rect, Stroke};
 
-pub fn draw_difference_chart(
-    painter: &egui::Painter,
-    rect: Rect,
-    series: &[DiffPoint],
-    comparison: Option<&PairComparison>,
-    x_axis_mode: ChartXAxisMode,
-    now_mono: MonoNs,
-    visible_seconds: u64,
-    visible_ticks: usize,
-    theme: &ChartTheme,
-) {
-    draw_mid_diff_chart(
-        painter,
-        rect,
-        series,
-        comparison,
-        x_axis_mode,
-        now_mono,
-        visible_seconds,
-        visible_ticks,
-        theme,
-    );
-}
-
 #[derive(Debug, Clone)]
 pub struct DifferenceHeader {
     pub text: String,

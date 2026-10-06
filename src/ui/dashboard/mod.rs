@@ -1,7 +1,6 @@
 pub mod broker_overview;
 pub mod charts_view;
 pub mod header;
-pub mod latency;
 pub mod quick_settings;
 pub mod ribbon;
 

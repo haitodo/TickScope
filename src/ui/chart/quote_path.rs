@@ -41,42 +41,6 @@ pub fn advance_chart_anchor(
     }
 }
 
-/// Realtime Quote Path Chart (RFC §23, §24, §60)
-pub fn draw_realtime_quote_path_chart(
-    painter: &egui::Painter,
-    rect: Rect,
-    quote_points: &[RealtimeQuotePoint],
-    broker_overviews: &[BrokerOverview],
-    selected_pair: (BrokerId, BrokerId),
-    x_axis_mode: ChartXAxisMode,
-    now_mono: MonoNs,
-    visible_seconds: u64,
-    visible_ticks: usize,
-    pip_size: f64,
-    fixed_follow_span_pips: f64,
-    deadzone_pct: f64,
-    chart_anchor: &mut Option<f64>,
-    theme: &ChartTheme,
-) {
-    draw_realtime_quote_path_chart_with_visibility(
-        painter,
-        rect,
-        quote_points,
-        broker_overviews,
-        None,
-        selected_pair,
-        x_axis_mode,
-        now_mono,
-        visible_seconds,
-        visible_ticks,
-        pip_size,
-        fixed_follow_span_pips,
-        deadzone_pct,
-        chart_anchor,
-        theme,
-    );
-}
-
 /// Realtime Quote Path Chart with explicit visible brokers list
 pub fn draw_realtime_quote_path_chart_with_visibility(
     painter: &egui::Painter,
