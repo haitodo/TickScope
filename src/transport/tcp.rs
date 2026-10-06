@@ -409,7 +409,8 @@ impl TransportReceiver {
 mod tests {
     use super::*;
     use crate::core::ports::AppendResult;
-    use std::sync::{atomic::AtomicU64, Mutex};
+    use parking_lot::Mutex;
+    use std::sync::atomic::AtomicU64;
 
     struct TestClock(AtomicU64);
     impl ClockPort for TestClock {
@@ -426,7 +427,7 @@ mod tests {
     struct Ingress(Mutex<Vec<IngressItem>>);
     impl RawIngressSink for Ingress {
         fn try_submit(&self, item: IngressItem) -> SubmitResult<IngressItem> {
-            self.0.lock().unwrap().push(item);
+            self.0.lock().push(item);
             SubmitResult::Accepted
         }
     }
@@ -489,7 +490,7 @@ mod tests {
             ingress.clone(),
         );
         assert!(receiver.handle_connection(server, 1).contains("clean EOF"));
-        let items = ingress.0.lock().unwrap();
+        let items = ingress.0.lock();
         let times: Vec<_> = items
             .iter()
             .filter_map(|item| match item {

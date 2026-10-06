@@ -5,12 +5,13 @@ use crate::core::ports::{AppendResult, LogSinkPort};
 use crate::core::types::*;
 use crate::protocol::crc32c::crc32c;
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+use parking_lot::Mutex;
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -328,7 +329,7 @@ impl AsyncLogger {
                             }
                         }
                         Err(error) => {
-                            *fault.lock().expect("logger fault mutex poisoned") = Some(error.clone());
+                            *fault.lock() = Some(error.clone());
                             running.store(false, Ordering::SeqCst);
                             if let Some(reply) = command.durable_reply {
                                 let _ = reply.send(Err(error));
@@ -341,7 +342,7 @@ impl AsyncLogger {
                     let result = writers.values_mut()
                         .try_for_each(|active| flush_writer(&mut active.writer, true));
                     if let Err(error) = &result {
-                        *fault.lock().expect("logger fault mutex poisoned") = Some(error.clone());
+                        *fault.lock() = Some(error.clone());
                         running.store(false, Ordering::SeqCst);
                     }
                     let _ = reply.send(result);
@@ -357,7 +358,7 @@ impl AsyncLogger {
                 let flush_result = writers.values_mut()
                     .try_for_each(|active| flush_writer(&mut active.writer, false));
                 if let Err(error) = flush_result {
-                    *fault.lock().expect("logger fault mutex poisoned") = Some(error);
+                    *fault.lock() = Some(error);
                     running.store(false, Ordering::SeqCst);
                     break;
                 }
@@ -365,10 +366,10 @@ impl AsyncLogger {
             }
         }
 
-        if fault.lock().expect("logger fault mutex poisoned").is_none() {
+        if fault.lock().is_none() {
             for active in writers.values_mut() {
                 if let Err(error) = flush_writer(&mut active.writer, true) {
-                    *fault.lock().expect("logger fault mutex poisoned") = Some(error);
+                    *fault.lock() = Some(error);
                     break;
                 }
             }
@@ -376,7 +377,7 @@ impl AsyncLogger {
     }
 
     fn current_fault(&self) -> Option<String> {
-        self.fault.lock().expect("logger fault mutex poisoned").clone()
+        self.fault.lock().clone()
     }
 
     fn reserve_bytes(&self, bytes: usize) -> bool {
@@ -442,7 +443,7 @@ impl AsyncLogger {
 
     pub fn finish(&self) {
         self.stop();
-        if let Some(worker) = self.worker.lock().expect("logger worker mutex poisoned").take() {
+        if let Some(worker) = self.worker.lock().take() {
             let _ = worker.join();
         }
     }

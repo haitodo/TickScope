@@ -6,8 +6,8 @@
 
 use crate::core::civil_date::civil_from_days;
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
+use parking_lot::Mutex;
 use std::io::Write;
-use std::sync::Mutex;
 use std::time::SystemTime;
 
 /// Splits a `SystemTime` into `(days since epoch, seconds within the day, milliseconds)`.
@@ -109,7 +109,7 @@ impl log::Log for ConsoleLogger {
         );
 
         // Guard writes to prevent interleaved lines across threads
-        let _guard = self.writer_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = self.writer_lock.lock();
         let stderr = std::io::stderr();
         let mut handle = stderr.lock();
         let _ = handle.write_all(line.as_bytes());
@@ -117,7 +117,7 @@ impl log::Log for ConsoleLogger {
     }
 
     fn flush(&self) {
-        let _guard = self.writer_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = self.writer_lock.lock();
         let _ = std::io::stderr().flush();
     }
 }

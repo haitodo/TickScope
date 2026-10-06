@@ -61,7 +61,7 @@ let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_o
 | 2 | テストフィクスチャの共通化 | 80 箇所以上 | §4 | ○ |
 | 3 | ~~バイト列デコードのヘルパー化~~（**対応済み**） | 68 箇所 | §3 | ○ |
 | 4 | UI 色リテラルの定数化 | 84 箇所 | §5 | ○ |
-| 5 | `std::sync` → `parking_lot` 統一 | 14 箇所 | §6 | ○ |
+| 5 | ~~`std::sync` → `parking_lot` 統一~~（**対応済み**） | 14 箇所 | §6 | ○ |
 | 6 | 未使用の公開関数 26 件の整理 | 26 箇所 | §7 | ○ |
 | 7 | `cargo fmt` 一括適用 | 77 ファイル / 492 ハンク | §2 | ○（必ず最後） |
 
@@ -329,7 +329,19 @@ cargo test --features replay        # テスト件数（214 件）と結果が�
 
 ---
 
-## 6. `std::sync` のロックを `parking_lot` に統一（14 箇所）
+## 6. `std::sync` のロックを `parking_lot` に統一（14 箇所）★対応済み
+
+**対応状況**: 完了。`logging.rs` / `storage/tlog_writer.rs` / `state/snapshot.rs` /
+`transport/tcp.rs`（テスト）/ `tests/cli_and_logging_test.rs` を `parking_lot` へ移し、
+poison 処理（`.expect("…mutex poisoned")` 8 箇所、`.unwrap_or_else(|e| e.into_inner())` 2 箇所、
+`.lock().unwrap()` 3 箇所、`if let Ok(guard)` 2 箇所）を全廃した。
+`src/` と `tests/` に `std::sync::Mutex` / `RwLock` は 1 つも残っていない。
+
+`tlog_writer.rs` の fault mutex は「poison したら panic」から「そのまま続行」に変わるが、
+ガードしているのは `Option<StorageError>` 1 つだけで、壊れうる不変条件がないため安全と判断した。
+`logging.rs` / `snapshot.rs` / `tcp.rs`(テスト) は元から poison を無視していたので挙動は完全に同じ。
+
+以下は実施時に使った調査内容（記録として残す）。
 
 ### 修正方針
 

@@ -144,11 +144,11 @@ fn test_logging_formatting_and_target_cleanup() {
     );
 }
 
-static LOG_GLOBAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static LOG_GLOBAL_TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 #[test]
 fn test_log_suppression_and_activation() {
-    let _guard = LOG_GLOBAL_TEST_LOCK.lock().unwrap();
+    let _guard = LOG_GLOBAL_TEST_LOCK.lock();
 
     // 1. Suppression when disabled
     init_disabled_logging();

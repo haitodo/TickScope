@@ -68,14 +68,14 @@ impl SnapshotBuilder {
 
 pub struct SnapshotExchange {
     current: ArcSwap<UiSnapshot>,
-    repaint_signal: std::sync::RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
+    repaint_signal: parking_lot::RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl SnapshotExchange {
     pub fn new(initial: Arc<UiSnapshot>) -> Self {
         Self {
             current: ArcSwap::from(initial),
-            repaint_signal: std::sync::RwLock::new(None),
+            repaint_signal: parking_lot::RwLock::new(None),
         }
     }
 
@@ -91,10 +91,9 @@ impl SnapshotExchange {
 impl SnapshotExchangePort for SnapshotExchange {
     fn publish(&self, snapshot: Arc<UiSnapshot>) {
         self.current.store(snapshot);
-        if let Ok(guard) = self.repaint_signal.read() {
-            if let Some(signal) = guard.as_ref() {
-                signal();
-            }
+        let guard = self.repaint_signal.read();
+        if let Some(signal) = guard.as_ref() {
+            signal();
         }
     }
 
@@ -103,8 +102,6 @@ impl SnapshotExchangePort for SnapshotExchange {
     }
 
     fn register_repaint_signal(&self, signal: Arc<dyn Fn() + Send + Sync>) {
-        if let Ok(mut guard) = self.repaint_signal.write() {
-            *guard = Some(signal);
-        }
+        *self.repaint_signal.write() = Some(signal);
     }
 }
