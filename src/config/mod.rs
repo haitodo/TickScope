@@ -1,4 +1,4 @@
-//! Configuration subsystem for TickScope.
+//! Configuration subsystem for `TickScope`.
 
 pub mod loader;
 pub mod schema;

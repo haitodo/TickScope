@@ -308,7 +308,7 @@ impl HypothesisEngine {
         let has_persistence_evidence = if let Some(pers) = persistence {
             if let Some(med_p) = pers.median_persistence_ms() {
                 if med_p >= self.config.sticky_pricing_min_persistence_ms {
-                    evidence_items.push(format!("median quote persistence {:.1}ms", med_p));
+                    evidence_items.push(format!("median quote persistence {med_p:.1}ms"));
                     true
                 } else {
                     false
@@ -399,9 +399,8 @@ impl HypothesisEngine {
     ) -> Option<Hypothesis> {
         let is_stale_high = fp.stale_freq >= self.config.filtering_min_stale_freq;
         let is_persistence_high = persistence
-            .and_then(|p| p.median_persistence_ms())
-            .map(|m| m >= 250.0)
-            .unwrap_or(false);
+            .and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms)
+            .is_some_and(|m| m >= 250.0);
 
         if is_stale_high || is_persistence_high {
             let mut evidence =
@@ -418,10 +417,9 @@ impl HypothesisEngine {
                 ));
             }
             if is_persistence_high {
-                if let Some(med_p) = persistence.and_then(|p| p.median_persistence_ms()) {
+                if let Some(med_p) = persistence.and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms) {
                     evidence.add_item(format!(
-                        "elevated median quote persistence {:.1}ms indicates selective update filtering",
-                        med_p
+                        "elevated median quote persistence {med_p:.1}ms indicates selective update filtering"
                     ));
                 }
             }
@@ -447,9 +445,8 @@ impl HypothesisEngine {
         persistence: Option<&QuotePersistenceTracker>,
     ) -> Option<Hypothesis> {
         let is_persistence_quantized = persistence
-            .and_then(|p| p.median_persistence_ms())
-            .map(|m| m >= self.config.aggregation_persistence_threshold_ms)
-            .unwrap_or(false);
+            .and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms)
+            .is_some_and(|m| m >= self.config.aggregation_persistence_threshold_ms);
 
         let is_pattern_clustered =
             fp.median_delay_ms >= 15.0 && fp.outlier_freq <= 0.02 && fp.observed_follow_freq >= 0.40;
@@ -466,10 +463,9 @@ impl HypothesisEngine {
                 "quote revisions exhibit discrete batching or time-window aggregation".to_string(),
             );
             if is_persistence_quantized {
-                if let Some(med_p) = persistence.and_then(|p| p.median_persistence_ms()) {
+                if let Some(med_p) = persistence.and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms) {
                     evidence.add_item(format!(
-                        "measured median persistence of {:.1}ms matches batch aggregation threshold",
-                        med_p
+                        "measured median persistence of {med_p:.1}ms matches batch aggregation threshold"
                     ));
                 }
             }

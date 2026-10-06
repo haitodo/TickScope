@@ -15,7 +15,7 @@ pub fn normalize_tick(
         ));
     }
 
-    let offset_ms = (utc_offset_sec as i64)
+    let offset_ms = i64::from(utc_offset_sec)
         .checked_mul(1000)
         .ok_or_else(|| "UTC offset arithmetic overflow".to_string())?;
 

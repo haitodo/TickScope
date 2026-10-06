@@ -29,9 +29,7 @@ impl StateRebuilder {
         tick_wake: &Arc<(Mutex<bool>, Condvar)>,
     ) {
         log::info!(
-            "[StateRebuilder] Rebuilding state at target_utc: {} (session: {})",
-            target_utc_ms,
-            session_id
+            "[StateRebuilder] Rebuilding state at target_utc: {target_utc_ms} (session: {session_id})"
         );
 
         // 1. Reset engine transient state
@@ -83,7 +81,7 @@ impl StateRebuilder {
             }
 
             for (b_id, b_ticks) in broker_groups {
-                let mut seq = eng.channels.get(&b_id).map(|c| c.ledger.expected_sequence()).unwrap_or(0);
+                let mut seq = eng.channels.get(&b_id).map_or(0, |c| c.ledger.expected_sequence());
                 if b_ticks.len() > 1 {
                     let hist_ticks = &b_ticks[..b_ticks.len() - 1];
                     for chunk in hist_ticks.chunks(4096) {

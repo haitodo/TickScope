@@ -66,7 +66,7 @@ fn test_live_mt5_terminal_path_resolution() {
         let path = tick_scope::runtime::TerminalManager::resolve_terminal_path(broker, &terminals);
         println!("Broker '{}' -> {:?}", broker.name, path);
         if let Some(p) = path {
-            assert!(p.is_file(), "Resolved path must be an existing executable: {:?}", p);
+            assert!(p.is_file(), "Resolved path must be an existing executable: {p:?}");
             resolved_count += 1;
         }
     }

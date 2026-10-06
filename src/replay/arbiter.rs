@@ -1,4 +1,4 @@
-//! Synchronization Arbiter: Evaluates incoming messages from TickReplay,
+//! Synchronization Arbiter: Evaluates incoming messages from `TickReplay`,
 //! enforces seek hysteresis to eliminate false resets during playback,
 //! and coordinates clock phase locking.
 
@@ -8,7 +8,7 @@ use crate::core::models::{ReplayTrade, ReplayTradeStore};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-/// Actions determined by the SyncArbiter after evaluating external status.
+/// Actions determined by the `SyncArbiter` after evaluating external status.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArbiterAction {
     /// Full state rebuild required (SEEK, loop reset, or initial sync).
@@ -61,19 +61,19 @@ impl SyncArbiter {
 
     /// Evaluates raw JSON or typed status and returns the appropriate action.
     /// Incorporates a -250ms hysteresis deadband to prevent false SEEK resets
-    /// caused by TickReplay's Graceful Slowdown timestamp clamping.
+    /// caused by `TickReplay`'s Graceful Slowdown timestamp clamping.
     pub fn evaluate(
         &mut self,
         val: &serde_json::Value,
         clock: &VirtualClock,
         trade_store: &Arc<RwLock<ReplayTradeStore>>,
     ) -> (ArbiterAction, Option<(f64, f64, i64)>) {
-        let virtual_time_msc = val.get("virtual_time_msc").and_then(|v| v.as_i64()).unwrap_or(0);
+        let virtual_time_msc = val.get("virtual_time_msc").and_then(serde_json::Value::as_i64).unwrap_or(0);
         if virtual_time_msc <= 0 {
             return (ArbiterAction::Ignore, None);
         }
 
-        let is_playing = val.get("is_playing").and_then(|p| p.as_bool()).unwrap_or(false);
+        let is_playing = val.get("is_playing").and_then(serde_json::Value::as_bool).unwrap_or(false);
         let multiplier = val
             .get("multiplier")
             .and_then(|m| m.as_f64().or_else(|| m.as_str().and_then(|s| s.parse().ok())))
@@ -84,8 +84,8 @@ impl SyncArbiter {
 
         // 1. Direct JFX Quote Extraction
         let jfx_quote = {
-            let bid = val.get("jfx_bid").and_then(|v| v.as_f64());
-            let ask = val.get("jfx_ask").and_then(|v| v.as_f64());
+            let bid = val.get("jfx_bid").and_then(serde_json::Value::as_f64);
+            let ask = val.get("jfx_ask").and_then(serde_json::Value::as_f64);
             match (bid, ask) {
                 (Some(b), Some(a)) if b > 0.0 && a >= b => {
                     data_updated = true;
@@ -99,7 +99,7 @@ impl SyncArbiter {
         let trade_revision = val
             .get("trade_revision")
             .or_else(|| val.get("history_revision"))
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         let trade_changed = trade_revision == 0 || trade_revision != self.last_observed_trade_revision;
 
@@ -142,7 +142,7 @@ impl SyncArbiter {
         }
 
         // 3. Adaptive SEEK Detection with seek_epoch check & Hysteresis fallback
-        let seek_epoch = val.get("seek_epoch").and_then(|v| v.as_u64()).unwrap_or(0);
+        let seek_epoch = val.get("seek_epoch").and_then(serde_json::Value::as_u64).unwrap_or(0);
         let is_seek = if seek_epoch > 0 && self.last_observed_seek_epoch > 0 && seek_epoch != self.last_observed_seek_epoch {
             // 明示的 seek_epoch 変更による確定的シーク
             true
@@ -340,9 +340,9 @@ mod tests {
                     "ticket": i,
                     "type": "BUY",
                     "volume": 0.1,
-                    "open_price": 150.0 + (i as f64) * 0.01,
+                    "open_price": 150.0 + f64::from(i) * 0.01,
                     "open_time_msc": 100_000 + i * 1_000,
-                    "profit": 10.0 * (i as f64)
+                    "profit": 10.0 * f64::from(i)
                 })
             })
             .collect();

@@ -1,4 +1,4 @@
-//! Configuration schema and validation for TickScope.
+//! Configuration schema and validation for `TickScope`.
 
 use crate::config::timezone::*;
 use crate::core::types::*;
@@ -46,7 +46,7 @@ pub struct BrokerConfig {
     pub name: String,
     pub host: String,
     /// Legacy listener port used only when MT5 auto-deployment is disabled.
-    /// With auto-deployment enabled, TickScope binds an ephemeral loopback port.
+    /// With auto-deployment enabled, `TickScope` binds an ephemeral loopback port.
     #[serde(default = "default_broker_port")]
     pub port: u16,
     pub symbol: String,
@@ -497,10 +497,10 @@ impl AppConfig {
             return Err(ConfigError::Validation("Active pair cannot have the same broker for both sides".to_string()));
         }
         if !seen_ids.contains(&a) {
-            return Err(ConfigError::Validation(format!("Active pair broker A ({}) not in brokers list", a)));
+            return Err(ConfigError::Validation(format!("Active pair broker A ({a}) not in brokers list")));
         }
         if !seen_ids.contains(&b) {
-            return Err(ConfigError::Validation(format!("Active pair broker B ({}) not in brokers list", b)));
+            return Err(ConfigError::Validation(format!("Active pair broker B ({b}) not in brokers list")));
         }
 
         if self.matcher.trigger_move_points <= 0.0 {
@@ -587,9 +587,9 @@ mod tests {
         assert!(default_cfg.launch_minimized);
 
         // 2. Parse from TOML with default (absent key)
-        let toml_str = r#"
+        let toml_str = r"
             auto_deploy = true
-        "#;
+        ";
         let parsed: Mt5DeployConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(parsed.non_minimized_broker, Some("OANDA".to_string()));
 

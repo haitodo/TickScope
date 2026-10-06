@@ -1,4 +1,4 @@
-//! MetaEditor compilation and verification.
+//! `MetaEditor` compilation and verification.
 
 use super::discovery::find_metaeditor_for_terminal;
 use super::error::DeployError;
@@ -34,9 +34,9 @@ pub fn compile_deployed_ea(terminal: &TerminalDeployReport, ea_path: &Path) -> D
         terminal.mql5_dir.join("Include/TickScope/Protocol.mqh"),
         terminal.mql5_dir.join("Include/TickScope/SocketClient.mqh"),
     ];
-    let output_is_current = output_time.map(|output| dependencies.iter().all(|path| {
-        fs::metadata(path).and_then(|m| m.modified()).map(|source| source <= output).unwrap_or(false)
-    })).unwrap_or(false);
+    let output_is_current = output_time.is_some_and(|output| dependencies.iter().all(|path| {
+        fs::metadata(path).and_then(|m| m.modified()).is_ok_and(|source| source <= output)
+    }));
     if !source_changed && output_is_current {
         return DeployCompileStatus::UpToDate;
     }
@@ -53,17 +53,16 @@ pub fn compile_deployed_ea(terminal: &TerminalDeployReport, ea_path: &Path) -> D
         Ok(status) if status.success() => {
             let compiled_is_current = fs::metadata(&ex5_path)
                 .and_then(|m| m.modified())
-                .map(|output| dependencies.iter().all(|path| {
-                    fs::metadata(path).and_then(|m| m.modified()).map(|source| source <= output).unwrap_or(false)
-                }))
-                .unwrap_or(false);
+                .is_ok_and(|output| dependencies.iter().all(|path| {
+                    fs::metadata(path).and_then(|m| m.modified()).is_ok_and(|source| source <= output)
+                }));
             if compiled_is_current {
                 DeployCompileStatus::Compiled
             } else {
                 DeployCompileStatus::Failed(DeployError::CompilationFailed(format!("MetaEditor did not produce a current {}. Check the compiler log.", ex5_path.display())))
             }
         }
-        Ok(status) => DeployCompileStatus::Failed(DeployError::CompilationFailed(format!("MetaEditor exited with {}", status))),
+        Ok(status) => DeployCompileStatus::Failed(DeployError::CompilationFailed(format!("MetaEditor exited with {status}"))),
         Err(error) => DeployCompileStatus::Failed(DeployError::CompilationFailed(error.to_string())),
     }
 }

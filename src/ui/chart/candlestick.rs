@@ -105,7 +105,7 @@ pub fn draw_candlestick_chart_multi_with_mode(
     if broker_ids.is_empty() {
         if let Some(view) = candle_view {
             broker_ids = view.slots_by_broker.keys().copied().collect();
-            broker_ids.sort();
+            broker_ids.sort_unstable();
         }
     }
     draw_candlestick_chart_for_brokers(
@@ -251,7 +251,7 @@ pub fn draw_candlestick_chart_for_brokers_with_trades_interactive(
 }
 
 fn draw_candlestick_chart_for_brokers_with_trades_impl(
-    mut ui: Option<&mut egui::Ui>,
+    ui: Option<&mut egui::Ui>,
     painter: &egui::Painter,
     rect: Rect,
     candle_view: Option<&CandleView>,
@@ -417,7 +417,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     // Draw horizontal price grid lines
     let grid_steps = 4;
     for i in 0..=grid_steps {
-        let p = chart_min + (price_range / grid_steps as f64) * i as f64;
+        let p = chart_min + (price_range / f64::from(grid_steps)) * f64::from(i);
         let y = price_to_y(p);
         painter.line_segment(
             [
@@ -429,7 +429,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         painter.text(
             Pos2::new(rect.right() - 4.0, y - 2.0),
             egui::Align2::RIGHT_BOTTOM,
-            format!("{:.*}", price_decimals, p),
+            format!("{p:.price_decimals$}"),
             egui::FontId::monospace(11.0),
             Color32::from_gray(180),
         );
@@ -440,7 +440,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         let detail_str = match &follow_status {
             Some(FollowStatusInfo::Median { valid_brokers, .. }) => {
                 if *valid_brokers >= 3 {
-                    format!("(Median, {} brokers)", valid_brokers)
+                    format!("(Median, {valid_brokers} brokers)")
                 } else if *valid_brokers == 2 {
                     "(Mid of 2 brokers)".to_string()
                 } else if *valid_brokers == 1 {
@@ -457,25 +457,25 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             }) => {
                 let side_str = if *is_top { "High" } else { "Low" };
                 if *valid_brokers > 0 {
-                    format!("(Edge {}: {} {}ms)", side_str, edge_broker_name, edge_age_ms)
+                    format!("(Edge {side_str}: {edge_broker_name} {edge_age_ms}ms)")
                 } else {
                     "(Edge: 0 brokers - Hold)".to_string()
                 }
             }
             Some(FollowStatusInfo::NoValidQuotes { .. }) => "(0 valid quotes - Hold)".to_string(),
-            None => "".to_string(),
+            None => String::new(),
         };
         let half_span_str = if (half_span.fract()).abs() < 1e-4 {
-            format!("{:.0}", half_span)
+            format!("{half_span:.0}")
         } else if ((half_span * 10.0).fract()).abs() < 1e-4 {
-            format!("{:.1}", half_span)
+            format!("{half_span:.1}")
         } else {
-            format!("{:.2}", half_span)
+            format!("{half_span:.2}")
         };
         painter.text(
             Pos2::new(rect.right() - PRICE_AXIS_WIDTH - 6.0, rect.top() + 6.0),
             egui::Align2::RIGHT_TOP,
-            format!("Fixed: ±{} pip {}", half_span_str, detail_str),
+            format!("Fixed: ±{half_span_str} pip {detail_str}"),
             egui::FontId::monospace(11.0),
             Color32::from_gray(190),
         );
@@ -560,10 +560,9 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         let name = broker_overviews
             .iter()
             .find(|b| b.broker_id == *broker_id)
-            .map(|b| b.name.as_str())
-            .unwrap_or("Broker");
+            .map_or("Broker", |b| b.name.as_str());
         let color = broker_color_for_name(theme, Some(name), color_index);
-        let label = format!("{} [{}]", name, broker_id);
+        let label = format!("{name} [{broker_id}]");
         let width = 8.0 + label.len() as f32 * 7.0 + 12.0;
         if legend_x + width > rect.right() - 8.0 {
             legend_x = rect.left() + 8.0;
@@ -594,7 +593,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         painter.text(
             Pos2::new(rect.right() - PRICE_AXIS_WIDTH - 6.0, rect.top() + 20.0),
             egui::Align2::RIGHT_TOP,
-            format!("+{} brokers", hidden_legends),
+            format!("+{hidden_legends} brokers"),
             egui::FontId::monospace(11.0),
             Color32::from_gray(180),
         );
@@ -608,7 +607,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
     if let Some((open_pos, hist)) = trade_items {
         draw_trade_overlays_impl(
-            ui.as_deref_mut(),
+            ui,
             painter,
             rect,
             plot_rect,
@@ -723,14 +722,13 @@ fn draw_trade_overlays_impl(
                 && entry_left <= plot_rect.right());
         let exit_visible = exit_data
             .as_ref()
-            .map(|d| {
+            .is_some_and(|d| {
                 plot_rect.contains(d.4)
                     || (d.3 >= plot_rect.top()
                         && d.3 <= plot_rect.bottom()
                         && d.1 >= plot_rect.left()
                         && d.0 <= plot_rect.right())
-            })
-            .unwrap_or(false);
+            });
 
         if !entry_visible && !exit_visible {
             continue;
@@ -951,7 +949,7 @@ fn slot_span_for_time(
         let offset = (total_slots - 1).saturating_sub(idx) as f32;
         (right_slot_center_x - offset * slot_width).round()
     } else {
-        let latest_slot_start = view.slot_starts.last().map(|s| s.0).unwrap_or(0);
+        let latest_slot_start = view.slot_starts.last().map_or(0, |s| s.0);
         let latest_slot_center_time = latest_slot_start + (view.period_ms / 2);
         let dt = utc_ms.saturating_sub(latest_slot_center_time) as f64;
         right_slot_center_x + (dt / view.period_ms as f64) as f32 * slot_width
@@ -1014,7 +1012,7 @@ fn draw_price_axis_position_badge(
     let badge_y = y.clamp(plot_rect.top() + badge_h * 0.5, plot_rect.bottom() - badge_h * 0.5);
 
     // 形式B: 建値 (+pips) 例: "150.235 (+1.8p)" (BUY/SELLなし)
-    let text = format!("{:.*} ({:+.1}p)", price_decimals, open_price, pips);
+    let text = format!("{open_price:.price_decimals$} ({pips:+.1}p)");
     let bg_color = if pips >= 0.0 {
         Color32::from_rgba_unmultiplied(0, 110, 60, 240)
     } else {
@@ -1205,11 +1203,11 @@ fn show_trade_tooltip(
             .as_deref()
             .filter(|reason| !reason.trim().is_empty())
         {
-            ui.label(format!("決済理由  {}", reason));
+            ui.label(format!("決済理由  {reason}"));
         }
     } else {
         if let Some(current_price) = trade.current_price {
-            ui.label(format!("現在値  {:.*}", price_decimals, current_price));
+            ui.label(format!("現在値  {current_price:.price_decimals$}"));
             if pip_size > 0.0 {
                 let price_delta = if is_buy {
                     current_price - trade.open_price
@@ -1221,10 +1219,10 @@ fn show_trade_tooltip(
         }
         ui.label(format!("含み損益  {:+.2}", trade.profit));
         if let Some(sl) = trade.sl.filter(|price| *price > 0.0) {
-            ui.label(format!("損切り  {:.*}", price_decimals, sl));
+            ui.label(format!("損切り  {sl:.price_decimals$}"));
         }
         if let Some(tp) = trade.tp.filter(|price| *price > 0.0) {
-            ui.label(format!("利確  {:.*}", price_decimals, tp));
+            ui.label(format!("利確  {tp:.price_decimals$}"));
         }
     }
 }
@@ -1250,7 +1248,7 @@ fn format_utc_timestamp(utc_ms: i64) -> String {
 fn format_trade_duration(duration_ms: i64) -> String {
     let duration_ms = duration_ms.max(0);
     if duration_ms < 1_000 {
-        format!("{} ms", duration_ms)
+        format!("{duration_ms} ms")
     } else if duration_ms < 60_000 {
         format!("{:.1} 秒", duration_ms as f64 / 1_000.0)
     } else {

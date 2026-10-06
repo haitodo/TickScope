@@ -277,7 +277,7 @@ impl DashboardApp {
         if let Some(path) = &self.ui_state_path {
             let state = self.current_ui_state();
             if let Err(e) = save_ui_state(path, &state) {
-                log::warn!("Failed to persist UI state: {}", e);
+                log::warn!("Failed to persist UI state: {e}");
             } else {
                 self.state_dirty = false;
             }
@@ -288,9 +288,7 @@ impl DashboardApp {
     /// unmaximizes the window, resets zoom factor to 1.0, and saves UI state.
     pub fn reset_window_size(&mut self, ctx: &egui::Context) {
         log::info!(
-            "Resetting window size to default ({}x{})",
-            DEFAULT_WINDOW_WIDTH,
-            DEFAULT_WINDOW_HEIGHT
+            "Resetting window size to default ({DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT})"
         );
         self.window_geometry = WindowGeometryState::default();
         self.window_reset_in_progress = 10;
@@ -708,14 +706,12 @@ impl DashboardApp {
             .broker_overviews
             .iter()
             .find(|b| b.broker_id == self.selected_broker_a)
-            .map(|b| b.name.as_str())
-            .unwrap_or("A");
+            .map_or("A", |b| b.name.as_str());
         let name_b = snapshot
             .broker_overviews
             .iter()
             .find(|b| b.broker_id == self.selected_broker_b)
-            .map(|b| b.name.as_str())
-            .unwrap_or("B");
+            .map_or("B", |b| b.name.as_str());
 
         // 1. Top Panel: Header context controls and HUD
         header::render_top_header(self, ctx, &snapshot, name_a, name_b);
@@ -788,9 +784,7 @@ impl DashboardApp {
                 .map(|&id| {
                     self.broker_configs
                         .iter()
-                        .find(|b| b.id == id)
-                        .map(|b| b.name.clone())
-                        .unwrap_or_else(|| format!("Broker {}", id))
+                        .find(|b| b.id == id).map_or_else(|| format!("Broker {id}"), |b| b.name.clone())
                 })
                 .collect();
 
@@ -801,10 +795,10 @@ impl DashboardApp {
                 .show(ctx, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
                     ui.label(RichText::new("起動中のMT5端末を終了しますか？").strong());
-                    if !running_names.is_empty() {
-                        ui.label(format!("対象: {}", running_names.join(", ")));
-                    } else {
+                    if running_names.is_empty() {
                         ui.label("現在起動中の対象MT5はありません。");
+                    } else {
+                        ui.label(format!("対象: {}", running_names.join(", ")));
                     }
                     ui.label(
                         RichText::new("各端末にWM_CLOSE（正常終了）を送信し、チャート設定やEA状態を安全に保存して終了します。")

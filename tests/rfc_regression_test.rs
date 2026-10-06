@@ -4,9 +4,9 @@
 //! - RFC §81 Test A: Single broker quote jump -> Outlier / Broker Deviation, NOT market-wide move.
 //! - RFC §81 Test B: 5 brokers simultaneous move -> High Breadth / UP Cluster, NOT a trading signal.
 //! - RFC §81 Test C: 1 broker stale -> fresh count 4/5, excluded from fresh consensus.
-//! - RFC §81 Test D: Spread-only expansion -> classified as SpreadExpansion.
-//! - RFC §81 Test E: Ask-only quote change -> classified as AskOnly.
-//! - RFC §81 Test F: Bid & ask same direction -> classified as TwoSideDirectional.
+//! - RFC §81 Test D: Spread-only expansion -> classified as `SpreadExpansion`.
+//! - RFC §81 Test E: Ask-only quote change -> classified as `AskOnly`.
+//! - RFC §81 Test F: Bid & ask same direction -> classified as `TwoSideDirectional`.
 //! - RFC §91 Invariant I4 & I5 & §83: Reference broker change preserves consensus, dispersion, burst.
 //! - RFC §91 Invariant I12 & I13: No BUY, SELL, ENTRY signals or single composite scores anywhere.
 //! - RFC §91 Invariant I1 & I2 & I3 & I6 & I7 & I8 & I14 & I15.
@@ -161,7 +161,7 @@ fn test_rfc_section81_test_a_single_broker_jump_outlier_not_market_move() {
 ///
 /// Simulate 5 brokers moving UP within a 10ms span.
 /// Verify:
-/// - An EventCluster is detected with direction Up.
+/// - An `EventCluster` is detected with direction Up.
 /// - 5 participating brokers.
 /// - Observed span <= 10ms.
 /// - Directional breadth is UP 5/5.
@@ -228,10 +228,10 @@ fn test_rfc_section81_test_b_multi_broker_simultaneous_move_high_breadth_not_sig
 /// RFC §81 Test C:
 /// 1 broker stale -> fresh count 4/5, excluded from fresh consensus.
 ///
-/// Simulate 5 brokers where Broker 5 has not updated for 1500ms (stale_after_ms = 1000ms).
+/// Simulate 5 brokers where Broker 5 has not updated for 1500ms (`stale_after_ms` = 1000ms).
 /// Verify:
-/// - fresh_count == 4
-/// - total_count == 5
+/// - `fresh_count` == 4
+/// - `total_count` == 5
 /// - Broker 5's stale quote is excluded from Observed Broker Median.
 #[test]
 fn test_rfc_section81_test_c_stale_broker_exclusion_fresh_4_of_5() {
@@ -272,7 +272,7 @@ fn test_rfc_section81_test_c_stale_broker_exclusion_fresh_4_of_5() {
 }
 
 /// RFC §81 Test D:
-/// Spread-only expansion -> classified as SpreadExpansion.
+/// Spread-only expansion -> classified as `SpreadExpansion`.
 ///
 /// Simulate bid falling and ask rising symmetrically (mid unchanged).
 /// Verify quote geometry is classified as `SpreadExpansion`.
@@ -300,7 +300,7 @@ fn test_rfc_section81_test_d_spread_expansion_classification() {
 }
 
 /// RFC §81 Test E:
-/// Ask-only quote change -> classified as AskOnly.
+/// Ask-only quote change -> classified as `AskOnly`.
 ///
 /// Simulate bid remaining constant and ask rising by 2 points.
 /// Verify quote geometry is classified as `AskOnly`.
@@ -327,7 +327,7 @@ fn test_rfc_section81_test_e_ask_only_quote_change() {
 }
 
 /// RFC §81 Test F:
-/// Bid & ask same direction -> classified as TwoSideDirectional.
+/// Bid & ask same direction -> classified as `TwoSideDirectional`.
 ///
 /// Simulate both bid and ask rising by equal amounts.
 /// Verify quote geometry is classified as `TwoSideDirectional`.
@@ -394,7 +394,7 @@ fn test_invariant_i4_i5_reference_broker_change_preserves_consensus() {
                     header_length: HEADER_LENGTH,
                     header_flags: 0,
                     broker_id: b_id,
-                    session_id: 100 + b_id as u64,
+                    session_id: 100 + u64::from(b_id),
                     sequence_start: 1,
                     tick_count: 1,
                     payload_length: 72,
@@ -502,7 +502,7 @@ fn test_invariant_i12_i13_no_trading_signals_or_single_scores() {
                     header_length: HEADER_LENGTH,
                     header_flags: 0,
                     broker_id: b_id,
-                    session_id: 100 + b_id as u64,
+                    session_id: 100 + u64::from(b_id),
                     sequence_start: 1,
                     tick_count: 1,
                     payload_length: 72,
@@ -511,8 +511,8 @@ fn test_invariant_i12_i13_no_trading_signals_or_single_scores() {
                     sequence: 1,
                     broker_time_msc: 1000,
                     ea_elapsed_us: 10,
-                    bid: 150.000 + (b_id as f64) * 0.001,
-                    ask: 150.002 + (b_id as f64) * 0.001,
+                    bid: 150.000 + f64::from(b_id) * 0.001,
+                    ask: 150.002 + f64::from(b_id) * 0.001,
                     last: 0.0,
                     volume: 1,
                     volume_real: 1.0,
@@ -597,7 +597,7 @@ fn test_invariant_i12_i13_no_trading_signals_or_single_scores() {
 }
 
 /// Invariant I1:
-/// Ingestion receive timestamp (rx_mono_ns) is distinct from UI render timestamp
+/// Ingestion receive timestamp (`rx_mono_ns`) is distinct from UI render timestamp
 /// and preserved end-to-end without mutation.
 #[test]
 fn test_invariant_i1_rx_time_vs_ui_render_time_separation() {

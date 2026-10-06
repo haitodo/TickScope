@@ -3,8 +3,8 @@
 #![allow(dead_code)]
 
 
-/// Golden Header 40 bytes for minimal TickBatch:
-/// broker=1, session=1, seq=0, tick_count=1, flags=0, payload_len=72
+/// Golden Header 40 bytes for minimal `TickBatch`:
+/// broker=1, session=1, seq=0, `tick_count=1`, flags=0, `payload_len=72`
 pub const GOLDEN_HEADER_BYTES: [u8; 40] = [
     0x4B, 0x43, 0x49, 0x54, // magic: 0x5449434B
     0x01, 0x00,             // version: 1
@@ -18,8 +18,8 @@ pub const GOLDEN_HEADER_BYTES: [u8; 40] = [
     0x48, 0x00, 0x00, 0x00, // payload_length: 72
 ];
 
-/// Golden TickRecord 72 bytes:
-/// seq=0, time_msc=1000, ea_elapsed_us=10, bid=1.0, ask=2.0, last=0, volume=1, volume_real=1.0, flags=0, reserved=0
+/// Golden `TickRecord` 72 bytes:
+/// seq=0, `time_msc=1000`, `ea_elapsed_us=10`, bid=1.0, ask=2.0, last=0, volume=1, `volume_real=1.0`, flags=0, reserved=0
 pub const GOLDEN_TICK_RECORD_BYTES: [u8; 72] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sequence: 0
     0xE8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // broker_time_msc: 1000

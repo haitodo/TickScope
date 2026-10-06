@@ -19,7 +19,7 @@ fn test_live_mt5_continuous_connection() {
     let mut coordinator = match RuntimeCoordinator::new(config) {
         Ok(c) => c,
         Err(e) => {
-            println!("Could not bind to ports (may be in use): {}", e);
+            println!("Could not bind to ports (may be in use): {e}");
             return;
         }
     };
@@ -28,7 +28,7 @@ fn test_live_mt5_continuous_connection() {
     for i in 1..=6 {
         thread::sleep(Duration::from_secs(1));
         let snapshot = coordinator.exchange.load_latest();
-        println!("--- Second {} ---", i);
+        println!("--- Second {i} ---");
         for b in &snapshot.broker_overviews {
             let conn = match b.health.connection {
                 ConnectionState::Connected => "Connected",

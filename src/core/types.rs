@@ -1,4 +1,4 @@
-//! Shared data types, newtypes, units, and invariants for TickScope.
+//! Shared data types, newtypes, units, and invariants for `TickScope`.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

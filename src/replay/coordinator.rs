@@ -1,5 +1,5 @@
-//! Replay Coordinator: Orchestrates VirtualClock, Parquet Hive sources,
-//! ReplayDriver, and Snapshot Publisher into a unified runtime.
+//! Replay Coordinator: Orchestrates `VirtualClock`, Parquet Hive sources,
+//! `ReplayDriver`, and Snapshot Publisher into a unified runtime.
 
 use super::clock::VirtualClock;
 use super::driver::ReplayDriver;
@@ -106,7 +106,7 @@ impl ReplayCoordinator {
 
         let pub_handle = thread::spawn(move || {
             let builder = SnapshotBuilder::new(run_id);
-            let interval = Duration::from_micros(1_000_000 / repaint_hz as u64);
+            let interval = Duration::from_micros(1_000_000 / u64::from(repaint_hz));
             let (lock, cvar) = &*tick_wake_pub;
 
             while run_pub.load(Ordering::SeqCst) {
@@ -124,7 +124,7 @@ impl ReplayCoordinator {
 
                 let elapsed = frame_start.elapsed();
                 if elapsed < interval {
-                    thread::sleep(interval - elapsed);
+                    thread::sleep(interval.checked_sub(elapsed).unwrap());
                 }
 
                 let mut pending = lock.lock();

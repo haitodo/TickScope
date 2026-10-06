@@ -1,4 +1,4 @@
-//! Command-line argument parsing for TickScope.
+//! Command-line argument parsing for `TickScope`.
 
 use log::LevelFilter;
 use std::path::PathBuf;
@@ -52,7 +52,7 @@ pub struct CliArgs {
     pub reset_window: bool,
     /// Optional path to historical tick data directory (replay mode).
     pub tick_dir: Option<PathBuf>,
-    /// Optional WebSocket URL for TickReplay synchronization (replay mode).
+    /// Optional WebSocket URL for `TickReplay` synchronization (replay mode).
     pub ws_url: Option<String>,
     /// Optional replay currency pair / symbol (e.g. USDJPY).
     pub symbol: Option<String>,

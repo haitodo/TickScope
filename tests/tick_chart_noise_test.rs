@@ -54,7 +54,7 @@ fn make_sources(dir: &std::path::Path) -> Vec<BrokerParquetSource> {
     v
 }
 
-/// Returns (mismatched, total, max_abs_err) of broker values vs ground truth.
+/// Returns (mismatched, total, `max_abs_err`) of broker values vs ground truth.
 fn audit(
     points: &[tick_scope::core::models::RealtimeQuotePoint],
     truth: &HashMap<BrokerId, Vec<(i64, f64)>>,
@@ -115,7 +115,7 @@ fn test_quote_history_matches_truth_after_repeated_seeks() {
     }
     let mut cur = start;
     for round in 0..4 {
-        println!("=== round {} seek to {} ===", round, cur);
+        println!("=== round {round} seek to {cur} ===");
         tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
             cur, true, 1.0, round as u64 + 1, run_id, &clock, &engine, &merge_stream, &tick_wake,
         );
@@ -125,7 +125,7 @@ fn test_quote_history_matches_truth_after_repeated_seeks() {
             let (bad, total, max_err, inv) = audit(&proj.realtime_quote_points, &truth);
             println!("  after seek: points={} bad={}/{} max_err={:.4} inversions={}", proj.realtime_quote_points.len(), bad, total, max_err, inv);
             assert_eq!(inv, 0);
-            assert!(bad * 100 <= total, "after seek: {}/{} broker values do not match real ticks (max err {:.4})", bad, total, max_err);
+            assert!(bad * 100 <= total, "after seek: {bad}/{total} broker values do not match real ticks (max err {max_err:.4})");
         }
 
         // Simulate PlaybackPump: a 2 s catch-up burst (WS clock phase-sync after a slow
@@ -148,7 +148,7 @@ fn test_quote_history_matches_truth_after_repeated_seeks() {
             let (bad, total, max_err, inv) = audit(&proj.realtime_quote_points, &truth);
             println!("  after play: points={} bad={}/{} max_err={:.4} inversions={}", proj.realtime_quote_points.len(), bad, total, max_err, inv);
             assert_eq!(inv, 0);
-            assert!(bad * 100 <= total, "after play: {}/{} broker values do not match real ticks (max err {:.4})", bad, total, max_err);
+            assert!(bad * 100 <= total, "after play: {bad}/{total} broker values do not match real ticks (max err {max_err:.4})");
         }
         cur += 600_000;
     }

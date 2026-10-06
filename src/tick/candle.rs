@@ -1,4 +1,4 @@
-//! Candle aggregation and CandleBook for fixed time slots.
+//! Candle aggregation and `CandleBook` for fixed time slots.
 
 use crate::config::SlotRetention;
 use crate::core::models::*;
@@ -97,33 +97,30 @@ impl CandleBook {
                 },
             });
 
-            match slot.ohlc.as_mut() {
-                Some(ohlc) => {
-                    ohlc.high = ohlc.high.max(price);
-                    ohlc.low = ohlc.low.min(price);
-                    if key < ohlc.open_key {
-                        ohlc.open = price;
-                        ohlc.open_key = key;
-                    }
-                    if key >= ohlc.close_key {
-                        ohlc.close = price;
-                        ohlc.close_key = key;
-                    }
-                    slot.tick_count += 1;
-                    slot.revision += 1;
+            if let Some(ohlc) = slot.ohlc.as_mut() {
+                ohlc.high = ohlc.high.max(price);
+                ohlc.low = ohlc.low.min(price);
+                if key < ohlc.open_key {
+                    ohlc.open = price;
+                    ohlc.open_key = key;
                 }
-                None => {
-                    slot.ohlc = Some(Ohlc {
-                        open: price,
-                        high: price,
-                        low: price,
-                        close: price,
-                        open_key: key,
-                        close_key: key,
-                    });
-                    slot.tick_count = 1;
-                    slot.revision += 1;
+                if key >= ohlc.close_key {
+                    ohlc.close = price;
+                    ohlc.close_key = key;
                 }
+                slot.tick_count += 1;
+                slot.revision += 1;
+            } else {
+                slot.ohlc = Some(Ohlc {
+                    open: price,
+                    high: price,
+                    low: price,
+                    close: price,
+                    open_key: key,
+                    close_key: key,
+                });
+                slot.tick_count = 1;
+                slot.revision += 1;
             }
 
             if slot_start.0 + period <= current_utc_now.0 {
@@ -171,7 +168,7 @@ impl CandleBook {
     }
 
     pub fn advance_utc(&mut self, current_utc_now: UtcMs) {
-        for (&period, broker_map) in self.books.iter_mut() {
+        for (&period, broker_map) in &mut self.books {
             for slot_map in broker_map.values_mut() {
                 for slot in slot_map.values_mut() {
                     if slot.state == SlotState::Active && slot.start_utc_ms.0 + period <= current_utc_now.0 {

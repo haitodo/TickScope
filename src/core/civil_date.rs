@@ -34,12 +34,12 @@ pub fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
 /// the Unix epoch (1970-01-01).
 #[must_use]
 pub fn ymd_to_days(year: i32, month: u32, day: u32) -> i64 {
-    let y = if month <= 2 { year as i64 - 1 } else { year as i64 };
-    let m = if month <= 2 { month as i64 + 9 } else { month as i64 - 3 };
+    let y = if month <= 2 { i64::from(year) - 1 } else { i64::from(year) };
+    let m = if month <= 2 { i64::from(month) + 9 } else { i64::from(month) - 3 };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = (y - era * 400) as u32;
-    let doy = (153 * m + 2) / 5 + day as i64 - 1;
-    let doe = yoe as i64 * 365 + (yoe / 4) as i64 - (yoe / 100) as i64 + doy;
+    let doy = (153 * m + 2) / 5 + i64::from(day) - 1;
+    let doe = i64::from(yoe) * 365 + i64::from(yoe / 4) - i64::from(yoe / 100) + doy;
     era * 146_097 + doe - 719_468
 }
 
@@ -57,7 +57,7 @@ pub fn unix_sec_to_ymd(unix_sec: i64) -> (i32, u32, u32) {
 #[must_use]
 pub fn ymd_hms_to_unix_sec(year: i32, month: u32, day: u32, hour: u32, min: u32, sec: u32) -> i64 {
     let days = ymd_to_days(year, month, day);
-    days * 86_400 + (hour as i64 * 3_600) + (min as i64 * 60) + sec as i64
+    days * 86_400 + (i64::from(hour) * 3_600) + (i64::from(min) * 60) + i64::from(sec)
 }
 
 /// Returns the day of week for a given date (0 = Sunday, 1 = Monday, ..., 6 = Saturday).

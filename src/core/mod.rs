@@ -1,4 +1,4 @@
-//! Core domain models, types, and ports for TickScope.
+//! Core domain models, types, and ports for `TickScope`.
 
 pub mod civil_date;
 pub mod models;

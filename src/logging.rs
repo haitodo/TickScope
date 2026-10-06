@@ -240,7 +240,9 @@ pub mod win_console {
     /// Attach to the caller's console if available, or allocate a new console window.
     pub fn setup_console() -> bool {
         let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) != 0 };
-        let allocated = if !attached {
+        let allocated = if attached {
+            false
+        } else {
             let ok = unsafe { AllocConsole() != 0 };
             if ok {
                 ALLOCATED_CONSOLE.store(true, Ordering::SeqCst);
@@ -250,8 +252,6 @@ pub mod win_console {
                 }
             }
             ok
-        } else {
-            false
         };
 
         if attached || allocated {
@@ -299,7 +299,7 @@ pub mod win_console {
             let handle = unsafe { GetStdHandle(handle_id) };
             if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
                 let mut mode: u32 = 0;
-                if unsafe { GetConsoleMode(handle, &mut mode) } != 0 {
+                if unsafe { GetConsoleMode(handle, &raw mut mode) } != 0 {
                     unsafe {
                         SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
                     }
@@ -324,7 +324,7 @@ pub mod win_console {
             return false;
         }
         let mut mode: u32 = 0;
-        if unsafe { GetConsoleMode(err_handle, &mut mode) } != 0 {
+        if unsafe { GetConsoleMode(err_handle, &raw mut mode) } != 0 {
             (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0
         } else {
             false

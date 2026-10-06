@@ -41,7 +41,7 @@ pub struct CrossedSnapshot {
 /// Reference: RFC Beta 0.3 §10, §11, §69, §70.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObservedBrokerConsensus {
-    /// Number of quotes considered Fresh (rx_age <= stale_after_ms)
+    /// Number of quotes considered Fresh (`rx_age` <= `stale_after_ms`)
     pub fresh_count: usize,
     /// Total number of quotes received in snapshot
     pub total_count: usize,
@@ -57,7 +57,7 @@ pub struct ObservedBrokerConsensus {
     pub bid_range: Option<f64>,
     /// Range of ask prices: `ask_max - ask_min`
     pub ask_range: Option<f64>,
-    /// Median Absolute Deviation (MAD): median(|mid_i - median|).
+    /// Median Absolute Deviation (MAD): `median(|mid_i` - median|).
     /// Low-N rule (§70): Computed only for N >= 4 fresh brokers; None for N < 4.
     pub median_abs_deviation: Option<f64>,
     /// Outlier quotes deviating significantly from consensus median
@@ -278,7 +278,7 @@ fn compute_median_in_place(values: &mut [f64]) -> Option<f64> {
     }
 }
 
-/// Compute Median Absolute Deviation: median(|x_i - median|).
+/// Compute Median Absolute Deviation: `median(|x_i` - median|).
 fn compute_mad<I>(mids: I, count: usize, median: f64) -> Option<f64>
 where
     I: IntoIterator<Item = f64>,

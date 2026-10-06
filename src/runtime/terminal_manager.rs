@@ -1,7 +1,7 @@
-//! MetaTrader 5 Terminal Process Lifecycle Manager.
+//! `MetaTrader` 5 Terminal Process Lifecycle Manager.
 //!
 //! Provides discovery of broker MT5 executables, non-intrusive minimized launch,
-//! running process detection, and safe graceful termination via WM_CLOSE with
+//! running process detection, and safe graceful termination via `WM_CLOSE` with
 //! timeout fallback.
 
 use crate::config::BrokerConfig;
@@ -90,14 +90,14 @@ impl TerminalManager {
                 || folder_lower.contains(&broker_name_lower);
 
             if matched {
-                let install_dir = if !origin_str.is_empty() {
+                let install_dir = if origin_str.is_empty() {
+                    term.terminal_dir.clone()
+                } else {
                     let p = PathBuf::from(&origin_str);
                     if p.is_file() {
                         return Some(p);
                     }
                     p
-                } else {
-                    term.terminal_dir.clone()
                 };
 
                 for exe in ["terminal64.exe", "terminal.exe"] {
@@ -131,10 +131,10 @@ impl TerminalManager {
 
         // Update path mapping if needed
         for broker in brokers {
-            if !self.broker_terminals.contains_key(&broker.id) {
-                let path = Self::resolve_terminal_path(broker, discovered);
-                self.broker_terminals.insert(broker.id, path);
-            }
+            self.broker_terminals.entry(broker.id).or_insert_with(|| {
+                
+                Self::resolve_terminal_path(broker, discovered)
+            });
         }
 
         let running_map = query_running_terminals();
@@ -171,7 +171,7 @@ impl TerminalManager {
     pub fn launch(&mut self, broker_id: BrokerId, minimized: bool) -> Result<u32, String> {
         let exe_path = self
             .get_exe_path(broker_id)
-            .ok_or_else(|| format!("MT5 executable path not found for broker ID {}", broker_id))?
+            .ok_or_else(|| format!("MT5 executable path not found for broker ID {broker_id}"))?
             .clone();
 
         let pid = launch_terminal_process(&exe_path, minimized)?;
@@ -247,7 +247,7 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
         let mut entry: PROCESSENTRY32W = std::mem::zeroed();
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
-        if Process32FirstW(snapshot, &mut entry) != 0 {
+        if Process32FirstW(snapshot, &raw mut entry) != 0 {
             loop {
                 // Convert szExeFile to string
                 let len = entry
@@ -270,7 +270,7 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
                             process_handle,
                             0,
                             path_buf.as_mut_ptr(),
-                            &mut path_len,
+                            &raw mut path_len,
                         ) != 0
                         {
                             let full_path = PathBuf::from(
@@ -285,7 +285,7 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
                     }
                 }
 
-                if Process32NextW(snapshot, &mut entry) == 0 {
+                if Process32NextW(snapshot, &raw mut entry) == 0 {
                     break;
                 }
             }
@@ -349,8 +349,7 @@ fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, Stri
     });
     let work_dir_ptr = work_dir_wide
         .as_ref()
-        .map(|w| w.as_ptr())
-        .unwrap_or(std::ptr::null());
+        .map_or(std::ptr::null(), std::vec::Vec::as_ptr);
 
     let success = unsafe {
         CreateProcessW(
@@ -362,8 +361,8 @@ fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, Stri
             0,
             std::ptr::null_mut(),
             work_dir_ptr,
-            &mut si,
-            &mut pi,
+            &raw const si,
+            &raw mut pi,
         )
     };
 
@@ -412,7 +411,7 @@ fn stop_terminal_process_async(pid: u32, timeout: Duration) {
     unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let target_pid = lparam as u32;
         let mut win_pid: u32 = 0;
-        GetWindowThreadProcessId(hwnd, &mut win_pid);
+        GetWindowThreadProcessId(hwnd, &raw mut win_pid);
         if win_pid == target_pid {
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
         }
@@ -421,8 +420,7 @@ fn stop_terminal_process_async(pid: u32, timeout: Duration) {
 
     thread::spawn(move || unsafe {
         log::info!(
-            "[TerminalManager] Posting WM_CLOSE to MT5 terminal (PID: {})...",
-            pid
+            "[TerminalManager] Posting WM_CLOSE to MT5 terminal (PID: {pid})..."
         );
         // Post WM_CLOSE to all top-level windows of target process
         EnumWindows(Some(enum_windows_proc), pid as LPARAM);
@@ -433,20 +431,17 @@ fn stop_terminal_process_async(pid: u32, timeout: Duration) {
             return;
         }
 
-        let timeout_ms = timeout.as_millis().min(u32::MAX as u128) as u32;
+        let timeout_ms = timeout.as_millis().min(u128::from(u32::MAX)) as u32;
         let wait_res = WaitForSingleObject(process_handle, timeout_ms);
 
         if wait_res == WAIT_TIMEOUT {
             log::warn!(
-                "[TerminalManager] MT5 terminal (PID: {}) did not close within {:?}; force terminating...",
-                pid,
-                timeout
+                "[TerminalManager] MT5 terminal (PID: {pid}) did not close within {timeout:?}; force terminating..."
             );
             TerminateProcess(process_handle, 1);
         } else {
             log::info!(
-                "[TerminalManager] MT5 terminal (PID: {}) exited cleanly.",
-                pid
+                "[TerminalManager] MT5 terminal (PID: {pid}) exited cleanly."
             );
         }
         CloseHandle(process_handle);

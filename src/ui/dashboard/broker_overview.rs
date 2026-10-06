@@ -32,287 +32,6 @@ fn column_widths(available: f32) -> [f32; 11] {
     widths
 }
 
-#[cfg(test)]
-mod layout_tests {
-    use super::*;
-    use crate::core::types::{MonoNs, Quote, TickId};
-    use crate::state::snapshot::SnapshotExchange;
-    use std::sync::Arc;
-
-    #[test]
-    fn default_window_columns_stay_inside_viewport_across_feed_changes() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
-        let ctx = egui::Context::default();
-        crate::ui::fonts::setup_fonts(&ctx);
-        style::configure(&ctx);
-        let mut snapshot = UiSnapshot::default();
-        let mut broker = BrokerOverview {
-            broker_id: 1,
-            name: "A very long broker name that must not expand the table".into(),
-            symbol: "USDJPY.long-symbol-suffix".into(),
-            ..Default::default()
-        };
-        broker.health.data_freshness = FreshnessState::Live;
-        broker.latest_quote = Some(Quote {
-            tick_id: TickId {
-                broker_id: 1,
-                session_id: 1,
-                sequence: 1,
-            },
-            bid: 155.1,
-            ask: 155.2,
-            mid: 155.15,
-            spread: 0.1,
-            rx_mono_ns: MonoNs::ZERO,
-            utc_ms: None,
-            is_warmup: false,
-            is_valid: true,
-        });
-        snapshot.broker_overviews.push(broker);
-        // egui measures a newly opened panel before painting its full contents.
-        for _ in 0..2 {
-            let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1100.0, 750.0),
-                )),
-                ..Default::default()
-            };
-            let _ = ctx.run(input, |ctx| {
-                render_broker_overview(&mut app, ctx, &snapshot)
-            });
-        }
-        let mut expected_positions = None;
-        for (connection, age_ms, expected_age) in [
-            (ConnectionState::Connected, 25, "25 ms"),
-            (ConnectionState::Disconnected, 2_300, "2.3 s"),
-            (ConnectionState::Connecting, 180_000, "3 min"),
-            (ConnectionState::Connected, 3_600_000, "1 h"),
-        ] {
-            snapshot.broker_overviews[0].health.connection = connection;
-            snapshot.built_mono_ns = MonoNs(age_ms * 1_000_000);
-            // Include the first frame after each change, where sizing regressions occur.
-            for _ in 0..2 {
-                let input = egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(1100.0, 750.0),
-                    )),
-                    ..Default::default()
-                };
-                let output = ctx.run(input, |ctx| {
-                    render_broker_overview(&mut app, ctx, &snapshot)
-                });
-                let positions: Vec<_> = HEADERS
-                    .iter()
-                    .map(|header| {
-                        let text = output
-                            .shapes
-                            .iter()
-                            .find_map(|shape| {
-                                if let egui::Shape::Text(text) = &shape.shape {
-                                    if text.galley.job.text == *header {
-                                        return Some(text);
-                                    }
-                                }
-                                None
-                            })
-                            .unwrap_or_else(|| panic!("Missing header: {header}"));
-                        assert!(
-                            text.pos.x + text.galley.size().x <= 1100.0,
-                            "{header} overflowed"
-                        );
-                        text.pos.x
-                    })
-                    .collect();
-                if let Some(expected) = &expected_positions {
-                    assert_eq!(&positions, expected, "Feed changes must not move columns");
-                } else {
-                    expected_positions = Some(positions);
-                }
-                assert!(ctx.used_rect().right() <= 1100.0);
-                let feed_text = format!("● {}", feed_status(&snapshot.broker_overviews[0]).0);
-                let feed = output
-                    .shapes
-                    .iter()
-                    .find_map(|shape| {
-                        if let egui::Shape::Text(text) = &shape.shape {
-                            if text.galley.job.text == feed_text {
-                                return Some((text, shape.clip_rect));
-                            }
-                        }
-                        None
-                    })
-                    .expect("Feed status should be visible");
-                assert_eq!(feed.0.galley.rows.len(), 1);
-                assert!(feed.0.pos.x + feed.0.galley.size().x <= feed.1.right());
-                let age = output
-                    .shapes
-                    .iter()
-                    .find_map(|shape| {
-                        if let egui::Shape::Text(text) = &shape.shape {
-                            if text.galley.job.text == expected_age {
-                                return Some((text, shape.clip_rect));
-                            }
-                        }
-                        None
-                    })
-                    .expect("Quote age should be visible");
-                assert_eq!(age.0.galley.rows.len(), 1);
-                assert!(
-                    age.0.pos.x <= age.1.right()
-                        && age.0.pos.x - age.0.galley.size().x >= age.1.left(),
-                    "Quote age {expected_age:?} overflowed: pos={:?}, size={:?}, clip={:?}",
-                    age.0.pos,
-                    age.0.galley.size(),
-                    age.1
-                );
-                for shape in &output.shapes {
-                    if let egui::Shape::Text(text) = &shape.shape {
-                        if ["A", "B", "↑", "↓"].contains(&text.galley.job.text.as_str()) {
-                            assert_eq!(text.galley.rows.len(), 1);
-                            assert!(
-                                text.pos.x + text.galley.size().x <= shape.clip_rect.right(),
-                                "Control {} was clipped",
-                                text.galley.job.text
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn controls_are_not_clipped_on_left_or_right() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
-        let ctx = egui::Context::default();
-        crate::ui::fonts::setup_fonts(&ctx);
-        style::configure(&ctx);
-        let mut snapshot = UiSnapshot::default();
-        let mut broker = BrokerOverview {
-            broker_id: 1,
-            name: "Test Broker".into(),
-            symbol: "USDJPY".into(),
-            ..Default::default()
-        };
-        broker.health.connection = ConnectionState::Connected;
-        broker.health.data_freshness = FreshnessState::Live;
-        snapshot.broker_overviews.push(broker);
-
-        let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1100.0, 750.0),
-            )),
-            ..Default::default()
-        };
-        let _ = ctx.run(input.clone(), |ctx| {
-            render_broker_overview(&mut app, ctx, &snapshot)
-        });
-        let output = ctx.run(input, |ctx| {
-            render_broker_overview(&mut app, ctx, &snapshot)
-        });
-
-        for shape in &output.shapes {
-            match &shape.shape {
-                egui::Shape::Rect(rect_shape) => {
-                    // Controls with visible strokes must stay inside their clip rect on both sides
-                    if rect_shape.stroke.width > 0.0 && shape.clip_rect.width() < 1000.0 {
-                        assert!(
-                            rect_shape.rect.left() >= shape.clip_rect.left(),
-                            "Control rect left {:?} clipped by {:?}",
-                            rect_shape.rect,
-                            shape.clip_rect
-                        );
-                        assert!(
-                            rect_shape.rect.right() <= shape.clip_rect.right(),
-                            "Control rect right {:?} clipped by {:?}",
-                            rect_shape.rect,
-                            shape.clip_rect
-                        );
-                    }
-                }
-                egui::Shape::Text(text_shape) => {
-                    if ["A", "B", "↑", "↓"].contains(&text_shape.galley.job.text.as_str()) {
-                        assert!(
-                            text_shape.pos.x >= shape.clip_rect.left(),
-                            "Text left clipped: {} at {:?}",
-                            text_shape.galley.job.text,
-                            text_shape.pos
-                        );
-                        assert!(
-                            text_shape.pos.x + text_shape.galley.size().x <= shape.clip_rect.right(),
-                            "Text right clipped: {} at {:?}",
-                            text_shape.galley.job.text,
-                            text_shape.pos
-                        );
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    #[test]
-    fn auto_fit_height_scales_with_broker_count() {
-        let measure_height = |count: usize| -> f32 {
-            let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-            let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
-            let ctx = egui::Context::default();
-            crate::ui::fonts::setup_fonts(&ctx);
-            style::configure(&ctx);
-
-            let mut snapshot = UiSnapshot::default();
-            for id in 1..=count {
-                snapshot.broker_overviews.push(BrokerOverview {
-                    broker_id: id as u32,
-                    name: format!("Broker {id}"),
-                    ..Default::default()
-                });
-            }
-            let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1100.0, 750.0),
-                )),
-                ..Default::default()
-            };
-            // Run 3 frames so egui can measure and resize TopBottomPanel
-            for _ in 0..3 {
-                let _ = ctx.run(input.clone(), |ctx| {
-                    render_broker_overview(&mut app, ctx, &snapshot)
-                });
-            }
-            let output = ctx.run(input, |ctx| {
-                render_broker_overview(&mut app, ctx, &snapshot)
-            });
-            // Find the bottom panel separator line
-            output
-                .shapes
-                .iter()
-                .filter_map(|s| {
-                    if let egui::Shape::LineSegment { points, .. } = &s.shape {
-                        Some(points[0].y)
-                    } else {
-                        None
-                    }
-                })
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap_or(0.0)
-        };
-
-        let h2 = measure_height(2);
-        let h8 = measure_height(8);
-        assert!(
-            h8 > h2 + 100.0,
-            "Overview height must scale with broker count: h2={h2}, h8={h8}"
-        );
-    }
-}
-
 const CELL_PADDING_X: f32 = 4.0;
 
 fn cell<R>(ui: &mut egui::Ui, width: f32, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
@@ -465,7 +184,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                     );
                     let is_hovered = ctx
                         .pointer_hover_pos()
-                        .map_or(false, |p| row_rect.contains(p));
+                        .is_some_and(|p| row_rect.contains(p));
                     let bg_color = if is_hovered {
                         Color32::from_rgba_unmultiplied(255, 255, 255, 6)
                     } else if index % 2 == 0 {
@@ -585,7 +304,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                                     b.name,
                                     id,
                                     b.symbol,
-                                    b.active_utc_offset_sec as f64 / 3600.0,
+                                    f64::from(b.active_utc_offset_sec) / 3600.0,
                                     if b.is_auto_offset { "Auto" } else { "Fixed" },
                                     b.tick_rate_1s
                                 ));
@@ -598,11 +317,9 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                                 cell(ui, widths[column], |ui| {
                                     value(
                                         ui,
-                                        price
-                                            .map(|v| format!("{v:.3}"))
-                                            .unwrap_or_else(|| "—".into()),
+                                        price.map_or_else(|| "—".into(), |v| format!("{v:.3}")),
                                         quote_color,
-                                    )
+                                    );
                                 });
                             }
                             cell(ui, widths[7], |ui| {
@@ -612,7 +329,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                                 });
                                 value(
                                     ui,
-                                    age.map(quote_age).unwrap_or_else(|| "—".into()),
+                                    age.map_or_else(|| "—".into(), quote_age),
                                     if live { quote_color } else { status_color },
                                 );
                             });
@@ -723,4 +440,284 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
             ctx.request_repaint();
         }
     });
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use crate::core::types::{MonoNs, Quote, TickId};
+    use crate::state::snapshot::SnapshotExchange;
+    use std::sync::Arc;
+
+    #[test]
+    fn default_window_columns_stay_inside_viewport_across_feed_changes() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+        let ctx = egui::Context::default();
+        crate::ui::fonts::setup_fonts(&ctx);
+        style::configure(&ctx);
+        let mut snapshot = UiSnapshot::default();
+        let mut broker = BrokerOverview {
+            broker_id: 1,
+            name: "A very long broker name that must not expand the table".into(),
+            symbol: "USDJPY.long-symbol-suffix".into(),
+            ..Default::default()
+        };
+        broker.health.data_freshness = FreshnessState::Live;
+        broker.latest_quote = Some(Quote {
+            tick_id: TickId {
+                broker_id: 1,
+                session_id: 1,
+                sequence: 1,
+            },
+            bid: 155.1,
+            ask: 155.2,
+            mid: 155.15,
+            spread: 0.1,
+            rx_mono_ns: MonoNs::ZERO,
+            utc_ms: None,
+            is_warmup: false,
+            is_valid: true,
+        });
+        snapshot.broker_overviews.push(broker);
+        // egui measures a newly opened panel before painting its full contents.
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1100.0, 750.0),
+                )),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                render_broker_overview(&mut app, ctx, &snapshot);
+            });
+        }
+        let mut expected_positions = None;
+        for (connection, age_ms, expected_age) in [
+            (ConnectionState::Connected, 25, "25 ms"),
+            (ConnectionState::Disconnected, 2_300, "2.3 s"),
+            (ConnectionState::Connecting, 180_000, "3 min"),
+            (ConnectionState::Connected, 3_600_000, "1 h"),
+        ] {
+            snapshot.broker_overviews[0].health.connection = connection;
+            snapshot.built_mono_ns = MonoNs(age_ms * 1_000_000);
+            // Include the first frame after each change, where sizing regressions occur.
+            for _ in 0..2 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1100.0, 750.0),
+                    )),
+                    ..Default::default()
+                };
+                let output = ctx.run(input, |ctx| {
+                    render_broker_overview(&mut app, ctx, &snapshot);
+                });
+                let positions: Vec<_> = HEADERS
+                    .iter()
+                    .map(|header| {
+                        let text = output
+                            .shapes
+                            .iter()
+                            .find_map(|shape| {
+                                if let egui::Shape::Text(text) = &shape.shape {
+                                    if text.galley.job.text == *header {
+                                        return Some(text);
+                                    }
+                                }
+                                None
+                            })
+                            .unwrap_or_else(|| panic!("Missing header: {header}"));
+                        assert!(
+                            text.pos.x + text.galley.size().x <= 1100.0,
+                            "{header} overflowed"
+                        );
+                        text.pos.x
+                    })
+                    .collect();
+                if let Some(expected) = &expected_positions {
+                    assert_eq!(&positions, expected, "Feed changes must not move columns");
+                } else {
+                    expected_positions = Some(positions);
+                }
+                assert!(ctx.used_rect().right() <= 1100.0);
+                let feed_text = format!("● {}", feed_status(&snapshot.broker_overviews[0]).0);
+                let feed = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| {
+                        if let egui::Shape::Text(text) = &shape.shape {
+                            if text.galley.job.text == feed_text {
+                                return Some((text, shape.clip_rect));
+                            }
+                        }
+                        None
+                    })
+                    .expect("Feed status should be visible");
+                assert_eq!(feed.0.galley.rows.len(), 1);
+                assert!(feed.0.pos.x + feed.0.galley.size().x <= feed.1.right());
+                let age = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| {
+                        if let egui::Shape::Text(text) = &shape.shape {
+                            if text.galley.job.text == expected_age {
+                                return Some((text, shape.clip_rect));
+                            }
+                        }
+                        None
+                    })
+                    .expect("Quote age should be visible");
+                assert_eq!(age.0.galley.rows.len(), 1);
+                assert!(
+                    age.0.pos.x <= age.1.right()
+                        && age.0.pos.x - age.0.galley.size().x >= age.1.left(),
+                    "Quote age {expected_age:?} overflowed: pos={:?}, size={:?}, clip={:?}",
+                    age.0.pos,
+                    age.0.galley.size(),
+                    age.1
+                );
+                for shape in &output.shapes {
+                    if let egui::Shape::Text(text) = &shape.shape {
+                        if ["A", "B", "↑", "↓"].contains(&text.galley.job.text.as_str()) {
+                            assert_eq!(text.galley.rows.len(), 1);
+                            assert!(
+                                text.pos.x + text.galley.size().x <= shape.clip_rect.right(),
+                                "Control {} was clipped",
+                                text.galley.job.text
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn controls_are_not_clipped_on_left_or_right() {
+        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+        let ctx = egui::Context::default();
+        crate::ui::fonts::setup_fonts(&ctx);
+        style::configure(&ctx);
+        let mut snapshot = UiSnapshot::default();
+        let mut broker = BrokerOverview {
+            broker_id: 1,
+            name: "Test Broker".into(),
+            symbol: "USDJPY".into(),
+            ..Default::default()
+        };
+        broker.health.connection = ConnectionState::Connected;
+        broker.health.data_freshness = FreshnessState::Live;
+        snapshot.broker_overviews.push(broker);
+
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1100.0, 750.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(input.clone(), |ctx| {
+            render_broker_overview(&mut app, ctx, &snapshot);
+        });
+        let output = ctx.run(input, |ctx| {
+            render_broker_overview(&mut app, ctx, &snapshot);
+        });
+
+        for shape in &output.shapes {
+            match &shape.shape {
+                egui::Shape::Rect(rect_shape) => {
+                    // Controls with visible strokes must stay inside their clip rect on both sides
+                    if rect_shape.stroke.width > 0.0 && shape.clip_rect.width() < 1000.0 {
+                        assert!(
+                            rect_shape.rect.left() >= shape.clip_rect.left(),
+                            "Control rect left {:?} clipped by {:?}",
+                            rect_shape.rect,
+                            shape.clip_rect
+                        );
+                        assert!(
+                            rect_shape.rect.right() <= shape.clip_rect.right(),
+                            "Control rect right {:?} clipped by {:?}",
+                            rect_shape.rect,
+                            shape.clip_rect
+                        );
+                    }
+                }
+                egui::Shape::Text(text_shape)
+                    if ["A", "B", "↑", "↓"].contains(&text_shape.galley.job.text.as_str()) => {
+                        assert!(
+                            text_shape.pos.x >= shape.clip_rect.left(),
+                            "Text left clipped: {} at {:?}",
+                            text_shape.galley.job.text,
+                            text_shape.pos
+                        );
+                        assert!(
+                            text_shape.pos.x + text_shape.galley.size().x <= shape.clip_rect.right(),
+                            "Text right clipped: {} at {:?}",
+                            text_shape.galley.job.text,
+                            text_shape.pos
+                        );
+                    }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn auto_fit_height_scales_with_broker_count() {
+        let measure_height = |count: usize| -> f32 {
+            let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
+            let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+            let ctx = egui::Context::default();
+            crate::ui::fonts::setup_fonts(&ctx);
+            style::configure(&ctx);
+
+            let mut snapshot = UiSnapshot::default();
+            for id in 1..=count {
+                snapshot.broker_overviews.push(BrokerOverview {
+                    broker_id: id as u32,
+                    name: format!("Broker {id}"),
+                    ..Default::default()
+                });
+            }
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1100.0, 750.0),
+                )),
+                ..Default::default()
+            };
+            // Run 3 frames so egui can measure and resize TopBottomPanel
+            for _ in 0..3 {
+                let _ = ctx.run(input.clone(), |ctx| {
+                    render_broker_overview(&mut app, ctx, &snapshot);
+                });
+            }
+            let output = ctx.run(input, |ctx| {
+                render_broker_overview(&mut app, ctx, &snapshot);
+            });
+            // Find the bottom panel separator line
+            output
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let egui::Shape::LineSegment { points, .. } = &s.shape {
+                        Some(points[0].y)
+                    } else {
+                        None
+                    }
+                })
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(0.0)
+        };
+
+        let h2 = measure_height(2);
+        let h8 = measure_height(8);
+        assert!(
+            h8 > h2 + 100.0,
+            "Overview height must scale with broker count: h2={h2}, h8={h8}"
+        );
+    }
 }

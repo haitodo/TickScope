@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TimezoneRule {
-    /// Standard MetaTrader New York Close server time.
+    /// Standard `MetaTrader` New York Close server time.
     /// Automatically resolves to UTC+3 (US DST / Summer) or UTC+2 (Standard Time / Winter).
     #[default]
     #[serde(alias = "NYClose", alias = "nyclose", alias = "US/Eastern", alias = "ny_close")]
@@ -64,7 +64,7 @@ impl TimezoneRule {
 pub fn is_us_dst(unix_sec: i64) -> bool {
     let (year, month, _) = unix_sec_to_ymd(unix_sec);
 
-    if month < 3 || month > 11 {
+    if !(3..=11).contains(&month) {
         return false;
     }
     if month > 3 && month < 11 {

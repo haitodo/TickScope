@@ -32,7 +32,7 @@ pub fn encode_record(
     let mut payload = Vec::new();
     let (kind, flags) = match record {
         LogRecord::RawFrame(raw) => {
-            let flags: u16 = if raw.rx_unix_ns.is_some() { 1 } else { 0 };
+            let flags: u16 = u16::from(raw.rx_unix_ns.is_some());
             payload.extend_from_slice(&raw.broker_id.to_le_bytes());
             payload.extend_from_slice(&raw.connection_generation.to_le_bytes());
             payload.extend_from_slice(&raw.frame_index.to_le_bytes());
@@ -489,6 +489,6 @@ impl LogSinkPort for AsyncLogger {
 
 mod hex {
     pub fn encode(data: &[u8]) -> String {
-        data.iter().map(|b| format!("{:02x}", b)).collect()
+        data.iter().map(|b| format!("{b:02x}")).collect()
     }
 }

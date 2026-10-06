@@ -79,8 +79,7 @@ pub fn draw_move_breadth_view(
             broker_overviews
                 .iter()
                 .find(|b| b.broker_id == bid)
-                .map(|b| b.name.as_str())
-                .unwrap_or("?")
+                .map_or("?", |b| b.name.as_str())
         };
         for (i, cl) in clusters.iter().rev().take(3).enumerate() {
             let d = match cl.direction {

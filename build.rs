@@ -6,7 +6,7 @@ fn main() {
         res.set_icon("logo/icon.ico");
         res.set_manifest_file("app.manifest");
         if let Err(e) = res.compile() {
-            eprintln!("Failed to compile Windows resource: {}", e);
+            eprintln!("Failed to compile Windows resource: {e}");
         }
     }
 }

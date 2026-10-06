@@ -137,7 +137,7 @@ pub fn render_quick_settings(
                 ui.label("Bar Width:");
                 for &w in &VALID_CANDLE_BAR_WIDTHS {
                     let is_sel = (app.candle_bar_width - w).abs() < 1e-4;
-                    let label = format!("{:.0}px", w);
+                    let label = format!("{w:.0}px");
                     if ui.selectable_label(is_sel, label).clicked() {
                         app.set_candle_bar_width(w);
                     }
@@ -154,9 +154,9 @@ pub fn render_quick_settings(
                     let is_sel =
                         app.candle_price_scale == CandlePriceScaleMode::Fixed(pips);
                     let label = if (pips.fract()).abs() < 1e-4 {
-                        format!("{:.0}p", pips)
+                        format!("{pips:.0}p")
                     } else {
-                        format!("{:.1}p", pips)
+                        format!("{pips:.1}p")
                     };
                     if ui.selectable_label(is_sel, label).clicked() {
                         app.set_candle_price_scale(CandlePriceScaleMode::Fixed(pips));
@@ -267,9 +267,7 @@ pub fn render_quick_settings(
                     Some(id) => app
                         .broker_configs
                         .iter()
-                        .find(|b| b.id == id)
-                        .map(|b| format!("{} (ID: {})", b.name, b.id))
-                        .unwrap_or_else(|| format!("ID: {}", id)),
+                        .find(|b| b.id == id).map_or_else(|| format!("ID: {id}"), |b| format!("{} (ID: {})", b.name, b.id)),
                     None => "なし (すべて最小化)".to_string(),
                 };
                 egui::ComboBox::from_id_salt("mt5_normal_broker_combo")
@@ -305,9 +303,7 @@ pub fn render_quick_settings(
                 for b in &app.broker_configs {
                     let path_str = app
                         .terminal_manager
-                        .get_exe_path(b.id)
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| "Not found".to_string());
+                        .get_exe_path(b.id).map_or_else(|| "Not found".to_string(), |p| p.display().to_string());
                     ui.label(RichText::new(&b.name).strong());
                     ui.label(RichText::new(path_str).small().monospace().color(Color32::from_gray(160)));
                 }
@@ -340,7 +336,7 @@ pub fn render_quick_settings(
                     app.window_geometry.inner_size[1],
                     if app.window_geometry.maximized { " (最大化)" } else { "" }
                 );
-                ui.label(format!("Current: {}", size_str));
+                ui.label(format!("Current: {size_str}"));
             });
 
             ui.horizontal(|ui| {

@@ -16,7 +16,7 @@ pub fn draw_latency_dashboard(ui: &mut egui::Ui, summary: &StageLatencySummary) 
                 name, stats.sample_count, stats.p50_us, stats.p95_us, stats.p99_us, stats.max_us
             ));
         } else {
-            ui.label(format!("  {}: No samples", name));
+            ui.label(format!("  {name}: No samples"));
         }
     };
     draw_stage(ui, "Tick→Engine", &summary.tick_to_engine);

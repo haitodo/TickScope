@@ -118,13 +118,10 @@ pub fn resolve_candle_follow_scale(
 
     if candidates.is_empty() {
         *margin_edge_latch = None;
-        let anchor = match *chart_anchor {
-            Some(a) => a,
-            None => {
-                let p = fallback_price.unwrap_or(0.0);
-                *chart_anchor = Some(p);
-                p
-            }
+        let anchor = if let Some(a) = *chart_anchor { a } else {
+            let p = fallback_price.unwrap_or(0.0);
+            *chart_anchor = Some(p);
+            p
         };
         return (
             (anchor - half_span, anchor + half_span),

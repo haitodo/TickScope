@@ -301,16 +301,16 @@ impl RepricingPersistenceTracker {
             return;
         }
 
-        if event.broker_id != self.broker_id {
-            // Other broker move: if direction matches, other broker followed!
-            if event.direction == pending.event.direction {
-                self.follow_count += 1;
-                self.pending_lead = None;
-            }
-        } else {
+        if event.broker_id == self.broker_id {
             // Leader broker subsequent move: check for reversion (opposite direction)
             if event.direction != pending.event.direction {
                 self.reversion_count += 1;
+                self.pending_lead = None;
+            }
+        } else {
+            // Other broker move: if direction matches, other broker followed!
+            if event.direction == pending.event.direction {
+                self.follow_count += 1;
                 self.pending_lead = None;
             }
         }

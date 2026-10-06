@@ -149,8 +149,7 @@ impl TransportRouter {
         let generation = self
             .generations
             .get(&broker_id)
-            .map(|counter| counter.fetch_add(1, Ordering::AcqRel) + 1)
-            .unwrap_or(1);
+            .map_or(1, |counter| counter.fetch_add(1, Ordering::AcqRel) + 1);
         stream.set_read_timeout(None).ok();
 
         // Connection Takeover: if a previous connection is still active for this broker,

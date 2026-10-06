@@ -84,8 +84,7 @@ impl TickEngine {
 
         let now_sec = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs() as i64);
 
         for b in &config.brokers {
             let initial_offset = b.timezone_rule.resolve_offset(now_sec, b.utc_offset_sec);
@@ -635,14 +634,14 @@ impl TickEngine {
                 // For NyClose, check if a DST calendar transition occurred
                 if ch.timezone_rule == TimezoneRule::NyClose {
                     if let Some(unix_ns) = rf.rx_unix_ns {
-                        let sec = (unix_ns / 1_000_000_000) as i64;
+                        let sec = unix_ns / 1_000_000_000;
                         if sec > 0 {
                             let expected = ch.timezone_rule.resolve_offset(sec, ch.active_utc_offset_sec);
                             if expected != ch.active_utc_offset_sec {
                                 log::info!(
                                     "Broker {} ({}) NYClose DST calendar transition: {}s -> {}s ({:+}h)",
                                     broker_id,
-                                    self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                    self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
                                     ch.active_utc_offset_sec,
                                     expected,
                                     expected / 3600
@@ -664,7 +663,7 @@ impl TickEngine {
                                 log::info!(
                                     "Broker {} ({}) UTC offset auto-detected from ticks: {}s ({:+}h, previous: {}s)",
                                     broker_id,
-                                    self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                    self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
                                     detected_offset,
                                     detected_offset / 3600,
                                     ch.active_utc_offset_sec
@@ -728,7 +727,7 @@ impl TickEngine {
                         // Feed CandleBook if valid
                         if quote.is_valid {
                             if let Ok(norm) = normalize_tick(&obs, utc_offset, utc_verified, 1) {
-                                let rx_utc_now = UtcMs(rf.rx_unix_ns.map(|ns| ns / 1_000_000).unwrap_or(norm.utc_ms.0));
+                                let rx_utc_now = UtcMs(rf.rx_unix_ns.map_or(norm.utc_ms.0, |ns| ns / 1_000_000));
                                 self.candle_book.on_tick(&norm, PriceMode::Bid, rx_utc_now);
                                 self.mid_candle_book.on_tick(&norm, PriceMode::Mid, rx_utc_now);
                             }
@@ -747,7 +746,7 @@ impl TickEngine {
                         // Store latest quote in chronological merge order
                         if quote.is_valid {
                             self.latest_quotes.insert(broker_id, quote);
-                            if self.fast_quotes.get(&broker_id).map(|fq| fq.rx_mono_ns <= rf.rx_mono_ns).unwrap_or(true) {
+                            if self.fast_quotes.get(&broker_id).is_none_or(|fq| fq.rx_mono_ns <= rf.rx_mono_ns) {
                                 self.fast_quotes.insert(broker_id, quote);
                             }
                         }
@@ -812,7 +811,7 @@ impl TickEngine {
 
                         // Append point to Realtime Quote Path history for all active brokers
                         let tick_mono_ns = if is_warmup {
-                            let tick_utc_ms = tick.broker_time_msc - (utc_offset as i64 * 1000);
+                            let tick_utc_ms = tick.broker_time_msc - (i64::from(utc_offset) * 1000);
                             if let Some(unix_ns) = rf.rx_unix_ns {
                                 let now_utc_ms = unix_ns / 1_000_000;
                                 let age_ms = (now_utc_ms - tick_utc_ms).max(0) as u64;
@@ -928,12 +927,12 @@ impl TickEngine {
                         && (-43200..=50400).contains(&hb.server_utc_offset_sec)
                     {
                         let sample = hb.server_utc_offset_sec;
-                        let sample_rounded = round_to_hourly_offset(sample as f64);
+                        let sample_rounded = round_to_hourly_offset(f64::from(sample));
                         if (sample_rounded - ch.active_utc_offset_sec).abs() >= 7200 {
                             log::warn!(
                                 "Broker {} ({}) heartbeat offset sample ({}s) diverges from expected NYClose ({}s). Check server settings.",
                                 broker_id,
-                                self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
                                 sample,
                                 ch.active_utc_offset_sec
                             );
@@ -947,12 +946,12 @@ impl TickEngine {
                     let sample = hb.server_utc_offset_sec;
                     // Sanity check: valid FX timezone offset is between -12h (-43200s) and +14h (+50400s)
                     if (-43200..=50400).contains(&sample) {
-                        let detected_offset = round_to_hourly_offset(sample as f64);
+                        let detected_offset = round_to_hourly_offset(f64::from(sample));
                         if ch.active_utc_offset_sec != detected_offset || !ch.utc_verified {
                             log::info!(
                                 "Broker {} ({}) UTC offset auto-detected from heartbeat: {}s ({:+}h, previous: {}s)",
                                 broker_id,
-                                self.config.brokers.iter().find(|b| b.id == broker_id).map(|b| b.name.as_str()).unwrap_or("Unknown"),
+                                self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
                                 detected_offset,
                                 detected_offset / 3600,
                                 ch.active_utc_offset_sec
@@ -1025,7 +1024,7 @@ pub fn compute_median_from_mids(mids: &HashMap<BrokerId, f64>) -> Option<f64> {
 #[cfg(feature = "replay")]
 impl TickEngine {
     /// Reconstructs the Realtime Quote Path history for all brokers across the full screen width
-    /// (e.g. visible_seconds window / visible_ticks count) upon startup or seek operations.
+    /// (e.g. `visible_seconds` window / `visible_ticks` count) upon startup or seek operations.
     pub fn rebuild_quote_history_from_replay_ticks(
         &mut self,
         warmup_ticks: &[crate::replay::ReplayTick],

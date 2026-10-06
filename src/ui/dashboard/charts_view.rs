@@ -195,7 +195,7 @@ pub fn render_charts_view(
                     ui.label(RichText::new("Pair:").color(Color32::from_gray(160)).small());
 
                     ui.menu_button(
-                        RichText::new(format!("[A] {}", name_a))
+                        RichText::new(format!("[A] {name_a}"))
                             .strong()
                             .color(Color32::from_rgb(0, 220, 255)),
                         |ui| {
@@ -213,7 +213,7 @@ pub fn render_charts_view(
                     ui.label(RichText::new("vs").color(Color32::from_gray(130)).small());
 
                     ui.menu_button(
-                        RichText::new(format!("[B] {}", name_b))
+                        RichText::new(format!("[B] {name_b}"))
                             .strong()
                             .color(Color32::from_rgb(255, 120, 200)),
                         |ui| {
@@ -300,8 +300,7 @@ pub fn render_charts_view(
         let empty_series = Vec::new();
         let comparison = snapshot.active_pair_comparison.as_ref();
         let series = comparison
-            .map(|c| &c.recent_diff_series)
-            .unwrap_or(&empty_series);
+            .map_or(&empty_series, |c| &c.recent_diff_series);
 
         match app.bottom_metric {
             BottomMetric::MidDiff => {

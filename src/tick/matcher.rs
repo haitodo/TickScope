@@ -59,23 +59,21 @@ impl OneToOneEventMatcher {
             if let Some(match_idx) = self.find_best_match(&event, &self.pending_b) {
                 let other_event = self.pending_b.remove(match_idx).unwrap();
                 return Some(self.create_match(event, other_event));
-            } else {
-                if self.pending_a.len() >= self.capacity {
-                    self.pending_a.pop_front();
-                }
-                self.pending_a.push_back(event);
             }
+            if self.pending_a.len() >= self.capacity {
+                self.pending_a.pop_front();
+            }
+            self.pending_a.push_back(event);
         } else if event.broker_id == self.broker_b {
             // Find match in pending_a
             if let Some(match_idx) = self.find_best_match(&event, &self.pending_a) {
                 let other_event = self.pending_a.remove(match_idx).unwrap();
                 return Some(self.create_match(other_event, event));
-            } else {
-                if self.pending_b.len() >= self.capacity {
-                    self.pending_b.pop_front();
-                }
-                self.pending_b.push_back(event);
             }
+            if self.pending_b.len() >= self.capacity {
+                self.pending_b.pop_front();
+            }
+            self.pending_b.push_back(event);
         }
 
         None

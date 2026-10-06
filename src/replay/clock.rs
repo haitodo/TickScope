@@ -1,5 +1,5 @@
 //! Virtual time clock for historical tick replay.
-//! Implements `ClockPort` to allow transparent injection into TickScope's runtime.
+//! Implements `ClockPort` to allow transparent injection into `TickScope`'s runtime.
 
 use crate::core::ports::ClockPort;
 use crate::core::types::{ClockReading, MonoNs, RunId};
@@ -93,9 +93,9 @@ impl VirtualClock {
         }
     }
 
-    /// Synchronize phase with an authoritative external clock (e.g. TickReplay).
+    /// Synchronize phase with an authoritative external clock (e.g. `TickReplay`).
     /// Locks phase to the authoritative master clock to eliminate cumulative drift during playback.
-    /// Absorbs drift within the forward threshold (±5000ms), maintaining strict sync with TickReplay.
+    /// Absorbs drift within the forward threshold (±5000ms), maintaining strict sync with `TickReplay`.
     pub fn sync_phase(&self, target_utc_ms: i64) {
         let mut state = self.state.write();
         if !state.is_playing {
@@ -123,12 +123,12 @@ impl VirtualClock {
     /// Get current virtual UTC millisecond timestamp.
     pub fn current_utc_ms(&self) -> i64 {
         let state = self.state.read();
-        if !state.is_playing {
-            state.virtual_utc_ms
-        } else {
+        if state.is_playing {
             let elapsed = state.last_real_instant.elapsed();
             let advance_ms = (elapsed.as_secs_f64() * 1000.0 * state.multiplier) as i64;
             state.virtual_utc_ms.saturating_add(advance_ms)
+        } else {
+            state.virtual_utc_ms
         }
     }
 

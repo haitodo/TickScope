@@ -81,7 +81,7 @@ fn test_tg01_roundtrip_all_record_kinds() {
             assert_eq!(*r.raw_wire_bytes, vec![0xAA, 0xBB, 0xCC, 0xDD]);
             assert_eq!(r.dispositions.len(), 2);
         }
-        other => panic!("Expected RawFrame, got {:?}", other),
+        other => panic!("Expected RawFrame, got {other:?}"),
     }
 
     // Read 2: Metadata
@@ -90,7 +90,7 @@ fn test_tg01_roundtrip_all_record_kinds() {
             assert_eq!(m.config_epoch, 1);
             assert_eq!(m.toml_text, "[test]\nkey = 'value'\n");
         }
-        other => panic!("Expected Metadata, got {:?}", other),
+        other => panic!("Expected Metadata, got {other:?}"),
     }
 
     // Read 3: Diagnostic
@@ -100,7 +100,7 @@ fn test_tg01_roundtrip_all_record_kinds() {
             assert_eq!(d.severity, DiagnosticSeverity::Warn);
             assert_eq!(d.sequence_range, Some((100, 105)));
         }
-        other => panic!("Expected Diagnostic, got {:?}", other),
+        other => panic!("Expected Diagnostic, got {other:?}"),
     }
 
     // Read 4: Clean EOF

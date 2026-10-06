@@ -1,4 +1,4 @@
-//! Replay Driver: WebSocket synchronization with TickReplay (ws://127.0.0.1:49210),
+//! Replay Driver: WebSocket synchronization with `TickReplay` (<ws://127.0.0.1:49210>),
 //! high-speed k-way merge tick streaming, and instant SEEK state rebuild.
 
 use super::arbiter::{ArbiterAction, SyncArbiter};
@@ -84,21 +84,19 @@ pub fn is_us_dst(year: i32, month: u32, day: u32) -> bool {
     if month == 3 {
         // Second Sunday of March
         let march1_day = chrono::NaiveDate::from_ymd_opt(year, 3, 1)
-            .map(|d| {
+            .map_or(0, |d| {
                 use chrono::Datelike;
                 d.weekday().num_days_from_sunday()
-            })
-            .unwrap_or(0);
+            });
         let second_sunday = 1 + (if march1_day == 0 { 7 } else { 7 - march1_day + 7 });
         day >= second_sunday
     } else if month == 11 {
         // First Sunday of November
         let nov1_day = chrono::NaiveDate::from_ymd_opt(year, 11, 1)
-            .map(|d| {
+            .map_or(0, |d| {
                 use chrono::Datelike;
                 d.weekday().num_days_from_sunday()
-            })
-            .unwrap_or(0);
+            });
         let first_sunday = 1 + (if nov1_day == 0 { 0 } else { 7 - nov1_day });
         day < first_sunday
     } else {
@@ -146,7 +144,7 @@ impl ReplayDriver {
 
     /// Start the replay driver with background WebSocket listener and adaptive tick pump.
     pub fn start(&mut self, ws_url: String) {
-        log::info!("[ReplayDriver] Starting ReplayDriver (ws: {})", ws_url);
+        log::info!("[ReplayDriver] Starting ReplayDriver (ws: {ws_url})");
 
         // 1. Spawn High-Throughput Playback Pump
         let pump_handle = PlaybackPump::spawn(
@@ -191,14 +189,14 @@ impl ReplayDriver {
         self.threads.push(ws_handle);
     }
 
-    /// Send a command string (e.g. PLAY, PAUSE, SEEK) to TickReplay WebSocket server.
+    /// Send a command string (e.g. PLAY, PAUSE, SEEK) to `TickReplay` WebSocket server.
     pub fn send_command(&self, cmd: &str) {
         if let Some(tx) = &*self.ws_cmd_tx.lock() {
             let _ = tx.send(cmd.to_string());
         }
     }
 
-    /// Process incoming status message from TickReplay WebSocket server.
+    /// Process incoming status message from `TickReplay` WebSocket server.
     fn handle_ws_message(
         text: &str,
         run_id: RunId,
@@ -225,8 +223,7 @@ impl ReplayDriver {
                 .brokers
                 .iter()
                 .find(|b| b.name.eq_ignore_ascii_case("JFX"))
-                .map(|b| b.id)
-                .unwrap_or(5);
+                .map_or(5, |b| b.id);
             let has_jfx_in_parquet = merge_stream.read().sources.iter().any(|s| s.broker_id == jfx_id);
             if !has_jfx_in_parquet {
                 let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));

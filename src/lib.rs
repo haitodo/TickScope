@@ -1,4 +1,4 @@
-//! TickScope library root.
+//! `TickScope` library root.
 
 pub mod cli;
 pub mod config;

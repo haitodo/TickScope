@@ -20,7 +20,7 @@ fn send_test_tick(stream: &mut TcpStream, broker_id: BrokerId, seq: Sequence, ti
             header_length: HEADER_LENGTH,
             header_flags: 0,
             broker_id,
-            session_id: 100 + broker_id as u64,
+            session_id: 100 + u64::from(broker_id),
             sequence_start: seq,
             tick_count: 1,
             payload_length: 72,
@@ -242,14 +242,14 @@ fn test_ti02_high_frequency_burst_injection() {
                     TcpStream::connect(format!("127.0.0.1:{port}")).expect("Connect broker");
                 client.set_nodelay(true).unwrap();
                 for seq in 0..burst_count {
-                    let base_price = 1.0800 + (broker_id as f64 * 0.001);
+                    let base_price = 1.0800 + (f64::from(broker_id) * 0.001);
                     send_test_tick(
                         &mut client,
                         broker_id,
                         seq as u64,
-                        1000 + seq as i64,
-                        base_price + (seq as f64 * 0.00001),
-                        base_price + (seq as f64 * 0.00001) + 0.0001,
+                        1000 + i64::from(seq),
+                        base_price + (f64::from(seq) * 0.00001),
+                        base_price + (f64::from(seq) * 0.00001) + 0.0001,
                     );
                 }
                 client
@@ -495,8 +495,7 @@ fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
     let span_sec = (last.mono_ns.0.saturating_sub(first.mono_ns.0)) as f64 / 1_000_000_000.0;
     assert!(
         (span_sec - 29.0).abs() < 1.5,
-        "Warmup points must span ~29 seconds into the past, got {:.2}s",
-        span_sec
+        "Warmup points must span ~29 seconds into the past, got {span_sec:.2}s"
     );
 
     // 3. Verify broker mid is populated in points

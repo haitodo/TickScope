@@ -13,26 +13,21 @@ pub fn draw_lead_lag_view(
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
 
-    let comp = match comparison {
-        Some(c) => c,
-        None => {
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "No active pair comparison available",
-                egui::FontId::proportional(13.0),
-                Color32::GRAY,
-            );
-            return;
-        }
+    let comp = if let Some(c) = comparison { c } else {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "No active pair comparison available",
+            egui::FontId::proportional(13.0),
+            Color32::GRAY,
+        );
+        return;
     };
 
     let name_of = |bid: BrokerId| -> String {
         broker_overviews
             .iter()
-            .find(|b| b.broker_id == bid)
-            .map(|b| b.name.clone())
-            .unwrap_or_else(|| format!("Broker #{}", bid))
+            .find(|b| b.broker_id == bid).map_or_else(|| format!("Broker #{bid}"), |b| b.name.clone())
     };
 
     let broker_a_name = name_of(comp.broker_a);
@@ -44,7 +39,7 @@ pub fn draw_lead_lag_view(
 
         let ema_text = comp
             .ema_lead_lag_ms
-            .map(|e| format!("  |  EMA Lead: {:+.1} ms", e))
+            .map(|e| format!("  |  EMA Lead: {e:+.1} ms"))
             .unwrap_or_default();
 
         let header_text = format!(
@@ -92,7 +87,7 @@ pub fn draw_lead_lag_view(
         painter.text(
             Pos2::new(bar_center_x - max_bar_half_width - 8.0, bar_center_y),
             egui::Align2::RIGHT_CENTER,
-            format!("{} (A)", broker_a_name),
+            format!("{broker_a_name} (A)"),
             egui::FontId::proportional(12.0),
             if m.leader == comp.broker_a {
                 color_a
@@ -104,7 +99,7 @@ pub fn draw_lead_lag_view(
         painter.text(
             Pos2::new(bar_center_x + max_bar_half_width + 8.0, bar_center_y),
             egui::Align2::LEFT_CENTER,
-            format!("{} (B)", broker_b_name),
+            format!("{broker_b_name} (B)"),
             egui::FontId::proportional(12.0),
             if m.leader == comp.broker_b {
                 color_b
@@ -168,12 +163,11 @@ pub fn draw_lead_lag_view(
     } else {
         let ema_info = comp
             .ema_lead_lag_ms
-            .map(|e| format!("Current EMA Lead/Lag: {:+.1} ms\n", e))
+            .map(|e| format!("Current EMA Lead/Lag: {e:+.1} ms\n"))
             .unwrap_or_default();
 
         let msg = format!(
-            "{}Waiting for significant price moves between {} and {}...",
-            ema_info, broker_a_name, broker_b_name
+            "{ema_info}Waiting for significant price moves between {broker_a_name} and {broker_b_name}..."
         );
 
         painter.text(

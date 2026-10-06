@@ -18,7 +18,7 @@ pub fn load_app_icon() -> Option<egui::IconData> {
             })
         }
         Err(e) => {
-            log::warn!("Failed to decode application icon: {}", e);
+            log::warn!("Failed to decode application icon: {e}");
             None
         }
     }

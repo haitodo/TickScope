@@ -46,11 +46,11 @@ pub fn draw_state_ribbon(
             );
             ui.separator();
             if let Some(median) = c.consensus_mid {
-                ui.label(format!("Observed Broker Median {:.3}", median));
+                ui.label(format!("Observed Broker Median {median:.3}"));
                 ui.separator();
             }
             if let Some(range) = c.mid_range {
-                ui.label(format!("Range {:.3}", range));
+                ui.label(format!("Range {range:.3}"));
             }
             ui.separator();
         }

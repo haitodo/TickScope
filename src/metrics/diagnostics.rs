@@ -92,7 +92,7 @@ impl DiagnosticsHandle {
 
     #[inline]
     pub fn record_duration(&self, stage: DiagnosticStage, duration: Duration) {
-        self.record_ns(stage, duration.as_nanos().min(u64::MAX as u128) as u64);
+        self.record_ns(stage, duration.as_nanos().min(u128::from(u64::MAX)) as u64);
     }
 }
 
@@ -132,10 +132,10 @@ impl DiagnosticsRuntime {
             })?;
         let mut writer = BufWriter::new(file);
         writeln!(writer, "# TickScope diagnostics v{}", env!("CARGO_PKG_VERSION"))
-            .and_then(|_| writeln!(writer, "# run_id={run_id_text}"))
-            .and_then(|_| writeln!(writer, "# raw_capture={raw_capture_enabled}"))
-            .and_then(|_| writeln!(writer, "# ack_mode={ack_mode}"))
-            .and_then(|_| {
+            .and_then(|()| writeln!(writer, "# run_id={run_id_text}"))
+            .and_then(|()| writeln!(writer, "# raw_capture={raw_capture_enabled}"))
+            .and_then(|()| writeln!(writer, "# ack_mode={ack_mode}"))
+            .and_then(|()| {
                 writeln!(
                     writer,
                     "# ack_boundary={}",
@@ -146,20 +146,20 @@ impl DiagnosticsRuntime {
                     }
                 )
             })
-            .and_then(|_| writeln!(writer, "# summary_interval_ms=1000"))
-            .and_then(|_| {
+            .and_then(|()| writeln!(writer, "# summary_interval_ms=1000"))
+            .and_then(|()| {
                 writeln!(
                     writer,
                     "# percentile_window_samples_per_stage=2048"
                 )
             })
-            .and_then(|_| {
+            .and_then(|()| {
                 writeln!(
                     writer,
                     "interval_end_utc_ms,interval_elapsed_ms,stage,accepted_samples,percentile_window_samples,dropped_metric_samples,p50_us,p95_us,p99_us,max_us"
                 )
             })
-            .and_then(|_| writer.flush())
+            .and_then(|()| writer.flush())
             .map_err(|error| {
                 format!(
                     "Failed to initialize diagnostics file '{}': {error}",

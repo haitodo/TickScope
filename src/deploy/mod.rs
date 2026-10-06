@@ -1,6 +1,6 @@
-//! MetaTrader 5 EA and Include Auto-Deployment Module.
+//! `MetaTrader` 5 EA and Include Auto-Deployment Module.
 //!
-//! Automatically discovers MetaTrader 5 data folders on Windows (and user-configured custom paths),
+//! Automatically discovers `MetaTrader` 5 data folders on Windows (and user-configured custom paths),
 //! and deploys:
 //! - EA: `<TerminalDataDir>/MQL5/Experts/TickCollector.mq5`
 //! - Includes:
@@ -33,7 +33,7 @@ pub fn deploy_mt5_files(config: &Mt5DeployConfig) -> DeployReport {
 }
 
 /// Deploy one common EA and a per-terminal map of broker symbols to the
-/// listener ports reserved by this TickScope process.
+/// listener ports reserved by this `TickScope` process.
 pub fn deploy_mt5_files_for_brokers(config: &Mt5DeployConfig, brokers: &[BrokerConfig]) -> DeployReport {
     if !config.auto_deploy {
         return DeployReport {
@@ -117,16 +117,16 @@ pub fn print_deploy_report(report: &DeployReport) {
                 } else {
                     f.target_path.display().to_string()
                 };
-                log::info!("    - {}: {}", display_path, status_str);
+                log::info!("    - {display_path}: {status_str}");
             }
             if let Some(status) = &term.compile_status {
-                log::info!("    - TickCollector.ex5: {:?}", status);
+                log::info!("    - TickCollector.ex5: {status:?}");
             }
         }
     }
 
     for w in &report.warnings {
-        log::warn!("[MT5 Auto-Deploy Warning] {}", w);
+        log::warn!("[MT5 Auto-Deploy Warning] {w}");
     }
 }
 

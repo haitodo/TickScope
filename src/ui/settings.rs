@@ -1,4 +1,4 @@
-//! Persistent UI state management for TickScope.
+//! Persistent UI state management for `TickScope`.
 //! Saves and restores UI interactive state and window geometry across application sessions.
 
 use crate::config::BrokerConfig;
@@ -58,9 +58,9 @@ impl CandlePriceScaleMode {
             Self::Auto => "Auto".to_string(),
             Self::Fixed(pips) => {
                 if (pips.fract()).abs() < 1e-4 {
-                    format!("{:.0} pips", pips)
+                    format!("{pips:.0} pips")
                 } else {
-                    format!("{:.1} pips", pips)
+                    format!("{pips:.1} pips")
                 }
             }
         }
@@ -456,7 +456,7 @@ pub fn save_ui_state<P: AsRef<Path>>(path: P, state: &UiState) -> Result<(), UiS
         // If rename fails (e.g. cross-filesystem or OS restriction), fallback to direct write
         let _ = fs::remove_file(&tmp_path);
         fs::write(p, json.as_bytes())
-            .map_err(|err| UiStateError::DirectWrite(format!("{}: {}", e, err)))?;
+            .map_err(|err| UiStateError::DirectWrite(format!("{e}: {err}")))?;
     }
 
     Ok(())

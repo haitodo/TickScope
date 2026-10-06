@@ -21,26 +21,23 @@ pub fn advance_chart_anchor(
     half_span: f64,
     deadzone_pct: f64,
 ) -> f64 {
-    match chart_anchor {
-        Some(anchor) => {
-            let delta = center_price - *anchor;
-            // If price moved far outside the visible range (e.g. seek / market jump), snap immediately
-            if delta.abs() > half_span * 3.0 {
-                *anchor = center_price;
-                return center_price;
-            }
-            let deadzone_half = half_span * (1.0 - deadzone_pct.clamp(0.0, 0.95));
-            let required_shift = (delta.abs() - deadzone_half).max(0.0) * delta.signum();
-            // Move at most 12% of the visible range per repaint. This keeps a
-            // large price move visible without replacing the whole chart at once.
-            let max_step = half_span * 0.12;
-            *anchor += required_shift.clamp(-max_step, max_step);
-            *anchor
+    if let Some(anchor) = chart_anchor {
+        let delta = center_price - *anchor;
+        // If price moved far outside the visible range (e.g. seek / market jump), snap immediately
+        if delta.abs() > half_span * 3.0 {
+            *anchor = center_price;
+            return center_price;
         }
-        None => {
-            *chart_anchor = Some(center_price);
-            center_price
-        }
+        let deadzone_half = half_span * (1.0 - deadzone_pct.clamp(0.0, 0.95));
+        let required_shift = (delta.abs() - deadzone_half).max(0.0) * delta.signum();
+        // Move at most 12% of the visible range per repaint. This keeps a
+        // large price move visible without replacing the whole chart at once.
+        let max_step = half_span * 0.12;
+        *anchor += required_shift.clamp(-max_step, max_step);
+        *anchor
+    } else {
+        *chart_anchor = Some(center_price);
+        center_price
     }
 }
 
@@ -142,7 +139,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
     // Grid lines
     let grid_steps = 5;
     for i in 0..=grid_steps {
-        let p = chart_min + (price_range / grid_steps as f64) * i as f64;
+        let p = chart_min + (price_range / f64::from(grid_steps)) * f64::from(i);
         let y = price_to_y(p);
         painter.line_segment(
             [
@@ -154,7 +151,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         painter.text(
             Pos2::new(rect.right() - 4.0, y - 2.0),
             egui::Align2::RIGHT_BOTTOM,
-            format!("{:.*}", price_decimals, p),
+            format!("{p:.price_decimals$}"),
             egui::FontId::monospace(11.0),
             Color32::from_gray(185),
         );
@@ -177,16 +174,11 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         .enumerate()
         .filter(|(_, broker)| {
             visible_broker_ids
-                .map(|v| v.contains(&broker.broker_id))
-                .unwrap_or(true)
+                .is_none_or(|v| v.contains(&broker.broker_id))
         })
         .collect();
     ordered_brokers.sort_by_key(|(_, broker)| {
-        if broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1 {
-            1
-        } else {
-            0
-        }
+        i32::from(broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1)
     });
 
     let mut legend_x = rect.left() + 172.0;
@@ -203,9 +195,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         };
         let quote = broker
             .latest_quote
-            .as_ref()
-            .map(|quote| format!("{:.*}", price_decimals, quote.mid))
-            .unwrap_or_else(|| "--".to_owned());
+            .as_ref().map_or_else(|| "--".to_owned(), |quote| format!("{:.*}", price_decimals, quote.mid));
         let availability = match broker.health.connection {
             ConnectionState::Disconnected => " DISCONNECTED",
             ConnectionState::Connecting => " CONNECTING",
@@ -257,7 +247,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         painter.text(
             Pos2::new(plot_rect.right() - 4.0, rect.top() + 21.0),
             egui::Align2::RIGHT_TOP,
-            format!("+{} brokers", hidden_legends),
+            format!("+{hidden_legends} brokers"),
             egui::FontId::monospace(11.0),
             Color32::from_gray(180),
         );

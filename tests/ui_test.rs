@@ -1090,11 +1090,11 @@ fn test_always_on_top_toggle_and_hotkey() {
     // Toggle via method
     app.toggle_always_on_top(&ctx);
     assert!(app.always_on_top());
-    assert_eq!(app.current_ui_state().always_on_top, true);
+    assert!(app.current_ui_state().always_on_top);
 
     app.toggle_always_on_top(&ctx);
     assert!(!app.always_on_top());
-    assert_eq!(app.current_ui_state().always_on_top, false);
+    assert!(!app.current_ui_state().always_on_top);
 
     // Toggle via 'T' keyboard shortcut
     let mut input_t = egui::RawInput::default();
@@ -1145,10 +1145,10 @@ fn test_candlestick_5_brokers_hiding_broker_4_tradeview_remains() {
                 start_utc_ms: utc,
                 state: SlotState::Closed,
                 ohlc: Some(Ohlc {
-                    open: 150.0 + b_id as f64 * 0.01,
-                    high: 150.1 + b_id as f64 * 0.01,
-                    low: 149.9 + b_id as f64 * 0.01,
-                    close: 150.05 + b_id as f64 * 0.01,
+                    open: 150.0 + f64::from(b_id) * 0.01,
+                    high: 150.1 + f64::from(b_id) * 0.01,
+                    low: 149.9 + f64::from(b_id) * 0.01,
+                    close: 150.05 + f64::from(b_id) * 0.01,
                     open_key: (utc, 1),
                     close_key: (utc, 1),
                 }),

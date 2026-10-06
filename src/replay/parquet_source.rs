@@ -89,11 +89,11 @@ impl BrokerParquetSource {
         }
 
         // Direct candidate names
-        let exact_candidate = format!("broker={}", name_lower);
+        let exact_candidate = format!("broker={name_lower}");
         if !dir_candidates.contains(&exact_candidate) {
             dir_candidates.push(exact_candidate);
         }
-        let mt5_candidate = format!("broker={}_mt5", name_lower);
+        let mt5_candidate = format!("broker={name_lower}_mt5");
         if !dir_candidates.contains(&mt5_candidate) {
             dir_candidates.push(mt5_candidate);
         }
@@ -104,11 +104,10 @@ impl BrokerParquetSource {
                 if let Ok(ft) = entry.file_type() {
                     if ft.is_dir() {
                         let dir_name = entry.file_name().to_string_lossy().to_lowercase();
-                        if dir_name.starts_with("broker=") && dir_name.contains(&name_lower) {
-                            if !dir_candidates.contains(&dir_name) {
+                        if dir_name.starts_with("broker=") && dir_name.contains(&name_lower)
+                            && !dir_candidates.contains(&dir_name) {
                                 dir_candidates.push(dir_name);
                             }
-                        }
                     }
                 }
             }
@@ -437,21 +436,21 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
         }
     }
 
-    let builder = if !root_indices.is_empty() {
+    let builder = if root_indices.is_empty() {
+        builder
+    } else {
         let mask = ProjectionMask::roots(builder.parquet_schema(), root_indices);
         builder.with_projection(mask)
-    } else {
-        builder
     };
 
     let reader = builder
         .build()
-        .map_err(|e| format!("Failed to build parquet reader: {}", e))?;
+        .map_err(|e| format!("Failed to build parquet reader: {e}"))?;
 
     let mut ticks = Vec::new();
 
     for batch_res in reader {
-        let batch = batch_res.map_err(|e| format!("Error reading record batch: {}", e))?;
+        let batch = batch_res.map_err(|e| format!("Error reading record batch: {e}"))?;
         let schema = batch.schema();
 
         let utc_idx = schema.index_of("utc_ms").ok();
@@ -478,8 +477,8 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
         for row in 0..num_rows {
             let bid = b_arr.value(row);
             let ask = a_arr.value(row);
-            let mut utc_ms = utc_col.map(|c| c.value(row)).unwrap_or(0);
-            let mut mt5_ms = mt5_col.map(|c| c.value(row)).unwrap_or(0);
+            let mut utc_ms = utc_col.map_or(0, |c| c.value(row));
+            let mut mt5_ms = mt5_col.map_or(0, |c| c.value(row));
 
             if utc_ms == 0 && mt5_ms > 0 {
                 utc_ms = mt5_to_utc_ms(mt5_ms);

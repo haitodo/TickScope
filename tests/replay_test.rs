@@ -1,6 +1,6 @@
 #![cfg(feature = "replay")]
 
-//! Tests for historical tick replay, VirtualClock, Hive Parquet sources,
+//! Tests for historical tick replay, `VirtualClock`, Hive Parquet sources,
 //! 5-broker k-way merge stream, and WebSocket synchronization.
 
 use std::sync::Arc;
@@ -114,8 +114,8 @@ fn test_virtual_clock_pause_freezes_time_and_preserves_live_health() {
             broker_id: b_id,
             utc_ms: 1_785_510_000_000,
             mt5_ms: 1_785_520_800_000,
-            bid: 155.000 + (b_id as f64 * 0.01),
-            ask: 155.002 + (b_id as f64 * 0.01),
+            bid: 155.000 + (f64::from(b_id) * 0.01),
+            ask: 155.002 + (f64::from(b_id) * 0.01),
             receive_delay_ms: 0,
         };
         let item = make_ingress_tick_batch(b_id, 1, &[tick], 1, false, run_id);
@@ -341,8 +341,8 @@ fn test_5_broker_instant_seek_and_warmup_rebuild() {
                 broker_id: b_id,
                 utc_ms: (target_utc - 60_000) + i * 1000,
                 mt5_ms: (target_utc - 60_000) + i * 1000 + 10800_000,
-                bid: 150.0 + (b_id as f64 * 0.01),
-                ask: 150.02 + (b_id as f64 * 0.01),
+                bid: 150.0 + (f64::from(b_id) * 0.01),
+                ask: 150.02 + (f64::from(b_id) * 0.01),
                 receive_delay_ms: 0,
             });
         }
@@ -365,7 +365,7 @@ fn test_5_broker_instant_seek_and_warmup_rebuild() {
     }
 
     let seek_duration = seek_start.elapsed();
-    println!("5-Broker SEEK and warmup rebuild completed in: {:?}", seek_duration);
+    println!("5-Broker SEEK and warmup rebuild completed in: {seek_duration:?}");
     assert!(seek_duration < Duration::from_millis(20));
 
     // Verify projection is fully populated:
@@ -439,7 +439,7 @@ async fn test_replay_driver_mock_websocket_sync() {
     // 1. Bind mock WebSocket server on random port
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let ws_url = format!("ws://{}", addr);
+    let ws_url = format!("ws://{addr}");
 
     // 2. Set up ReplayDriver
     let run_id = RunId::new_random();
@@ -704,7 +704,7 @@ fn test_simulate_replay_seek_and_playback_candles() {
 
     // 1. Initial SEEK at 2026-08-20 12:00:00 UTC (1787227200000)
     let start_utc_ms = 1_787_227_200_000i64;
-    println!("\n=== STEP 1: Rebuilding state at start_utc_ms: {} ===", start_utc_ms);
+    println!("\n=== STEP 1: Rebuilding state at start_utc_ms: {start_utc_ms} ===");
     tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
         start_utc_ms,
         true,
@@ -784,7 +784,7 @@ fn test_simulate_replay_seek_and_playback_candles() {
     {
         let eng = engine.lock();
         let proj = eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
-        println!("\nProjection after 5s playback (current_utc: {}):", current_utc);
+        println!("\nProjection after 5s playback (current_utc: {current_utc}):");
         for (&period, cv) in &proj.candle_views {
             for (bid, slots) in &cv.slots_by_broker {
                 let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
@@ -795,7 +795,7 @@ fn test_simulate_replay_seek_and_playback_candles() {
 
     // 3. JUMP +10 MINUTES (600,000ms)
     let jump_utc_ms = current_utc + 600_000;
-    println!("\n=== STEP 3: JUMP +10M to {} ===", jump_utc_ms);
+    println!("\n=== STEP 3: JUMP +10M to {jump_utc_ms} ===");
     tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
         jump_utc_ms,
         true,
@@ -840,7 +840,7 @@ fn test_simulate_replay_seek_and_playback_candles() {
                 }
             }
         }
-        println!("  Total timestamp inversions after jump: {}", inversions);
+        println!("  Total timestamp inversions after jump: {inversions}");
         assert_eq!(inversions, 0, "Timestamps in realtime_quote_points must be strictly non-decreasing!");
     }
 
@@ -879,7 +879,7 @@ fn test_simulate_replay_seek_and_playback_candles() {
     {
         let eng = engine.lock();
         let proj = eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
-        println!("\nProjection after 5s playback post-jump (current_utc: {}):", current_utc);
+        println!("\nProjection after 5s playback post-jump (current_utc: {current_utc}):");
         for (&period, cv) in &proj.candle_views {
             for (bid, slots) in &cv.slots_by_broker {
                 let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
@@ -915,7 +915,7 @@ fn test_simulate_august_3_live_issue() {
     // Target from live user session: 1785725353921 MT5 ms -> UTC
     let live_mt5_ms = 1785725353921i64;
     let start_utc_ms = mt5_to_utc_ms(live_mt5_ms);
-    println!("\n=== LIVE TEST: Rebuilding state at start_utc_ms: {} (MT5: {}) ===", start_utc_ms, live_mt5_ms);
+    println!("\n=== LIVE TEST: Rebuilding state at start_utc_ms: {start_utc_ms} (MT5: {live_mt5_ms}) ===");
     tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
         start_utc_ms,
         true,
@@ -982,7 +982,7 @@ fn test_simulate_august_3_live_issue() {
                 broker_groups.entry(t.broker_id).or_default().push(t);
             }
             for (b_id, b_ticks) in broker_groups {
-                let seq = next_sequences.entry(b_id).or_insert_with(|| eng.channels.get(&b_id).map(|c| c.ledger.expected_sequence().max(1)).unwrap_or(1));
+                let seq = next_sequences.entry(b_id).or_insert_with(|| eng.channels.get(&b_id).map_or(1, |c| c.ledger.expected_sequence().max(1)));
                 let item = make_ingress_tick_batch(b_id, 1, &b_ticks, *seq, false, run_id);
                 *seq += b_ticks.len() as u64;
                 eng.on_ingress_item(item);

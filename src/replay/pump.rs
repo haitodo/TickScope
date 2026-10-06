@@ -1,5 +1,5 @@
 //! Playback Pump: High-throughput adaptive dynamic batching tick pipeline.
-//! Ingests chronological merged ticks from Parquet sources into TickEngine with zero latency lag.
+//! Ingests chronological merged ticks from Parquet sources into `TickEngine` with zero latency lag.
 
 use super::clock::VirtualClock;
 use super::driver::make_ingress_tick_batch;
@@ -72,8 +72,7 @@ impl PlaybackPump {
             let seq = next_sequences.entry(b_id).or_insert_with(|| {
                 eng.channels
                     .get(&b_id)
-                    .map(|c| c.ledger.expected_sequence())
-                    .unwrap_or(0)
+                    .map_or(0, |c| c.ledger.expected_sequence())
             });
             let item = make_ingress_tick_batch(b_id, session, group, *seq, false, run_id);
             *seq += group.len() as u64;

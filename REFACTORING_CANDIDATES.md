@@ -57,7 +57,7 @@ let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_o
 | # | 作業 | 規模 | 章 | 単独コミット必須 |
 | :-- | :--- | :-- | :-- | :-- |
 | 0 | ~~**`days_to_ymd` のバグ修正**~~（**対応済み**・下記 §0 参照） | 1 関数（定数 2 箇所） | §0 | ○ |
-| 1 | `cargo clippy --fix` 一括自動修正 | 本番 601 / 全体 1,246 箇所 | §1 | ○ |
+| 1 | ~~`cargo clippy --fix` 一括自動修正~~（**対応済み**） | 73 ファイル / 685 箇所 | §1 | ○ |
 | 2 | テストフィクスチャの共通化 | 80 箇所以上 | §4 | ○ |
 | 3 | ~~バイト列デコードのヘルパー化~~（**対応済み**） | 68 箇所 | §3 | ○ |
 | 4 | UI 色リテラルの定数化 | 84 箇所 | §5 | ○ |
@@ -70,7 +70,36 @@ let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_o
 
 ---
 
-## 1. ★最有力: `cargo clippy --fix` による一括自動修正（本番 601 / 全体 1,246 箇所）
+## 1. ★最有力: `cargo clippy --fix` による一括自動修正（本番 601 / 全体 1,246 箇所）★対応済み
+
+**対応状況**: 完了。**73 ファイル / +732 −827 行**、警告は 1,444 件 → **763 件**、
+機械適用可能な修正は **685 件 → 0 件**。ついでにデフォルト Clippy の警告も **13 件 → 5 件**に減った。
+
+実行したコマンド（除外理由は下記）:
+
+```powershell
+cargo clippy --fix --all-targets --features replay --allow-dirty --allow-staged `
+  -- -W clippy::pedantic -A clippy::must_use_candidate -A clippy::return_self_not_must_use `
+     -A clippy::manual_midpoint -A clippy::wildcard_imports
+```
+
+除外した 4 つと理由:
+
+| 除外した lint | 理由 |
+| :--- | :--- |
+| `must_use_candidate` (240) / `return_self_not_must_use` (64) | `#[must_use]` を付けると戻り値を捨てている呼び出し側に `unused_must_use` が新規発生しうる。別コミットで扱うのが安全 |
+| `manual_midpoint` (36) | `f64::midpoint` は Rust 1.85+。MSRV の決定が必要（付録 B） |
+| `wildcard_imports` (35) | glob import の展開は可読性を下げる場合がある。方針判断が必要 |
+
+**残っているデフォルト Clippy 警告 5 件**（いずれも自動修正不可・要判断）:
+
+| lint | 場所 | 内容 |
+| :--- | :--- | :--- |
+| `if_same_then_else` | `src/tick/engine.rs:832` | `if` の両ブロックが同一（片方が書き間違いの可能性） |
+| `missing_transmute_annotations` | `src/ui/dpi.rs:178, :203` | `transmute` に型注釈がない |
+| `too_many_arguments` | `src/replay/driver.rs:200`, `src/replay/rebuilder.rs:20` | 引数 9 個 |
+
+以下は実施時に使った調査内容（記録として残す）。
 
 ### 修正方針
 

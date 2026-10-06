@@ -65,9 +65,7 @@ pub fn connection_map_contents(brokers: &[BrokerConfig]) -> String {
 
 pub fn deploy_file_idempotent(target_path: &Path, content: &str) -> FileDeployResult {
     let rel_name = target_path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "file".to_string());
+        .file_name().map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
 
     if target_path.exists() {
         match fs::read(target_path) {
@@ -126,7 +124,7 @@ pub fn deploy_file_idempotent(target_path: &Path, content: &str) -> FileDeployRe
     }
 
     match fs::write(target_path, content.as_bytes()) {
-        Ok(_) => FileDeployResult {
+        Ok(()) => FileDeployResult {
             rel_name,
             target_path: target_path.to_path_buf(),
             status: DeployFileStatus::Created,

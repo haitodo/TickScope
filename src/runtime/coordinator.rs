@@ -56,7 +56,7 @@ struct ChannelIngressSink {
 impl RawIngressSink for ChannelIngressSink {
     fn try_submit(&self, item: IngressItem) -> SubmitResult<IngressItem> {
         match self.sender.try_send(item) {
-            Ok(_) => SubmitResult::Accepted,
+            Ok(()) => SubmitResult::Accepted,
             Err(crossbeam_channel::TrySendError::Full(it)) => SubmitResult::Full(it),
             Err(crossbeam_channel::TrySendError::Disconnected(it)) => SubmitResult::Closed(it),
         }
@@ -68,7 +68,7 @@ impl RawIngressSink for ChannelIngressSink {
         timeout: std::time::Duration,
     ) -> SubmitResult<IngressItem> {
         match self.sender.send_timeout(item, timeout) {
-            Ok(_) => SubmitResult::Accepted,
+            Ok(()) => SubmitResult::Accepted,
             Err(crossbeam_channel::SendTimeoutError::Timeout(it)) => SubmitResult::Full(it),
             Err(crossbeam_channel::SendTimeoutError::Disconnected(it)) => SubmitResult::Closed(it),
         }
@@ -105,7 +105,7 @@ impl RuntimeCoordinator {
         config.validate()?;
 
         let run_id = RunId::new_random();
-        log::info!("Initializing RuntimeCoordinator (run_id: {:?})", run_id);
+        log::info!("Initializing RuntimeCoordinator (run_id: {run_id:?})");
         let clock = Arc::new(SystemClock::new(run_id));
         let running = Arc::new(AtomicBool::new(true));
         let diagnostics = if diagnostics_enabled {
@@ -263,7 +263,7 @@ impl RuntimeCoordinator {
 
         let pub_handle = thread::spawn(move || {
             let builder = SnapshotBuilder::new(run_id);
-            let interval = Duration::from_micros(1_000_000 / repaint_hz as u64);
+            let interval = Duration::from_micros(1_000_000 / u64::from(repaint_hz));
             let (lock, cvar) = &*tick_wake_pub;
 
             while run_pub.load(Ordering::SeqCst) {
@@ -298,7 +298,7 @@ impl RuntimeCoordinator {
                 // Rate-limit to repaint_hz: sleep for remaining frame budget if needed
                 let elapsed = frame_start.elapsed();
                 if elapsed < interval {
-                    thread::sleep(interval - elapsed);
+                    thread::sleep(interval.checked_sub(elapsed).unwrap());
                 }
 
                 // If no new tick arrived during the frame budget, wait for next tick or 200ms idle timeout.

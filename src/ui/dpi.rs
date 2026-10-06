@@ -24,11 +24,10 @@ pub mod windows {
             if !hmonitor.is_null() {
                 let mut dpi_x = 0;
                 let mut dpi_y = 0;
-                if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) == 0 {
-                    if dpi_x > 0 {
+                if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y) == 0
+                    && dpi_x > 0 {
                         return dpi_x as f32 / 96.0;
                     }
-                }
             }
         }
         1.0
@@ -66,7 +65,7 @@ pub mod windows {
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
-/// Whether the window is currently being moved/resized (inside WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE).
+/// Whether the window is currently being moved/resized (inside `WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE`).
 #[cfg(windows)]
 static IN_SIZE_MOVE: AtomicBool = AtomicBool::new(false);
 

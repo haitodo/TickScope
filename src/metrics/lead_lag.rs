@@ -44,13 +44,10 @@ impl SignificantMidMoveDetector {
             return None;
         }
 
-        let anchor = match self.anchor_quote.as_ref() {
-            Some(a) => a,
-            None => {
-                // First valid quote sets anchor, does not fire
-                self.anchor_quote = Some(*quote);
-                return None;
-            }
+        let anchor = if let Some(a) = self.anchor_quote.as_ref() { a } else {
+            // First valid quote sets anchor, does not fire
+            self.anchor_quote = Some(*quote);
+            return None;
         };
 
         // Invariant I13: During cooldown, anchor does NOT follow price, and event is suppressed

@@ -1,4 +1,4 @@
-//! WebSocket Synchronization Client: Connects to TickReplay (ws://127.0.0.1:49210),
+//! WebSocket Synchronization Client: Connects to `TickReplay` (<ws://127.0.0.1:49210>),
 //! handles robust auto-reconnection, and multiplexes bi-directional command/status streams.
 
 use futures_util::{SinkExt, StreamExt};
@@ -30,14 +30,14 @@ impl WsSyncClient {
             {
                 Ok(rt) => rt,
                 Err(e) => {
-                    log::error!("[WsSyncClient] Failed to build Tokio runtime: {}", e);
+                    log::error!("[WsSyncClient] Failed to build Tokio runtime: {e}");
                     return;
                 }
             };
 
             rt.block_on(async move {
                 while running.load(Ordering::SeqCst) {
-                    log::info!("[WsSyncClient] Connecting to TickReplay WS at {}...", ws_url);
+                    log::info!("[WsSyncClient] Connecting to TickReplay WS at {ws_url}...");
                     match tokio_tungstenite::connect_async(&ws_url).await {
                         Ok((ws_stream, _resp)) => {
                             log::info!("[WsSyncClient] Connected to TickReplay WebSocket server!");
@@ -60,7 +60,7 @@ impl WsSyncClient {
                                                 break;
                                             }
                                             Some(Err(e)) => {
-                                                log::warn!("[WsSyncClient] WS read error: {}", e);
+                                                log::warn!("[WsSyncClient] WS read error: {e}");
                                                 break;
                                             }
                                             _ => {}
@@ -70,7 +70,7 @@ impl WsSyncClient {
                                         match cmd_opt {
                                             Some(cmd) => {
                                                 if let Err(e) = write.send(Message::Text(cmd.into())).await {
-                                                    log::warn!("[WsSyncClient] WS write error: {}", e);
+                                                    log::warn!("[WsSyncClient] WS write error: {e}");
                                                     break;
                                                 }
                                             }
@@ -83,7 +83,7 @@ impl WsSyncClient {
                             *cmd_tx_holder.lock() = None;
                         }
                         Err(e) => {
-                            log::debug!("[WsSyncClient] WS connect failed ({}), retrying in 1s...", e);
+                            log::debug!("[WsSyncClient] WS connect failed ({e}), retrying in 1s...");
                         }
                     }
 

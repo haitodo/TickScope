@@ -25,7 +25,7 @@ const CRC32C_TABLE: [u32; 256] = {
 pub fn crc32c(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     for &byte in data {
-        let index = ((crc ^ (byte as u32)) & 0xFF) as usize;
+        let index = ((crc ^ u32::from(byte)) & 0xFF) as usize;
         crc = (crc >> 8) ^ CRC32C_TABLE[index];
     }
     crc ^ 0xFFFF_FFFF

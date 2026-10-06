@@ -24,31 +24,25 @@ pub fn draw_mid_dispersion_view_with_visibility(
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
-    let cons = match consensus {
-        Some(c) => c,
-        None => {
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "No consensus data yet",
-                egui::FontId::proportional(13.0),
-                Color32::GRAY,
-            );
-            return;
-        }
+    let cons = if let Some(c) = consensus { c } else {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "No consensus data yet",
+            egui::FontId::proportional(13.0),
+            Color32::GRAY,
+        );
+        return;
     };
-    let median = match cons.consensus_mid {
-        Some(m) => m,
-        None => {
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Insufficient fresh brokers",
-                egui::FontId::proportional(13.0),
-                Color32::GRAY,
-            );
-            return;
-        }
+    let median = if let Some(m) = cons.consensus_mid { m } else {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Insufficient fresh brokers",
+            egui::FontId::proportional(13.0),
+            Color32::GRAY,
+        );
+        return;
     };
 
     painter.text(

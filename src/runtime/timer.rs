@@ -25,13 +25,11 @@ impl PrecisionTimerGuard {
                 let active = res == 0; // TIMERR_NOERROR = 0
                 if active {
                     log::info!(
-                        "Windows multimedia high-resolution timer enabled ({}ms resolution)",
-                        period_ms
+                        "Windows multimedia high-resolution timer enabled ({period_ms}ms resolution)"
                     );
                 } else {
                     log::warn!(
-                        "Failed to enable Windows multimedia high-resolution timer (code: {})",
-                        res
+                        "Failed to enable Windows multimedia high-resolution timer (code: {res})"
                     );
                 }
                 Self { period_ms, active }

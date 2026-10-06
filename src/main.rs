@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
-//! TickScope application main entry point.
+//! `TickScope` application main entry point.
 //! Multi-broker FX real-time tick comparison and candlestick chart visualization.
 
 use eframe::egui;
@@ -30,7 +30,7 @@ fn main() -> eframe::Result<()> {
         Ok(cli) => cli,
         Err(err) => {
             setup_console();
-            eprintln!("Error: {}\n", err);
+            eprintln!("Error: {err}\n");
             eprintln!("{}", CliArgs::help_text());
             pause_if_allocated_console();
             std::process::exit(1);
@@ -63,9 +63,9 @@ fn main() -> eframe::Result<()> {
     let mut config = match load_startup_config(cli.config_path.as_deref(), exe_dir, &cwd) {
         Ok(cfg) => cfg,
         Err(e) => {
-            log::error!("Failed to load configuration: {}", e);
+            log::error!("Failed to load configuration: {e}");
             if !cli.console {
-                eprintln!("Failed to load configuration: {}", e);
+                eprintln!("Failed to load configuration: {e}");
             }
             pause_if_allocated_console();
             std::process::exit(1);
@@ -98,7 +98,7 @@ fn main() -> eframe::Result<()> {
     config.active_pair = ui_state.active_pair;
 
     let initial_pair = ui_state.active_pair;
-    let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
+    let pip_size = config.brokers.first().map_or(0.01, |b| b.pip_size);
     let visible_seconds = config.display.visible_seconds;
     let visible_ticks = config.display.visible_ticks;
     let chart_max_quote_age_ms = config.display.chart_max_quote_age_ms;
@@ -108,9 +108,9 @@ fn main() -> eframe::Result<()> {
     ) {
         Ok(coord) => coord,
         Err(e) => {
-            log::error!("Fatal error starting RuntimeCoordinator: {}", e);
+            log::error!("Fatal error starting RuntimeCoordinator: {e}");
             if !cli.console {
-                eprintln!("Fatal error starting RuntimeCoordinator: {}", e);
+                eprintln!("Fatal error starting RuntimeCoordinator: {e}");
             }
             pause_if_allocated_console();
             std::process::exit(1);

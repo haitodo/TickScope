@@ -1,8 +1,8 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
-//! TickScope Replay application main entry point.
+//! `TickScope` Replay application main entry point.
 //! Multi-broker FX historical tick replay comparison and visualization,
-//! synchronized with TickReplay (ws://127.0.0.1:49210) and Drenhis Hive Parquet tick archives.
+//! synchronized with `TickReplay` (<ws://127.0.0.1:49210>) and Drenhis Hive Parquet tick archives.
 
 use eframe::egui;
 use std::env;
@@ -63,7 +63,7 @@ fn main() -> eframe::Result<()> {
         Ok(cli) => cli,
         Err(err) => {
             setup_console();
-            eprintln!("Error: {}\n", err);
+            eprintln!("Error: {err}\n");
             eprintln!("{}", CliArgs::help_text());
             pause_if_allocated_console();
             std::process::exit(1);
@@ -95,9 +95,9 @@ fn main() -> eframe::Result<()> {
     let mut config = match load_startup_config(cli.config_path.as_deref(), exe_dir, &cwd) {
         Ok(cfg) => cfg,
         Err(e) => {
-            log::error!("Failed to load configuration: {}", e);
+            log::error!("Failed to load configuration: {e}");
             if !cli.console {
-                eprintln!("Failed to load configuration: {}", e);
+                eprintln!("Failed to load configuration: {e}");
             }
             pause_if_allocated_console();
             std::process::exit(1);
@@ -107,7 +107,7 @@ fn main() -> eframe::Result<()> {
     if let Some(ref sym) = cli.symbol {
         let clean_sym = sym.trim();
         if !clean_sym.is_empty() {
-            log::info!("CLI flag --symbol active: overriding replay symbol to '{}'", clean_sym);
+            log::info!("CLI flag --symbol active: overriding replay symbol to '{clean_sym}'");
             let is_jpy = clean_sym.to_ascii_uppercase().ends_with("JPY");
             let pip_size = if is_jpy { 0.01 } else { 0.0001 };
             let point_size = if is_jpy { 0.001 } else { 0.00001 };
@@ -137,7 +137,7 @@ fn main() -> eframe::Result<()> {
     config.active_pair = ui_state.active_pair;
 
     let initial_pair = ui_state.active_pair;
-    let pip_size = config.brokers.first().map(|b| b.pip_size).unwrap_or(0.01);
+    let pip_size = config.brokers.first().map_or(0.01, |b| b.pip_size);
     let visible_seconds = config.display.visible_seconds;
     let visible_ticks = config.display.visible_ticks;
     let chart_max_quote_age_ms = config.display.chart_max_quote_age_ms;
@@ -146,8 +146,8 @@ fn main() -> eframe::Result<()> {
     let mut coordinator = match ReplayCoordinator::new(config.clone(), &tick_dir, &ws_url) {
         Ok(coord) => coord,
         Err(e) => {
-            log::error!("Fatal error initializing ReplayCoordinator: {}", e);
-            eprintln!("Fatal error initializing ReplayCoordinator: {}", e);
+            log::error!("Fatal error initializing ReplayCoordinator: {e}");
+            eprintln!("Fatal error initializing ReplayCoordinator: {e}");
             pause_if_allocated_console();
             std::process::exit(1);
         }
@@ -204,7 +204,7 @@ fn main() -> eframe::Result<()> {
     );
 
     if let Err(ref e) = result {
-        log::error!("eframe::run_native failed: {:?}", e);
+        log::error!("eframe::run_native failed: {e:?}");
     }
 
     coordinator.stop();

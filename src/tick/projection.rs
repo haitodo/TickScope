@@ -1,5 +1,5 @@
 //! Engine projection and snapshot construction.
-//! Builds immutable EngineProjection snapshots for the UI exchange.
+//! Builds immutable `EngineProjection` snapshots for the UI exchange.
 
 use crate::config::TimezoneRule;
 use crate::core::models::*;
@@ -34,20 +34,19 @@ impl TickEngine {
                 };
             }
             let ch = self.channels.get(&b.id);
-            let active_utc_offset_sec = ch.map(|c| c.active_utc_offset_sec).unwrap_or(b.utc_offset_sec);
+            let active_utc_offset_sec = ch.map_or(b.utc_offset_sec, |c| c.active_utc_offset_sec);
             let is_auto_offset = ch
-                .map(|c| c.timezone_rule == TimezoneRule::NyClose || c.auto_utc_offset)
-                .unwrap_or(b.timezone_rule == TimezoneRule::NyClose || b.auto_utc_offset);
+                .map_or(b.timezone_rule == TimezoneRule::NyClose || b.auto_utc_offset, |c| c.timezone_rule == TimezoneRule::NyClose || c.auto_utc_offset);
 
             broker_overviews.push(BrokerOverview {
                 broker_id: b.id,
                 name: b.name.clone(),
                 symbol: b.symbol.clone(),
                 latest_quote: latest_q,
-                min_spread: st.and_then(|s| s.min_spread()),
-                max_spread: st.and_then(|s| s.max_spread()),
+                min_spread: st.and_then(super::super::metrics::spread::SpreadTracker::min_spread),
+                max_spread: st.and_then(super::super::metrics::spread::SpreadTracker::max_spread),
                 health,
-                tick_rate_1s: st.map(|s| s.tick_rate_1s_at(now_mono)).unwrap_or(0.0),
+                tick_rate_1s: st.map_or(0.0, |s| s.tick_rate_1s_at(now_mono)),
                 active_utc_offset_sec,
                 is_auto_offset,
             });

@@ -185,8 +185,8 @@ impl TransportReceiver {
         // Wait in the socket so arriving data wakes us immediately, rather than
         // waiting for a polling sleep (especially costly on Windows).
         if let Err(error) = stream.set_nonblocking(false)
-            .and_then(|_| stream.set_read_timeout(Some(self.progress_interval)))
-            .and_then(|_| stream.set_write_timeout(Some(Duration::from_secs(1))))
+            .and_then(|()| stream.set_read_timeout(Some(self.progress_interval)))
+            .and_then(|()| stream.set_write_timeout(Some(Duration::from_secs(1))))
         {
             return format!("Socket configuration failed: {error}");
         }
@@ -217,7 +217,7 @@ impl TransportReceiver {
                             "Decoder push error for broker {}: {}, terminating connection",
                             self.broker_config.id, e
                         );
-                        return format!("Decoder push error: {}", e);
+                        return format!("Decoder push error: {e}");
                     }
 
                     // Decode all complete frames
@@ -228,7 +228,7 @@ impl TransportReceiver {
                                 frame_index += 1;
                                 let ack = if self.ack_mode != "off" && decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH {
                                     Some((decoded.frame.header.session_id,
-                                        decoded.frame.header.sequence_start + decoded.frame.header.tick_count as u64 - 1))
+                                        decoded.frame.header.sequence_start + u64::from(decoded.frame.header.tick_count) - 1))
                                 } else {
                                     None
                                 };
@@ -311,7 +311,7 @@ impl TransportReceiver {
                                     "Malformed frame from broker {}: {}, closing connection",
                                     self.broker_config.id, e
                                 );
-                                read_error = Some(format!("Malformed frame: {}", e));
+                                read_error = Some(format!("Malformed frame: {e}"));
                                 break;
                             }
                         }
@@ -340,7 +340,7 @@ impl TransportReceiver {
                 Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
                     // Socket error or disconnected
-                    return format!("Socket read error: {}", e);
+                    return format!("Socket read error: {e}");
                 }
             }
         }

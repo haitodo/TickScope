@@ -479,8 +479,7 @@ fn test_transport_router_connection_takeover() {
     let res1 = client1.read(&mut buf);
     assert!(
         matches!(res1, Ok(0) | Err(_)),
-        "Client 1 must be closed by takeover, got: {:?}",
-        res1
+        "Client 1 must be closed by takeover, got: {res1:?}"
     );
 
     // Send a frame from client 2

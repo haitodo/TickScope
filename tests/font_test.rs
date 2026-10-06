@@ -23,13 +23,11 @@ fn test_setup_fonts_and_japanese_shaping() {
             });
             assert!(
                 !prop_galley.rows.is_empty(),
-                "Proportional galley should not be empty for text: {}",
-                text
+                "Proportional galley should not be empty for text: {text}"
             );
             assert!(
                 !prop_galley.rows[0].glyphs.is_empty(),
-                "Proportional glyphs should not be empty for text: {}",
-                text
+                "Proportional glyphs should not be empty for text: {text}"
             );
 
             let mono_galley = ctx.fonts(|f| {
@@ -41,13 +39,11 @@ fn test_setup_fonts_and_japanese_shaping() {
             });
             assert!(
                 !mono_galley.rows.is_empty(),
-                "Monospace galley should not be empty for text: {}",
-                text
+                "Monospace galley should not be empty for text: {text}"
             );
             assert!(
                 !mono_galley.rows[0].glyphs.is_empty(),
-                "Monospace glyphs should not be empty for text: {}",
-                text
+                "Monospace glyphs should not be empty for text: {text}"
             );
         }
     });

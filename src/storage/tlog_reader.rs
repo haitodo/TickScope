@@ -72,18 +72,17 @@ impl<R: Read + Seek> LogFileReader<R> {
     pub fn next_record(&mut self) -> ReadResult {
         let mut envelope = [0u8; RECORD_ENVELOPE_LEN];
         match self.reader.read_exact(&mut envelope) {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 // If 0 bytes were read, it's clean EOF!
                 let current_pos = self.reader.stream_position().unwrap_or(0);
                 let end_pos = self.reader.seek(SeekFrom::End(0)).unwrap_or(0);
                 if current_pos == end_pos {
                     return ReadResult::CleanEof;
-                } else {
-                    return ReadResult::TruncatedTail((end_pos - current_pos) as usize);
                 }
+                return ReadResult::TruncatedTail((end_pos - current_pos) as usize);
             }
-            Err(e) => return ReadResult::Corrupt(format!("I/O error reading envelope: {}", e)),
+            Err(e) => return ReadResult::Corrupt(format!("I/O error reading envelope: {e}")),
         }
 
         let total_length = le_u32(&envelope, 0) as usize;
@@ -94,8 +93,7 @@ impl<R: Read + Seek> LogFileReader<R> {
 
         if total_length < RECORD_ENVELOPE_LEN {
             return ReadResult::Corrupt(format!(
-                "total_length {} is smaller than envelope header {}",
-                total_length, RECORD_ENVELOPE_LEN
+                "total_length {total_length} is smaller than envelope header {RECORD_ENVELOPE_LEN}"
             ));
         }
 
@@ -105,7 +103,7 @@ impl<R: Read + Seek> LogFileReader<R> {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
                 return ReadResult::TruncatedTail(payload_len);
             }
-            return ReadResult::Corrupt(format!("I/O error reading record payload: {}", e));
+            return ReadResult::Corrupt(format!("I/O error reading record payload: {e}"));
         }
 
         // Verify CRC32C: envelope with checksum 0 + payload
@@ -117,8 +115,7 @@ impl<R: Read + Seek> LogFileReader<R> {
         let calculated_crc = crc32c(&crc_check_buf);
         if calculated_crc != stored_crc {
             return ReadResult::Corrupt(format!(
-                "CRC32C mismatch at record {}: stored 0x{:08X}, calculated 0x{:08X}",
-                record_index, stored_crc, calculated_crc
+                "CRC32C mismatch at record {record_index}: stored 0x{stored_crc:08X}, calculated 0x{calculated_crc:08X}"
             ));
         }
 
@@ -248,7 +245,7 @@ impl<R: Read + Seek> LogFileReader<R> {
                     message,
                 }))
             }
-            _ => ReadResult::Corrupt(format!("Unknown record kind {}", kind)),
+            _ => ReadResult::Corrupt(format!("Unknown record kind {kind}")),
         }
     }
 }

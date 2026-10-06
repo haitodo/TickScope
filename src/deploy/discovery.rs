@@ -1,4 +1,4 @@
-//! MT5 terminal and MetaEditor discovery.
+//! MT5 terminal and `MetaEditor` discovery.
 
 use crate::config::Mt5DeployConfig;
 use std::fs;
@@ -59,28 +59,27 @@ pub fn discover_mt5_terminals(config: &Mt5DeployConfig) -> (Vec<DiscoveredTermin
     for custom_dir in &config.custom_data_dirs {
         let p = PathBuf::from(custom_dir);
         if !p.exists() {
-            warnings.push(format!("Configured custom MT5 data directory does not exist: {}", custom_dir));
+            warnings.push(format!("Configured custom MT5 data directory does not exist: {custom_dir}"));
             continue;
         }
 
         let (terminal_dir, mql5_dir) = if p.join("MQL5").is_dir() {
             (p.clone(), p.join("MQL5"))
-        } else if p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case("MQL5")).unwrap_or(false)
+        } else if p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("MQL5"))
             || p.join("Experts").is_dir()
         {
             let term = p.parent().unwrap_or(&p).to_path_buf();
             (term, p)
         } else {
             warnings.push(format!(
-                "Configured MT5 directory '{}' does not contain an MQL5 or Experts directory",
-                custom_dir
+                "Configured MT5 directory '{custom_dir}' does not contain an MQL5 or Experts directory"
             ));
             continue;
         };
 
         let canonical = mql5_dir.canonicalize().unwrap_or_else(|_| mql5_dir.clone());
         if seen_canonical.insert(canonical) {
-            let folder_name = terminal_dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Custom".to_string());
+            let folder_name = terminal_dir.file_name().map_or_else(|| "Custom".to_string(), |n| n.to_string_lossy().to_string());
             let friendly_name = resolve_terminal_friendly_name(&terminal_dir, &folder_name);
             terminals.push(DiscoveredTerminal {
                 friendly_name,
@@ -110,11 +109,9 @@ pub fn resolve_terminal_friendly_name(terminal_dir: &Path, folder_name: &str) ->
         let origin = origin_content.trim();
         if !origin.is_empty() {
             let app_name = Path::new(origin)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| origin.to_string());
+                .file_name().map_or_else(|| origin.to_string(), |n| n.to_string_lossy().to_string());
             let hash_short: String = folder_name.chars().take(8).collect();
-            return format!("{} ({})", app_name, hash_short);
+            return format!("{app_name} ({hash_short})");
         }
     }
     folder_name.to_string()
@@ -132,7 +129,7 @@ pub fn find_metaeditor_in(dir: &Path, depth: u8) -> Option<PathBuf> {
     }
     let entries = fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {
-        if entry.file_type().map(|file_type| file_type.is_dir()).unwrap_or(false) {
+        if entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
             if let Some(found) = find_metaeditor_in(&entry.path(), depth - 1) {
                 return Some(found);
             }

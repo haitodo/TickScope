@@ -152,9 +152,9 @@ impl MoveBreadth {
 /// Rolling multi-broker burst and breadth detector.
 #[derive(Debug, Clone)]
 pub struct MultiBrokerBurstDetector {
-    /// Time window in nanoseconds (e.g. 100ms = 100_000_000 ns)
+    /// Time window in nanoseconds (e.g. 100ms = `100_000_000` ns)
     pub window_ns: u64,
-    /// Minimum participating brokers required to detect an EventCluster
+    /// Minimum participating brokers required to detect an `EventCluster`
     pub min_brokers: usize,
     recent_events: VecDeque<MoveEvent>,
 }
@@ -195,7 +195,7 @@ impl MultiBrokerBurstDetector {
         }
     }
 
-    /// Record a new move event and detect whether an EventCluster is active.
+    /// Record a new move event and detect whether an `EventCluster` is active.
     pub fn on_event(
         &mut self,
         event: MoveEvent,
@@ -216,7 +216,7 @@ impl MultiBrokerBurstDetector {
         self.detect_cluster(direction, total_brokers, fresh_count)
     }
 
-    /// Detect if there is a qualified EventCluster in the specified direction.
+    /// Detect if there is a qualified `EventCluster` in the specified direction.
     pub fn detect_cluster(
         &self,
         direction: MoveDirection,
@@ -285,7 +285,7 @@ impl MultiBrokerBurstDetector {
         }
     }
 
-    /// Compute directional MoveBreadth for the current rolling window.
+    /// Compute directional `MoveBreadth` for the current rolling window.
     pub fn compute_breadth(
         &self,
         total_brokers: usize,
@@ -318,7 +318,7 @@ impl MultiBrokerBurstDetector {
         }
     }
 
-    /// Compute directional MoveBreadth explicitly filtering out known stale brokers.
+    /// Compute directional `MoveBreadth` explicitly filtering out known stale brokers.
     pub fn compute_breadth_with_stale_brokers(
         &self,
         total_brokers: usize,

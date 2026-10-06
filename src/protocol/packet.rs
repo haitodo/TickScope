@@ -191,8 +191,7 @@ pub fn decode_tick_record(buf: &[u8]) -> (TickRecord, Option<String>) {
 
     let warn = if reserved != 0 {
         Some(format!(
-            "Tick sequence {} has non-zero reserved field: 0x{:08X}",
-            sequence, reserved
+            "Tick sequence {sequence} has non-zero reserved field: 0x{reserved:08X}"
         ))
     } else {
         None
@@ -273,15 +272,13 @@ pub fn decode_status(buf: &[u8]) -> Result<StatusPayload, ProtocolError> {
 
     if (detail_flags & !(STATUS_FLAG_HAS_SEQUENCE_RANGE | STATUS_FLAG_HAS_EXACT_COUNT)) != 0 {
         return Err(ProtocolError::MalformedPayload(format!(
-            "Invalid status detail flags: 0x{:08X}",
-            detail_flags
+            "Invalid status detail flags: 0x{detail_flags:08X}"
         )));
     }
 
     if (detail_flags & STATUS_FLAG_HAS_SEQUENCE_RANGE) != 0 && sequence_first > sequence_last {
         return Err(ProtocolError::MalformedPayload(format!(
-            "Status sequence_first ({}) > sequence_last ({})",
-            sequence_first, sequence_last
+            "Status sequence_first ({sequence_first}) > sequence_last ({sequence_last})"
         )));
     }
 

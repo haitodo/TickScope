@@ -1,4 +1,4 @@
-//! UiSnapshot builder and atomic ArcSwap exchange.
+//! `UiSnapshot` builder and atomic `ArcSwap` exchange.
 
 use crate::core::models::*;
 use crate::core::ports::SnapshotExchangePort;

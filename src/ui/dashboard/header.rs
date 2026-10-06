@@ -55,11 +55,10 @@ pub fn render_top_header(
             let hidden_count = app.hidden_brokers.len();
             let overview_text = if hidden_count > 0 {
                 format!(
-                    "{} ● {}/{} Live ({} Hidden)",
-                    overview_arrow, live_brokers, total_brokers, hidden_count
+                    "{overview_arrow} ● {live_brokers}/{total_brokers} Live ({hidden_count} Hidden)"
                 )
             } else {
-                format!("{} ● {}/{} Live", overview_arrow, live_brokers, total_brokers)
+                format!("{overview_arrow} ● {live_brokers}/{total_brokers} Live")
             };
             let overview_color = if live_brokers == total_brokers && total_brokers > 0 {
                 Color32::from_rgb(0, 220, 140)
@@ -76,12 +75,9 @@ pub fn render_top_header(
                         .broker_overviews
                         .iter()
                         .find(|b| b.broker_id == m.leader)
-                        .map(|b| b.name.as_str())
-                        .unwrap_or("Leader");
+                        .map_or("Leader", |b| b.name.as_str());
                     let ema_text = comp
-                        .ema_lead_lag_ms
-                        .map(|e| format!("{:+.2} ms", e))
-                        .unwrap_or_else(|| "N/A".to_string());
+                        .ema_lead_lag_ms.map_or_else(|| "N/A".to_string(), |e| format!("{e:+.2} ms"));
                     tooltip.push_str(&format!(
                         "\n\n⚡ Lead/Lag [{} vs {}]:\nLeader: {}\nRaw Lead: {:.2} ms\nEMA Lead: {}\n(Key: [5] Lead/Lag view)",
                         name_a, name_b, leader_name, m.raw_delta_ms.abs(), ema_text
@@ -116,7 +112,7 @@ pub fn render_top_header(
             let launch_btn = ui.add_enabled(
                 stopped_count > 0,
                 egui::Button::new(
-                    RichText::new(format!("▶ 起動 ({})", stopped_count))
+                    RichText::new(format!("▶ 起動 ({stopped_count})"))
                         .color(if stopped_count > 0 {
                             Color32::from_rgb(100, 220, 255)
                         } else {
@@ -160,7 +156,7 @@ pub fn render_top_header(
             let stop_btn = ui.add_enabled(
                 running_count > 0,
                 egui::Button::new(
-                    RichText::new(format!("⏹ 終了 ({})", running_count))
+                    RichText::new(format!("⏹ 終了 ({running_count})"))
                         .color(if running_count > 0 {
                             Color32::from_rgb(255, 140, 140)
                         } else {
@@ -171,8 +167,7 @@ pub fn render_top_header(
             );
             if stop_btn
                 .on_hover_text(format!(
-                    "選択中の起動中MT5（{}台）をクリーン終了（WM_CLOSE）します",
-                    running_count
+                    "選択中の起動中MT5（{running_count}台）をクリーン終了（WM_CLOSE）します"
                 ))
                 .clicked()
             {
@@ -240,13 +235,13 @@ pub fn render_top_header(
                         CandlePriceScaleMode::Auto => "Auto".to_string(),
                         CandlePriceScaleMode::Fixed(p) => {
                             let p_str = if (p.fract()).abs() < 1e-4 {
-                                format!("{:.0}p", p)
+                                format!("{p:.0}p")
                             } else {
-                                format!("{:.1}p", p)
+                                format!("{p:.1}p")
                             };
                             match app.candle_follow_criteria {
-                                CandleFollowCriteria::Median => format!("{}/Med", p_str),
-                                CandleFollowCriteria::MarginEdge => format!("{}/Edge", p_str),
+                                CandleFollowCriteria::Median => format!("{p_str}/Med"),
+                                CandleFollowCriteria::MarginEdge => format!("{p_str}/Edge"),
                             }
                         }
                     };
@@ -273,9 +268,9 @@ pub fn render_top_header(
                             for &pips in &VALID_CANDLE_FIXED_PIPS {
                                 let mode = CandlePriceScaleMode::Fixed(pips);
                                 let label = if (pips.fract()).abs() < 1e-4 {
-                                    format!("{:.0}p", pips)
+                                    format!("{pips:.0}p")
                                 } else {
-                                    format!("{:.1}p", pips)
+                                    format!("{pips:.1}p")
                                 };
                                 if ui
                                     .selectable_label(app.candle_price_scale == mode, label)
@@ -291,7 +286,7 @@ pub fn render_top_header(
                         ChartXAxisMode::ReceiveTime => "Time",
                         ChartXAxisMode::TickCount => "Ticks",
                     };
-                    let badge_text = format!("[Top X: {}]", x_label);
+                    let badge_text = format!("[Top X: {x_label}]");
                     let badge_btn = ui.add(
                         egui::Button::new(
                             RichText::new(badge_text).color(Color32::from_gray(180)),
