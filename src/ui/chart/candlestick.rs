@@ -1229,20 +1229,14 @@ fn show_trade_tooltip(
     }
 }
 
+/// Formats a UTC millisecond timestamp as `YYYY-MM-DD HH:MM:SS.mmm UTC`.
+///
+/// The calendar conversion is shared with the logger and the tlog writer through
+/// [`crate::core::civil_date::civil_from_days`].
 fn format_utc_timestamp(utc_ms: i64) -> String {
-    let day = utc_ms.div_euclid(86_400_000);
     let ms_of_day = utc_ms.rem_euclid(86_400_000);
-    let z = day + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let day_of_era = z - era * 146_097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let mut year = year_of_era + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_part = (5 * day_of_year + 2) / 153;
-    let day_of_month = day_of_year - (153 * month_part + 2) / 5 + 1;
-    let month = month_part + if month_part < 10 { 3 } else { -9 };
-    year += if month <= 2 { 1 } else { 0 };
+    let (year, month, day_of_month) =
+        crate::core::civil_date::civil_from_days(utc_ms.div_euclid(86_400_000));
 
     let hours = ms_of_day / 3_600_000;
     let minutes = (ms_of_day / 60_000) % 60;
@@ -1341,4 +1335,19 @@ pub fn draw_single_candle<F>(
         Pos2::new(wick_x + half_width, bottom_body),
     );
     painter.rect_filled(body_rect, 0.0, color);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_utc_timestamp_known_values() {
+        assert_eq!(format_utc_timestamp(0), "1970-01-01 00:00:00.000 UTC");
+        // 2026-02-28 23:59:59.999 UTC: one of the dates the old divisor bug used to break.
+        assert_eq!(
+            format_utc_timestamp(1_772_323_199_999),
+            "2026-02-28 23:59:59.999 UTC"
+        );
+    }
 }

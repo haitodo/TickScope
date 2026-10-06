@@ -4,6 +4,7 @@
 //! automatic Win32 console attachment/allocation for GUI builds, and zero-cost
 //! log suppression when running normally without console flags.
 
+use crate::core::civil_date::civil_from_days;
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
 use std::io::Write;
 use std::sync::Mutex;
@@ -22,24 +23,6 @@ pub fn format_utc_timestamp(time: SystemTime) -> String {
     let min = (day_secs % 3600) / 60;
     let sec = day_secs % 60;
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{min:02}:{sec:02}.{millis:03}")
-}
-
-/// Howard Hinnant's civil-date algorithm: converts days since Unix epoch (1970-01-01) to (year, month, day).
-pub fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
-    let z = days_since_unix_epoch + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let day_of_era = z - era * 146_097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let mut year = year_of_era + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_prime = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
-    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
-    if month <= 2 {
-        year += 1;
-    }
-    (year, month as u32, day as u32)
 }
 
 /// Formats a single log line into a string buffer.
@@ -358,14 +341,11 @@ mod tests {
     }
 
     #[test]
-    fn test_civil_from_days_leap_years() {
-        // 2000-02-29 is day 11016
-        // 2024-02-29 is day 19782
-        let (y, m, d) = civil_from_days(11016);
-        assert_eq!((y, m, d), (2000, 2, 29));
-
-        let (y, m, d) = civil_from_days(19782);
-        assert_eq!((y, m, d), (2024, 2, 29));
+    fn test_format_utc_timestamp_late_february() {
+        // 2026-02-28 23:59:59.999 UTC: a late-February date, where a broken leap-year
+        // correction in the shared calendar silently returns the wrong month.
+        let time = SystemTime::UNIX_EPOCH + Duration::from_millis(1_772_323_199_999);
+        assert_eq!(format_utc_timestamp(time), "2026-02-28 23:59:59.999");
     }
 
     #[test]

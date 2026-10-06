@@ -98,19 +98,12 @@ pub fn unix_sec_to_ymd(unix_sec: i64) -> (i32, u32, u32) {
 }
 
 /// Converts days since Unix epoch (1970-01-01) to (year, month, day).
-/// Uses Howard Hinnant's civil date algorithm.
+///
+/// The algorithm itself lives in [`crate::core::civil_date::civil_from_days`] so that
+/// this module, the logger and the tlog writer cannot drift apart again.
 pub fn days_to_ymd(days: i64) -> (i32, u32, u32) {
-    let z = days + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as u32;
-    let yoe = (doe - doe / 1024 + doe / 1461 - doe / 36524) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if m <= 2 { y + 1 } else { y };
-    (year as i32, m, d)
+    let (year, month, day) = crate::core::civil_date::civil_from_days(days);
+    (year as i32, month, day)
 }
 
 /// Converts (year, month, day) to days since Unix epoch (1970-01-01).
@@ -164,6 +157,61 @@ mod tests {
         let (y2, m2, d2) = days_to_ymd(days_2026_09_30);
         assert_eq!((y2, m2, d2), (2026, 9, 30));
         assert_eq!(day_of_week(2026, 9, 30), 3); // Wednesday
+    }
+
+    /// Regression: the `year_of_era` divisors used to be `doe / 1024 + doe / 1461`,
+    /// which produced invalid dates (for example `2026-3-0`) for the last days of
+    /// February every year, and a wrong month on ~6% of all days.
+    #[test]
+    fn test_days_to_ymd_known_dates() {
+        assert_eq!(days_to_ymd(12), (1970, 1, 13));
+        assert_eq!(days_to_ymd(12_112), (2003, 3, 1));
+        assert_eq!(days_to_ymd(19_782), (2024, 2, 29)); // was (2024, 3, 0)
+        assert_eq!(days_to_ymd(20_147), (2025, 2, 28)); // was (2025, 3, 0)
+        assert_eq!(days_to_ymd(20_512), (2026, 2, 28)); // was (2026, 3, 0)
+        assert_eq!(days_to_ymd(20_877), (2027, 2, 28)); // was (2027, 3, 0)
+        assert_eq!(day_of_week(2024, 2, 29), 4); // Thursday
+        assert_eq!(day_of_week(2026, 2, 28), 6); // Saturday
+    }
+
+    fn is_leap_year(year: i32) -> bool {
+        (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    }
+
+    /// Independent, table-based successor of a calendar date.
+    fn next_day((year, month, day): (i32, u32, u32)) -> (i32, u32, u32) {
+        let last_day = match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            _ => {
+                if is_leap_year(year) {
+                    29
+                } else {
+                    28
+                }
+            }
+        };
+        if day < last_day {
+            (year, month, day + 1)
+        } else if month < 12 {
+            (year, month + 1, 1)
+        } else {
+            (year + 1, 1, 1)
+        }
+    }
+
+    /// Walks 1900-01-01 .. 2200-01-01 one day at a time and checks that the result is a
+    /// dense, consecutive calendar. The reference here is a plain days-in-month table,
+    /// so unlike a round-trip check it cannot drift together with the implementation.
+    #[test]
+    fn test_days_to_ymd_is_a_dense_consecutive_calendar() {
+        let mut previous = days_to_ymd(-25_567);
+        assert_eq!(previous, (1900, 1, 1));
+        for days in -25_566_i64..=84_005 {
+            let current = days_to_ymd(days);
+            assert_eq!(current, next_day(previous), "days={days} is not consecutive");
+            previous = current;
+        }
     }
 
     #[test]
