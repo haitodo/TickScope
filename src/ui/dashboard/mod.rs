@@ -8,7 +8,7 @@ pub mod ribbon;
 use self::ribbon::draw_state_ribbon;
 use crate::core::models::{BrokerOverview, UiSnapshot};
 use crate::core::ports::{ClockPort, SnapshotExchangePort};
-use crate::core::types::*;
+use crate::core::types::BrokerId;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::ui::chart::{BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide};
 use crate::ui::fonts::setup_fonts;

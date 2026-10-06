@@ -1,7 +1,7 @@
 //! Abstract ports and sinks for inter-module communication.
 
-use super::models::*;
-use super::types::*;
+use super::models::UiSnapshot;
+use super::types::{ClockReading, BrokerId, HealthState, Diagnostic, LogRecord};
 use crate::protocol::IngressItem;
 use std::sync::Arc;
 

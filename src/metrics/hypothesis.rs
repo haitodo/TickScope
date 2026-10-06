@@ -6,7 +6,7 @@
 //! - NEVER produce trading signals or recommendations (BUY, SELL, ENTRY, EXIT).
 //! - Always present hypotheses with explicit, verifiable evidence chains (RFC Section 50).
 
-use crate::core::types::*;
+use crate::core::types::BrokerId;
 use crate::metrics::fingerprint::{BrokerFingerprint, SampleContext};
 use crate::metrics::persistence::{QuotePersistenceTracker, RepricingPersistenceTracker};
 use serde::{Deserialize, Serialize};

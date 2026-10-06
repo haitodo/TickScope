@@ -18,7 +18,8 @@ use tick_scope::replay::parquet_source::{BrokerParquetSource, ReplayTick};
 use tick_scope::tick::engine::TickEngine;
 
 fn make_test_config() -> AppConfig {
-    let config = AppConfig {
+    
+    AppConfig {
         brokers: vec![
         BrokerConfig {
             id: 1,
@@ -98,8 +99,7 @@ fn make_test_config() -> AppConfig {
     ],
         active_pair: (1, 2),
         ..AppConfig::default()
-    };
-    config
+    }
 }
 
 #[test]

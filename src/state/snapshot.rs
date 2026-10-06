@@ -1,8 +1,8 @@
 //! `UiSnapshot` builder and atomic `ArcSwap` exchange.
 
-use crate::core::models::*;
+use crate::core::models::{EngineProjection, UiSnapshot, SCHEMA_REVISION};
 use crate::core::ports::SnapshotExchangePort;
-use crate::core::types::*;
+use crate::core::types::{RunId, UtcMs, MonoNs};
 use arc_swap::ArcSwap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

@@ -1,8 +1,8 @@
 //! Candle aggregation and `CandleBook` for fixed time slots.
 
 use crate::config::SlotRetention;
-use crate::core::models::*;
-use crate::core::types::*;
+use crate::core::models::{CandleSlot, PriceMode, SlotState, SlotCoverage, Ohlc, CandleView};
+use crate::core::types::{UtcMs, BrokerId, NormalizedTick};
 use std::collections::{BTreeMap, HashMap};
 
 pub const fn calculate_slot_start(utc_ms: UtcMs, period_ms: i64) -> UtcMs {

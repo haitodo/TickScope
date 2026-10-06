@@ -1,7 +1,7 @@
 //! Significant Mid-move event detector for Lead/Lag.
 
 use crate::core::models::{MoveDirection, MoveEvent, MoveQuality};
-use crate::core::types::*;
+use crate::core::types::{BrokerId, Quote, MonoNs, AnalysisSegmentId};
 
 #[derive(Debug, Clone)]
 pub struct SignificantMidMoveDetector {

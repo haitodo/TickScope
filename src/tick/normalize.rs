@@ -1,6 +1,6 @@
 //! UTC Normalizer for Observed Ticks.
 
-use crate::core::types::*;
+use crate::core::types::{ObservedTick, NormalizedTick, UtcMs};
 
 /// Move a broker-stamped tick onto the UTC timeline.
 ///
@@ -49,6 +49,7 @@ pub fn round_to_hourly_offset(raw_sec: f64) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::types::{MonoNs, SequenceDisposition, TickId, TickRecord};
 
     #[test]
     fn test_round_to_hourly_offset() {

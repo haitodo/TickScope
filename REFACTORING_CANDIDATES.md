@@ -89,7 +89,7 @@ cargo clippy --fix --all-targets --features replay --allow-dirty --allow-staged 
 | :--- | :--- |
 | `must_use_candidate` (240) / `return_self_not_must_use` (64) | `#[must_use]` を付けると戻り値を捨てている呼び出し側に `unused_must_use` が新規発生しうる。別コミットで扱うのが安全 |
 | `manual_midpoint` (36) | `f64::midpoint` は Rust 1.85+。MSRV の決定が必要（付録 B） |
-| `wildcard_imports` (35) | glob import の展開は可読性を下げる場合がある。方針判断が必要 |
+| `wildcard_imports` (35) | ~~glob import の展開は可読性を下げる場合がある。方針判断が必要~~ → **対応済み**（35 → 0）。`--fix` で展開したが、**テストコードでのみ使う名前が展開から漏れて 3 ファイルがコンパイルエラーになった**ため、`#[cfg(test)] mod tests` の中に個別 import を補った（モジュール先頭に置くと非テスト時に未使用警告になる） |
 
 **残っているデフォルト Clippy 警告 5 件**（いずれも自動修正不可・要判断）:
 

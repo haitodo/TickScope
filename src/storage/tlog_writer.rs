@@ -2,7 +2,7 @@
 
 use super::error::StorageError;
 use crate::core::ports::{AppendResult, LogSinkPort};
-use crate::core::types::*;
+use crate::core::types::{LogRecord, RunId, BrokerId};
 use crate::protocol::crc32c::crc32c;
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use parking_lot::Mutex;

@@ -4,7 +4,7 @@
 //! behavior followed or reverted when a broker initiates a move.
 
 use crate::core::models::MoveEvent;
-use crate::core::types::*;
+use crate::core::types::{BrokerId, Quote, MonoNs};
 use super::fingerprint::SampleContext;
 use std::collections::VecDeque;
 
@@ -326,6 +326,7 @@ impl RepricingPersistenceTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::types::TickId;
     use crate::core::models::{MoveDirection, MoveQuality};
 
     fn dummy_quote(broker_id: BrokerId, bid: f64, ask: f64, mono_ms: u64) -> Quote {

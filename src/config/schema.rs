@@ -1,7 +1,7 @@
 //! Configuration schema and validation for `TickScope`.
 
-use crate::config::timezone::*;
-use crate::core::types::*;
+use crate::config::timezone::TimezoneRule;
+use crate::core::types::BrokerId;
 use crate::protocol::HEADER_LENGTH;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
