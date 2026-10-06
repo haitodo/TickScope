@@ -6,7 +6,7 @@ use crate::core::models::UiSnapshot;
 use crate::ui::settings::CandlePriceMode;
 use crate::ui::chart::{
     draw_bid_ask_diff_chart,
-    draw_candlestick_chart_for_brokers_with_trades, draw_lead_lag_view,
+    draw_candlestick_chart_for_brokers_with_trades_interactive, draw_lead_lag_view,
     draw_mid_diff_chart, draw_mid_dispersion_view_with_visibility, draw_move_breadth_view,
     draw_quote_persistence_view_with_visibility, draw_realtime_quote_path_chart_with_visibility,
     draw_spread_diff_chart, BottomMetric, BottomMetricCategory, ChartXAxisMode,
@@ -59,7 +59,12 @@ pub fn render_charts_view(
         let trade_data = if app.show_trade_overlay {
             app.trade_store.as_ref().map(|s| {
                 let guard = s.read();
-                (guard.open_positions.clone(), guard.history.clone())
+                let history = if app.show_trade_history {
+                    guard.history.clone()
+                } else {
+                    Vec::new()
+                };
+                (guard.open_positions.clone(), history)
             })
         } else {
             None
@@ -67,7 +72,8 @@ pub fn render_charts_view(
         let trade_slices = trade_data.as_ref().map(|(o, h)| (o.as_slice(), h.as_slice()));
 
         if app.show_candle_context {
-            draw_candlestick_chart_for_brokers_with_trades(
+            draw_candlestick_chart_for_brokers_with_trades_interactive(
+                &mut *ui,
                 &painter,
                 candle_rect,
                 candle_view,
@@ -223,14 +229,39 @@ pub fn render_charts_view(
                 // Right Zone: Bottom X-Axis Mode & Replay Mode Toggle
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if app.trade_store.is_some() {
-                        let (btn_text, btn_color) = if app.show_trade_overlay {
-                            ("[検証モード: 建玉ON]", Color32::from_rgb(0, 240, 160))
+                        let (mode_text, mode_color, mode_hint) = if app.show_trade_history {
+                            (
+                                "[振り返り]",
+                                Color32::from_rgb(0, 220, 255),
+                                "全履歴を表示します。各トレードの約定バーやライン、ホバー詳細を確認できます。",
+                            )
                         } else {
-                            ("[リアル本番モード: 建玉OFF]", Color32::from_gray(150))
+                            (
+                                "[練習中]",
+                                Color32::from_rgb(0, 240, 160),
+                                "建玉のみ表示します。過去履歴を非表示にして最新ティックに集中します。クリックで振り返りに切り替えます。",
+                            )
                         };
                         if ui
-                            .small_button(RichText::new(btn_text).color(btn_color).strong())
-                            .on_hover_text("建玉ライン・約定マーカーの表示/非表示を切り替え (ショートカット: V または Ctrl+P)")
+                            .small_button(RichText::new(mode_text).color(mode_color).strong())
+                            .on_hover_text(mode_hint)
+                            .clicked()
+                        {
+                            app.show_trade_history = !app.show_trade_history;
+                        }
+
+                        let (visibility_text, visibility_color) = if app.show_trade_overlay {
+                            ("約定表示ON", Color32::from_rgb(0, 240, 160))
+                        } else {
+                            ("約定表示OFF", Color32::from_gray(150))
+                        };
+                        if ui
+                            .small_button(
+                                RichText::new(visibility_text)
+                                    .color(visibility_color)
+                                    .strong(),
+                            )
+                            .on_hover_text("トレードマーカーの表示/非表示を切り替えます (V または Ctrl+P)")
                             .clicked()
                         {
                             app.show_trade_overlay = !app.show_trade_overlay;

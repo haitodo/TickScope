@@ -80,6 +80,7 @@ pub struct DashboardApp {
     pub(crate) mt5_config: crate::config::Mt5DeployConfig,
     pub(crate) trade_store: Option<Arc<parking_lot::RwLock<crate::core::models::ReplayTradeStore>>>,
     pub(crate) show_trade_overlay: bool,
+    pub(crate) show_trade_history: bool,
 }
 
 impl DashboardApp {
@@ -139,6 +140,7 @@ impl DashboardApp {
             mt5_config: crate::config::Mt5DeployConfig::default(),
             trade_store: None,
             show_trade_overlay: true,
+            show_trade_history: false,
         }
     }
 
