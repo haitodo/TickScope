@@ -7,6 +7,49 @@ pub const COLOR_TRADEVIEW: Color32 = Color32::from_rgb(229, 57, 53); // #E53935 
 pub const COLOR_JFX: Color32 = Color32::from_rgb(168, 201, 43); // #A8C92B (JFX)
 pub const COLOR_DUKASCOPY: Color32 = Color32::from_rgb(59, 130, 246); // #3B82F6 (Dukascopy)
 
+// ---------------------------------------------------------------------------
+// Chart series and overlay colours.
+//
+// Kept here (rather than inline at the call sites) so the whole chart palette is
+// reviewable in one place. Several entries look similar to `style::WARNING` or
+// to each other; they are intentionally distinct values.
+// ---------------------------------------------------------------------------
+
+/// Difference / mid-diff chart headings and labels.
+pub const DIFF_HEADER: Color32 = Color32::from_rgb(255, 190, 80);
+/// Lead-lag chart heading.
+pub const CHART_TITLE: Color32 = Color32::from_rgb(255, 215, 0);
+/// Move-breadth up / down series.
+pub const BREADTH_UP: Color32 = Color32::from_rgb(80, 200, 220);
+pub const BREADTH_DOWN: Color32 = Color32::from_rgb(255, 160, 80);
+/// Mid-dispersion outlier marker and its "large deviation" caption.
+pub const OUTLIER: Color32 = Color32::from_rgb(255, 100, 100);
+pub const LARGE_DEVIATION: Color32 = Color32::from_rgb(255, 140, 100);
+
+/// Trade overlay colours for the candlestick chart.
+pub const TRADE_ENTRY_BUY: Color32 = Color32::from_rgb(0, 220, 240);
+pub const TRADE_ENTRY_SELL: Color32 = Color32::from_rgb(255, 110, 160);
+pub const TRADE_EXIT_PROFIT: Color32 = Color32::from_rgb(0, 220, 130);
+pub const TRADE_EXIT_LOSS: Color32 = Color32::from_rgb(255, 80, 90);
+pub const TRADE_LINE_PROFIT: Color32 = Color32::from_rgb(0, 210, 130);
+pub const TRADE_LINE_LOSS: Color32 = Color32::from_rgb(240, 70, 90);
+pub const TRADE_MARK_BUY: Color32 = Color32::from_rgb(0, 230, 200);
+pub const TRADE_MARK_SELL: Color32 = Color32::from_rgb(255, 100, 150);
+/// Translucent trade backgrounds. Functions rather than constants because
+/// `Color32::from_rgba_unmultiplied` is not a `const fn` in egui 0.29.
+pub fn trade_tooltip_profit_bg() -> Color32 {
+    Color32::from_rgba_unmultiplied(0, 110, 60, 240)
+}
+pub fn trade_tooltip_loss_bg() -> Color32 {
+    Color32::from_rgba_unmultiplied(150, 30, 40, 240)
+}
+pub fn trade_pill_profit_bg() -> Color32 {
+    Color32::from_rgba_unmultiplied(0, 80, 40, 225)
+}
+pub fn trade_pill_loss_bg() -> Color32 {
+    Color32::from_rgba_unmultiplied(120, 20, 30, 225)
+}
+
 pub struct ChartTheme {
     pub bg_color: Color32,
     pub grid_color: Color32,

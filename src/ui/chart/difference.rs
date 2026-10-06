@@ -98,7 +98,7 @@ pub fn draw_difference_header(
         if header.is_current {
             current_color
         } else {
-            Color32::from_rgb(255, 190, 80)
+            crate::ui::chart::theme::DIFF_HEADER
         },
     );
 }
@@ -168,7 +168,7 @@ pub fn draw_diff_scale(
             egui::Align2::RIGHT_CENTER,
             label,
             egui::FontId::monospace(11.0),
-            Color32::from_gray(185),
+            crate::ui::style::TEXT_AXIS,
         );
     }
 }
@@ -204,7 +204,7 @@ pub fn draw_mid_diff_chart(
             egui::Align2::CENTER_CENTER,
             &header.text,
             egui::FontId::proportional(13.0),
-            Color32::from_rgb(255, 190, 80),
+            crate::ui::chart::theme::DIFF_HEADER,
         );
         return;
     }
@@ -294,7 +294,7 @@ pub fn draw_bid_ask_diff_chart(
             egui::Align2::CENTER_CENTER,
             &header.text,
             egui::FontId::proportional(13.0),
-            Color32::from_rgb(255, 190, 80),
+            crate::ui::chart::theme::DIFF_HEADER,
         );
         return;
     }
@@ -417,7 +417,7 @@ pub fn draw_spread_diff_chart(
             egui::Align2::CENTER_CENTER,
             &header.text,
             egui::FontId::proportional(13.0),
-            Color32::from_rgb(255, 190, 80),
+            crate::ui::chart::theme::DIFF_HEADER,
         );
         return;
     }

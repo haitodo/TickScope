@@ -153,7 +153,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
             egui::Align2::RIGHT_BOTTOM,
             format!("{p:.price_decimals$}"),
             egui::FontId::monospace(11.0),
-            Color32::from_gray(185),
+            crate::ui::style::TEXT_AXIS,
         );
     }
 
@@ -164,7 +164,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         egui::Align2::LEFT_TOP,
         format!("Follow: ±{:.1} pip", price_range / pip_size / 2.0),
         egui::FontId::monospace(11.0),
-        Color32::from_gray(190),
+        crate::ui::style::TEXT_OVERLAY,
     );
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
@@ -249,7 +249,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
             egui::Align2::RIGHT_TOP,
             format!("+{hidden_legends} brokers"),
             egui::FontId::monospace(11.0),
-            Color32::from_gray(180),
+            crate::ui::style::TEXT_SUBDUED,
         );
     }
 

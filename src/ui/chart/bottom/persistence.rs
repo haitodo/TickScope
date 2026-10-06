@@ -71,7 +71,7 @@ pub fn draw_quote_persistence_view_with_visibility(
             egui::Align2::LEFT_CENTER,
             format!("{:.0} t/s", b.tick_rate_1s),
             egui::FontId::monospace(10.0),
-            Color32::from_gray(180),
+            crate::ui::style::TEXT_SUBDUED,
         );
         if let Some(q) = &b.latest_quote {
             painter.text(
@@ -79,7 +79,7 @@ pub fn draw_quote_persistence_view_with_visibility(
                 egui::Align2::RIGHT_CENTER,
                 format!("Spread: {:.3}", q.spread),
                 egui::FontId::monospace(10.0),
-                Color32::from_gray(140),
+                crate::ui::style::TEXT_FAINT,
             );
         }
     }

@@ -6,7 +6,7 @@ use crate::ui::settings::{
     CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, VALID_CANDLE_FIXED_PIPS,
 };
 use eframe::egui;
-use egui::{Color32, RichText};
+use egui::RichText;
 
 pub fn render_top_header(
     app: &mut DashboardApp,
@@ -61,11 +61,11 @@ pub fn render_top_header(
                 format!("{overview_arrow} ● {live_brokers}/{total_brokers} Live")
             };
             let overview_color = if live_brokers == total_brokers && total_brokers > 0 {
-                Color32::from_rgb(0, 220, 140)
+                crate::ui::style::STATUS_OK
             } else if live_brokers > 0 {
-                Color32::from_rgb(255, 200, 60)
+                crate::ui::style::STATUS_WARN
             } else {
-                Color32::from_rgb(255, 120, 120)
+                crate::ui::style::STATUS_ALERT
             };
 
             let mut tooltip = "Toggle Broker Overview table [Key: B]".to_string();
@@ -114,9 +114,9 @@ pub fn render_top_header(
                 egui::Button::new(
                     RichText::new(format!("▶ 起動 ({stopped_count})"))
                         .color(if stopped_count > 0 {
-                            Color32::from_rgb(100, 220, 255)
+                            crate::ui::style::INFO
                         } else {
-                            Color32::from_gray(120)
+                            crate::ui::style::TEXT_DISABLED
                         })
                         .strong(),
                 ),
@@ -158,9 +158,9 @@ pub fn render_top_header(
                 egui::Button::new(
                     RichText::new(format!("⏹ 終了 ({running_count})"))
                         .color(if running_count > 0 {
-                            Color32::from_rgb(255, 140, 140)
+                            crate::ui::style::STATUS_ALERT_SOFT
                         } else {
-                            Color32::from_gray(120)
+                            crate::ui::style::TEXT_DISABLED
                         })
                         .strong(),
                 ),
@@ -192,9 +192,9 @@ pub fn render_top_header(
                 }
 
                 let pin_text = if app.always_on_top {
-                    RichText::new("📌 Pin").color(Color32::from_rgb(0, 220, 255)).strong()
+                    RichText::new("📌 Pin").color(crate::ui::style::HIGHLIGHT).strong()
                 } else {
-                    RichText::new("📌 Pin").color(Color32::from_gray(140))
+                    RichText::new("📌 Pin").color(crate::ui::style::TEXT_FAINT)
                 };
                 let pin_btn = ui.selectable_label(app.always_on_top, pin_text);
                 let pin_hover = if app.always_on_top {
@@ -251,7 +251,7 @@ pub fn render_top_header(
                                 "[{:.0}px | {}]",
                                 app.candle_bar_width, scale_label
                             ))
-                            .color(Color32::from_rgb(180, 220, 255)),
+                            .color(crate::ui::style::SECTION_TITLE),
                         )
                         .show_ui(ui, |ui| {
                             if ui
@@ -289,7 +289,7 @@ pub fn render_top_header(
                     let badge_text = format!("[Top X: {x_label}]");
                     let badge_btn = ui.add(
                         egui::Button::new(
-                            RichText::new(badge_text).color(Color32::from_gray(180)),
+                            RichText::new(badge_text).color(crate::ui::style::TEXT_SUBDUED),
                         )
                         .wrap_mode(egui::TextWrapMode::Extend),
                     );

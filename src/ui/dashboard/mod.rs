@@ -803,13 +803,13 @@ impl DashboardApp {
                     ui.label(
                         RichText::new("各端末にWM_CLOSE（正常終了）を送信し、チャート設定やEA状態を安全に保存して終了します。")
                             .small()
-                            .color(egui::Color32::from_gray(180)),
+                            .color(crate::ui::style::TEXT_SUBDUED),
                     );
                     ui.horizontal(|ui| {
                         if ui
                             .button(
                                 RichText::new("⏹ 終了する")
-                                    .color(egui::Color32::from_rgb(255, 120, 120))
+                                    .color(crate::ui::style::STATUS_ALERT)
                                     .strong(),
                             )
                             .clicked()

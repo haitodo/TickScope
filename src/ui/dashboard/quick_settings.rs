@@ -6,7 +6,7 @@ use crate::ui::settings::{
     VALID_CANDLE_FIXED_PIPS,
 };
 use eframe::egui;
-use egui::{Color32, RichText};
+use egui::RichText;
 
 pub fn render_quick_settings(
     app: &mut DashboardApp,
@@ -57,7 +57,7 @@ pub fn render_quick_settings(
                             if app.window_geometry.maximized { " (最大化)" } else { "" }
                         ))
                         .small()
-                        .color(Color32::from_gray(160)),
+                        .color(crate::ui::style::TEXT_LABEL),
                     );
                     let reset_btn = ui.small_button("⟲ リセット (1100×750)");
                     if reset_btn
@@ -85,7 +85,7 @@ pub fn render_quick_settings(
                         ui.label(
                             RichText::new("Candlestick Display")
                                 .strong()
-                                .color(Color32::from_rgb(180, 220, 255)),
+                                .color(crate::ui::style::SECTION_TITLE),
                         );
                     });
 
@@ -128,7 +128,7 @@ pub fn render_quick_settings(
                     ui.label(
                         RichText::new("Reference price; not directly executable")
                             .small()
-                            .color(Color32::from_gray(150)),
+                            .color(crate::ui::style::TEXT_HINT),
                     );
                 }
             });
@@ -189,7 +189,7 @@ pub fn render_quick_settings(
                 ui.label(
                     RichText::new("Visible Brokers (表示業者)")
                         .strong()
-                        .color(Color32::from_rgb(180, 220, 255)),
+                        .color(crate::ui::style::SECTION_TITLE),
                 );
                 if !app.hidden_brokers.is_empty()
                     && ui
@@ -217,7 +217,7 @@ pub fn render_quick_settings(
                 ui.label(
                     RichText::new("Chart Axes & Timeline")
                         .strong()
-                        .color(Color32::from_rgb(180, 220, 255)),
+                        .color(crate::ui::style::SECTION_TITLE),
                 );
             });
 
@@ -252,7 +252,7 @@ pub fn render_quick_settings(
                 ui.label(
                     RichText::new("MT5 Process Lifecycle")
                         .strong()
-                        .color(Color32::from_rgb(180, 220, 255)),
+                        .color(crate::ui::style::SECTION_TITLE),
                 );
             });
 
@@ -305,7 +305,7 @@ pub fn render_quick_settings(
                         .terminal_manager
                         .get_exe_path(b.id).map_or_else(|| "Not found".to_string(), |p| p.display().to_string());
                     ui.label(RichText::new(&b.name).strong());
-                    ui.label(RichText::new(path_str).small().monospace().color(Color32::from_gray(160)));
+                    ui.label(RichText::new(path_str).small().monospace().color(crate::ui::style::TEXT_LABEL));
                 }
             });
 
@@ -316,7 +316,7 @@ pub fn render_quick_settings(
                 ui.label(
                     RichText::new("Window & Display (画面・ウィンドウ)")
                         .strong()
-                        .color(Color32::from_rgb(180, 220, 255)),
+                        .color(crate::ui::style::SECTION_TITLE),
                 );
             });
 
@@ -342,7 +342,7 @@ pub fn render_quick_settings(
             ui.horizontal(|ui| {
                 let reset_btn = ui.button(
                     RichText::new("⟲ 画面サイズをリセット (1100×750)")
-                        .color(Color32::from_rgb(220, 230, 255))
+                        .color(crate::ui::style::BUTTON_TEXT)
                         .strong(),
                 );
                 if reset_btn
@@ -361,7 +361,7 @@ pub fn render_quick_settings(
                     RichText::new(
                         "Keys: [S] Settings, [T] Pin/Top, [Ctrl+0] Reset Size, [B] Brokers, [P] Pair, [1-8] Metric, [Esc] Close",
                     )
-                    .color(Color32::from_gray(140))
+                    .color(crate::ui::style::TEXT_FAINT)
                     .small(),
                 );
             });

@@ -128,7 +128,7 @@ pub fn render_charts_view(
                 // Indicator Selector (ComboBox + Prev/Next buttons)
                 ui.label(
                     RichText::new("Indicator:")
-                        .color(Color32::from_rgb(180, 200, 220))
+                        .color(crate::ui::style::LABEL_STRONG)
                         .strong(),
                 );
 
@@ -147,7 +147,7 @@ pub fn render_charts_view(
                     .selected_text(
                         RichText::new(app.bottom_metric.label())
                             .strong()
-                            .color(Color32::from_rgb(0, 220, 255)),
+                            .color(crate::ui::style::HIGHLIGHT),
                     )
                     .width(155.0)
                     .show_ui(ui, |ui| {
@@ -156,13 +156,13 @@ pub fn render_charts_view(
                                 RichText::new(category.title())
                                     .small()
                                     .strong()
-                                    .color(Color32::from_rgb(180, 200, 220)),
+                                    .color(crate::ui::style::LABEL_STRONG),
                             );
                             for &m in category.metrics() {
                                 let is_active = app.bottom_metric == m;
                                 let text = RichText::new(m.label());
                                 let rich = if is_active {
-                                    text.strong().color(Color32::from_rgb(0, 220, 255))
+                                    text.strong().color(crate::ui::style::HIGHLIGHT)
                                 } else {
                                     text.color(Color32::WHITE)
                                 };
@@ -192,12 +192,12 @@ pub fn render_charts_view(
                 // Pair Selector (Pair metrics 1-4)
                 if app.bottom_metric.is_pair_metric() {
                     ui.separator();
-                    ui.label(RichText::new("Pair:").color(Color32::from_gray(160)).small());
+                    ui.label(RichText::new("Pair:").color(crate::ui::style::TEXT_LABEL).small());
 
                     ui.menu_button(
                         RichText::new(format!("[A] {name_a}"))
                             .strong()
-                            .color(Color32::from_rgb(0, 220, 255)),
+                            .color(crate::ui::style::HIGHLIGHT),
                         |ui| {
                             for b in &snapshot.broker_overviews {
                                 if b.broker_id != app.selected_broker_b
@@ -210,12 +210,12 @@ pub fn render_charts_view(
                         },
                     );
 
-                    ui.label(RichText::new("vs").color(Color32::from_gray(130)).small());
+                    ui.label(RichText::new("vs").color(crate::ui::style::TEXT_SEPARATOR).small());
 
                     ui.menu_button(
                         RichText::new(format!("[B] {name_b}"))
                             .strong()
-                            .color(Color32::from_rgb(255, 120, 200)),
+                            .color(crate::ui::style::BROKER_B),
                         |ui| {
                             for b in &snapshot.broker_overviews {
                                 if b.broker_id != app.selected_broker_a
@@ -235,13 +235,13 @@ pub fn render_charts_view(
                         let (mode_text, mode_color, mode_hint) = if app.show_trade_history {
                             (
                                 "[振り返り]",
-                                Color32::from_rgb(0, 220, 255),
+                                crate::ui::style::HIGHLIGHT,
                                 "全履歴を表示します。各トレードの約定バーやライン、ホバー詳細を確認できます。",
                             )
                         } else {
                             (
                                 "[練習中]",
-                                Color32::from_rgb(0, 240, 160),
+                                crate::ui::style::OVERLAY_ON,
                                 "建玉のみ表示します。過去履歴を非表示にして最新ティックに集中します。クリックで振り返りに切り替えます。",
                             )
                         };
@@ -254,9 +254,9 @@ pub fn render_charts_view(
                         }
 
                         let (visibility_text, visibility_color) = if app.show_trade_overlay {
-                            ("約定表示ON", Color32::from_rgb(0, 240, 160))
+                            ("約定表示ON", crate::ui::style::OVERLAY_ON)
                         } else {
-                            ("約定表示OFF", Color32::from_gray(150))
+                            ("約定表示OFF", crate::ui::style::TEXT_HINT)
                         };
                         if ui
                             .small_button(
@@ -279,7 +279,7 @@ pub fn render_charts_view(
                     if ui.selectable_label(is_b_time, "Time").clicked() {
                         app.set_bottom_x_axis_mode(ChartXAxisMode::ReceiveTime);
                     }
-                    ui.label(RichText::new("Bottom X:").color(Color32::from_gray(160)).small());
+                    ui.label(RichText::new("Bottom X:").color(crate::ui::style::TEXT_LABEL).small());
                     if ui
                         .small_button("業者順")
                         .on_hover_text("ローソク足の業者順を変更")

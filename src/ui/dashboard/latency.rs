@@ -1,5 +1,4 @@
 use crate::metrics::StageLatencySummary;
-use egui::Color32;
 
 /// Latency Dashboard for Debug overlay (RFC §66)
 pub fn draw_latency_dashboard(ui: &mut egui::Ui, summary: &StageLatencySummary) {
@@ -7,7 +6,7 @@ pub fn draw_latency_dashboard(ui: &mut egui::Ui, summary: &StageLatencySummary) 
     ui.label(
         egui::RichText::new("Pipeline Latency")
             .strong()
-            .color(Color32::from_rgb(200, 180, 255)),
+            .color(crate::ui::style::METRIC_ACCENT),
     );
     let draw_stage = |ui: &mut egui::Ui, name: &str, stats: &crate::metrics::PercentileStats| {
         if stats.sample_count > 0 {

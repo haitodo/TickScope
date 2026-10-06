@@ -186,9 +186,9 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                         .pointer_hover_pos()
                         .is_some_and(|p| row_rect.contains(p));
                     let bg_color = if is_hovered {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 6)
+                        crate::ui::style::row_hover()
                     } else if index % 2 == 0 {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 2)
+                        crate::ui::style::row_stripe()
                     } else {
                         Color32::TRANSPARENT
                     };

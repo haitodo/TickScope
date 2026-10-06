@@ -36,9 +36,9 @@ pub fn draw_state_ribbon(
         ui.separator();
         if let Some(c) = consensus {
             let fresh_color = if c.fresh_count == c.total_count {
-                Color32::from_rgb(0, 200, 160)
+                crate::ui::style::FRESH_ALL
             } else {
-                Color32::from_rgb(255, 200, 80)
+                crate::ui::style::FRESH_PARTIAL
             };
             ui.colored_label(
                 fresh_color,

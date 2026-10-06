@@ -65,7 +65,7 @@ pub fn draw_mid_dispersion_view_with_visibility(
             egui::Align2::RIGHT_TOP,
             format!("MAD: {:.2}pt", mad * 1000.0),
             egui::FontId::monospace(11.0),
-            Color32::from_rgb(200, 180, 255),
+            crate::ui::style::METRIC_ACCENT,
         );
     }
 
@@ -140,7 +140,7 @@ pub fn draw_mid_dispersion_view_with_visibility(
                 br,
                 2.0,
                 if is_outlier {
-                    Color32::from_rgb(255, 100, 100)
+                    crate::ui::chart::theme::OUTLIER
                 } else {
                     color
                 },
@@ -155,7 +155,7 @@ pub fn draw_mid_dispersion_view_with_visibility(
                 al,
                 format!("{:+.1}pt", dev * 1000.0),
                 egui::FontId::monospace(10.0),
-                Color32::from_gray(180),
+                crate::ui::style::TEXT_SUBDUED,
             );
             if is_outlier {
                 painter.text(
@@ -163,7 +163,7 @@ pub fn draw_mid_dispersion_view_with_visibility(
                     egui::Align2::RIGHT_CENTER,
                     "Large Deviation",
                     egui::FontId::monospace(9.0),
-                    Color32::from_rgb(255, 140, 100),
+                    crate::ui::chart::theme::LARGE_DEVIATION,
                 );
             }
         }

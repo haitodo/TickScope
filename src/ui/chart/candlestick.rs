@@ -431,7 +431,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             egui::Align2::RIGHT_BOTTOM,
             format!("{p:.price_decimals$}"),
             egui::FontId::monospace(11.0),
-            Color32::from_gray(180),
+            crate::ui::style::TEXT_SUBDUED,
         );
     }
 
@@ -477,7 +477,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             egui::Align2::RIGHT_TOP,
             format!("Fixed: ±{half_span_str} pip {detail_str}"),
             egui::FontId::monospace(11.0),
-            Color32::from_gray(190),
+            crate::ui::style::TEXT_OVERLAY,
         );
     }
 
@@ -487,7 +487,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             egui::Align2::CENTER_CENTER,
             "Waiting for Candle Data in current window...\n(Ensure broker UTC offset is verified)",
             egui::FontId::proportional(13.0),
-            Color32::from_gray(140),
+            crate::ui::style::TEXT_FAINT,
         );
     }
 
@@ -595,7 +595,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             egui::Align2::RIGHT_TOP,
             format!("+{hidden_legends} brokers"),
             egui::FontId::monospace(11.0),
-            Color32::from_gray(180),
+            crate::ui::style::TEXT_SUBDUED,
         );
     }
 
@@ -736,14 +736,14 @@ fn draw_trade_overlays_impl(
 
         let is_buy = trade.side.eq_ignore_ascii_case("BUY");
         let entry_color = if is_buy {
-            Color32::from_rgb(0, 220, 240)
+            crate::ui::chart::theme::TRADE_ENTRY_BUY
         } else {
-            Color32::from_rgb(255, 110, 160)
+            crate::ui::chart::theme::TRADE_ENTRY_SELL
         };
         let exit_color = if trade.profit >= 0.0 {
-            Color32::from_rgb(0, 220, 130)
+            crate::ui::chart::theme::TRADE_EXIT_PROFIT
         } else {
-            Color32::from_rgb(255, 80, 90)
+            crate::ui::chart::theme::TRADE_EXIT_LOSS
         };
 
         // バー全体をホバー判定領域にする
@@ -789,9 +789,9 @@ fn draw_trade_overlays_impl(
         // トレード結果ライン（エントリー〜エグジットの結線）
         if let Some((_, _, _, _, exit_pt)) = exit_data {
             let line_color = if trade.profit >= 0.0 {
-                Color32::from_rgb(0, 210, 130)
+                crate::ui::chart::theme::TRADE_LINE_PROFIT
             } else {
-                Color32::from_rgb(240, 70, 90)
+                crate::ui::chart::theme::TRADE_LINE_LOSS
             };
             let stroke = if entry_hovered || exit_hovered {
                 Stroke::new(1.6_f32, line_color.gamma_multiply(0.9))
@@ -843,9 +843,9 @@ fn draw_trade_overlays_impl(
         );
         let entry_y = price_to_y(trade.open_price);
         let entry_color = if is_buy {
-            Color32::from_rgb(0, 230, 200)
+            crate::ui::chart::theme::TRADE_MARK_BUY
         } else {
-            Color32::from_rgb(255, 100, 150)
+            crate::ui::chart::theme::TRADE_MARK_SELL
         };
 
         let entry_bar_rect = Rect::from_min_max(
@@ -1014,9 +1014,9 @@ fn draw_price_axis_position_badge(
     // 形式B: 建値 (+pips) 例: "150.235 (+1.8p)" (BUY/SELLなし)
     let text = format!("{open_price:.price_decimals$} ({pips:+.1}p)");
     let bg_color = if pips >= 0.0 {
-        Color32::from_rgba_unmultiplied(0, 110, 60, 240)
+        crate::ui::chart::theme::trade_tooltip_profit_bg()
     } else {
-        Color32::from_rgba_unmultiplied(150, 30, 40, 240)
+        crate::ui::chart::theme::trade_tooltip_loss_bg()
     };
 
     let font_id = egui::FontId::monospace(10.0);
@@ -1077,14 +1077,14 @@ fn draw_header_position_hud(
         );
 
         let bg_color = if pips >= 0.0 {
-            Color32::from_rgba_unmultiplied(0, 80, 40, 225)
+            crate::ui::chart::theme::trade_pill_profit_bg()
         } else {
-            Color32::from_rgba_unmultiplied(120, 20, 30, 225)
+            crate::ui::chart::theme::trade_pill_loss_bg()
         };
         let border_color = if is_buy {
-            Color32::from_rgb(0, 230, 200)
+            crate::ui::chart::theme::TRADE_MARK_BUY
         } else {
-            Color32::from_rgb(255, 100, 150)
+            crate::ui::chart::theme::TRADE_MARK_SELL
         };
 
         let font_id = egui::FontId::monospace(10.5);

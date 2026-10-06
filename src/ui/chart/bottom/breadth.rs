@@ -34,12 +34,12 @@ pub fn draw_move_breadth_view(
             egui::Align2::RIGHT_CENTER,
             format!("UP {}", b.up_ratio_str()),
             egui::FontId::monospace(11.0),
-            Color32::from_rgb(80, 200, 220),
+            crate::ui::chart::theme::BREADTH_UP,
         );
         painter.rect_filled(
             Rect::from_min_size(Pos2::new(bl, y0), egui::Vec2::new(bw * up_f, 12.0)),
             2.0,
-            Color32::from_rgb(80, 200, 220),
+            crate::ui::chart::theme::BREADTH_UP,
         );
 
         let dn_f = b.down_count as f32 / total as f32;
@@ -49,12 +49,12 @@ pub fn draw_move_breadth_view(
             egui::Align2::RIGHT_CENTER,
             format!("DN {}", b.down_ratio_str()),
             egui::FontId::monospace(11.0),
-            Color32::from_rgb(255, 160, 80),
+            crate::ui::chart::theme::BREADTH_DOWN,
         );
         painter.rect_filled(
             Rect::from_min_size(Pos2::new(bl, dy), egui::Vec2::new(bw * dn_f, 12.0)),
             2.0,
-            Color32::from_rgb(255, 160, 80),
+            crate::ui::chart::theme::BREADTH_DOWN,
         );
     } else {
         painter.text(
@@ -73,7 +73,7 @@ pub fn draw_move_breadth_view(
             egui::Align2::LEFT_TOP,
             "Recent Clusters:",
             egui::FontId::monospace(11.0),
-            Color32::from_gray(160),
+            crate::ui::style::TEXT_LABEL,
         );
         let name_of = |bid: BrokerId| -> &str {
             broker_overviews
@@ -99,7 +99,7 @@ pub fn draw_move_breadth_view(
                     name_of(cl.last_observed)
                 ),
                 egui::FontId::monospace(10.0),
-                Color32::from_gray(140),
+                crate::ui::style::TEXT_FAINT,
             );
         }
     }

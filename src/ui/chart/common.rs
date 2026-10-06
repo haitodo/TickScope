@@ -1,7 +1,7 @@
 use crate::core::models::BrokerOverview;
 use crate::core::types::{ConnectionState, FreshnessState, MonoNs};
 use super::quote_path::ChartXAxisMode;
-use egui::{Color32, Pos2, Rect};
+use egui::{Pos2, Rect};
 
 pub const CHART_HEADER_HEIGHT: f32 = 40.0;
 pub const CHART_FOOTER_HEIGHT: f32 = 18.0;
@@ -86,7 +86,7 @@ pub fn draw_x_axis_caption(
         egui::Align2::LEFT_BOTTOM,
         caption,
         egui::FontId::monospace(11.0),
-        Color32::from_gray(170),
+        crate::ui::style::TEXT_CAPTION,
     );
 }
 

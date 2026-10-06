@@ -54,7 +54,7 @@ pub fn draw_lead_lag_view(
             egui::Align2::LEFT_TOP,
             header_text,
             egui::FontId::proportional(16.0),
-            Color32::from_rgb(255, 215, 0),
+            crate::ui::chart::theme::CHART_TITLE,
         );
 
         // Visual bar showing relative lead direction
@@ -68,7 +68,7 @@ pub fn draw_lead_lag_view(
                 Pos2::new(bar_center_x - max_bar_half_width, bar_center_y),
                 Pos2::new(bar_center_x + max_bar_half_width, bar_center_y),
             ],
-            Stroke::new(2.0_f32, Color32::from_gray(60)),
+            Stroke::new(2.0_f32, crate::ui::style::RULE_DARK),
         );
 
         // Center tick
@@ -77,7 +77,7 @@ pub fn draw_lead_lag_view(
                 Pos2::new(bar_center_x, bar_center_y - 8.0),
                 Pos2::new(bar_center_x, bar_center_y + 8.0),
             ],
-            Stroke::new(2.0_f32, Color32::from_gray(140)),
+            Stroke::new(2.0_f32, crate::ui::style::TEXT_FAINT),
         );
 
         let color_a = broker_color_by_name(&broker_a_name).unwrap_or(theme.candle_up_a);
@@ -158,7 +158,7 @@ pub fn draw_lead_lag_view(
             egui::Align2::LEFT_TOP,
             details,
             egui::FontId::monospace(12.0),
-            Color32::from_gray(180),
+            crate::ui::style::TEXT_SUBDUED,
         );
     } else {
         let ema_info = comp
