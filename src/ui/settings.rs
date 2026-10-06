@@ -434,6 +434,12 @@ impl From<UiStateError> for String {
 }
 
 /// Saves UI state to the given JSON file path using an atomic write (temp file + rename).
+/// # Errors
+///
+/// Returns [`UiStateError::CreateDir`] when the parent directory cannot be created,
+/// [`UiStateError::Serialize`] when the state cannot be serialized, and
+/// [`UiStateError::WriteTemp`] / [`UiStateError::DirectWrite`] when neither the atomic write nor
+/// the direct fallback can write the file.
 pub fn save_ui_state<P: AsRef<Path>>(path: P, state: &UiState) -> Result<(), UiStateError> {
     let p = path.as_ref();
     if let Some(parent) = p.parent() {

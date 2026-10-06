@@ -94,10 +94,22 @@ pub struct RuntimeCoordinator {
 }
 
 impl RuntimeCoordinator {
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::new_with_diagnostics`].
     pub fn new(config: AppConfig) -> Result<Self, String> {
         Self::new_with_diagnostics(config, false)
     }
 
+    /// # Errors
+    ///
+    /// Returns a message from [`AppConfig::validate`] when the configuration is invalid, and a
+    /// diagnostics start-up message when the diagnostics CSV cannot be created.
+    ///
+    /// # Panics
+    ///
+    /// The spawned event-loop thread unwraps `interval.checked_sub(elapsed)`; the loop interval is a
+    /// fixed positive constant, so this cannot fire.
     pub fn new_with_diagnostics(
         config: AppConfig,
         diagnostics_enabled: bool,

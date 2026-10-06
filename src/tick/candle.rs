@@ -50,6 +50,14 @@ impl CandleBook {
         }
     }
 
+    /// Fold one normalized tick into every supported candle period.
+    ///
+    /// Ticks with a non-positive, non-finite or inverted quote are ignored.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `books` has no entry for a period listed in `supported_periods`; both are populated
+    /// together in [`Self::with_retentions`], so this cannot fire.
     pub fn on_tick(
         &mut self,
         tick: &NormalizedTick,

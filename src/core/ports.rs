@@ -54,6 +54,10 @@ pub trait LogSinkPort: Send + Sync {
     /// Implementations that only provide an in-memory sink may retain the
     /// default behaviour. The production logger overrides this to wait until
     /// the record is flushed and synced before reporting success.
+    /// # Errors
+    ///
+    /// Returns the sink reason string when the queue is full or the sink reports a fault; durable
+    /// implementations return the underlying storage error instead.
     fn append_durable(&self, record: Arc<LogRecord>) -> Result<(), String> {
         match self.try_append(record) {
             AppendResult::Accepted => Ok(()),
@@ -62,6 +66,11 @@ pub trait LogSinkPort: Send + Sync {
         }
     }
 
+    /// Flush every record accepted so far.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable reason when the sink cannot flush its pending data.
     fn flush(&self) -> Result<(), String>;
 }
 

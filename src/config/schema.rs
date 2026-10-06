@@ -464,6 +464,13 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::Validation`] when the configuration is inconsistent: fewer than two
+    /// brokers, a blank broker name, broker id 0 or duplicated, two brokers sharing a fixed port
+    /// while `mt5.auto_deploy` is off, a non-positive `point_size` / `pip_size`, an active pair that
+    /// is not part of the broker list, or a non-positive matcher / history limit. Each case carries a
+    /// message naming the offending value.
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.brokers.len() < 2 {
             return Err(ConfigError::Validation("At least 2 brokers must be configured".to_string()));

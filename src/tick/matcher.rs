@@ -49,6 +49,12 @@ impl OneToOneEventMatcher {
         self.segment_id = new_segment_id;
     }
 
+    /// Feed one move event and return a lead/lag match when the opposite broker already fired.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `find_best_match` returns an index outside the queue it searched; the index is
+    /// derived from that queue, so this cannot fire.
     pub fn on_event(&mut self, event: MoveEvent) -> Option<LeadLagMatch> {
         if event.segment_id != self.segment_id {
             return None;

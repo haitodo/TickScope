@@ -25,6 +25,11 @@ pub const RECORD_KIND_RAW_FRAME: u16 = 1;
 pub const RECORD_KIND_METADATA: u16 = 2;
 pub const RECORD_KIND_DIAGNOSTIC: u16 = 3;
 
+/// Encode one log record into a self-contained envelope, CRC32C included.
+///
+/// # Errors
+///
+/// Never fails today; the `Result` keeps a future encoding failure from changing every call site.
 pub fn encode_record(
     record: &LogRecord,
     record_index: u64,
@@ -225,6 +230,12 @@ fn utc_date_now() -> String {
 }
 
 impl AsyncLogger {
+    /// Create the logger worker, its channel and the run directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::InvalidCapacity`] when `capacity` or `max_queue_bytes` is zero, and
+    /// [`StorageError::Io`] when the log directory cannot be created.
     pub fn new<P: AsRef<Path>>(
         log_dir: P,
         run_id: RunId,

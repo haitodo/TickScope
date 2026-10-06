@@ -46,6 +46,13 @@ impl StreamingDecoder {
         self.buffer.len() - self.consumed
     }
 
+    /// Append received bytes to the reassembly buffer, returning how many were consumed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProtocolError::ArithmeticOverflow`] when the buffer arithmetic overflows, and
+    /// [`ProtocolError::PayloadLengthExceedsMax`] when the pending data would exceed twice the largest
+    /// legal frame.
     pub fn push(&mut self, data: &[u8]) -> Result<usize, ProtocolError> {
         let max_total = (HEADER_LENGTH as usize)
             .checked_add(self.max_payload_length)
@@ -70,6 +77,17 @@ impl StreamingDecoder {
         Ok(data.len())
     }
 
+    /// Decode the next complete frame, if one is buffered.
+    ///
+    /// Returns `Ok(None)` when more bytes are needed; the buffered data is left untouched.
+    ///
+    /// # Errors
+    ///
+    /// Returns any [`ProtocolError`] reported by [`decode_header`] for a complete header (magic,
+    /// version, message type, flags or field length violations),
+    /// [`ProtocolError::PayloadLengthExceedsMax`] when the declared payload is larger than this
+    /// decoder accepts, and [`ProtocolError::ArithmeticOverflow`] when the frame length calculation
+    /// overflows.
     pub fn next_frame(&mut self) -> Result<Option<DecodedFrame>, ProtocolError> {
         if self.buffer_len() < HEADER_LENGTH as usize {
             return Ok(None);
@@ -169,6 +187,12 @@ impl StreamingDecoder {
     }
 }
 
+/// Encode a frame into wire bytes.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::ArithmeticOverflow`] when the payload length or the total frame length
+/// cannot be represented.
 pub fn encode_frame(frame: &Frame) -> Result<Vec<u8>, ProtocolError> {
     let payload_len = match &frame.payload {
         FramePayload::TickBatch(ticks) => ticks

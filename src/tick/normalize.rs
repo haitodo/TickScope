@@ -2,6 +2,12 @@
 
 use crate::core::types::*;
 
+/// Move a broker-stamped tick onto the UTC timeline.
+///
+/// # Errors
+///
+/// Returns a message when the broker UTC offset is not verified, when scaling the offset to
+/// milliseconds overflows, or when subtracting it from the broker timestamp underflows.
 pub fn normalize_tick(
     observed: &ObservedTick,
     utc_offset_sec: i32,

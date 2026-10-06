@@ -142,6 +142,11 @@ pub fn detect_color_support() -> bool {
 /// If `console_enabled` is false, `log::max_level` is set to `LevelFilter::Off`,
 /// ensuring all subsequent log macro evaluations become instantaneous no-ops
 /// without allocating strings or formatting parameters.
+/// # Errors
+///
+/// Currently never fails: a [`SetLoggerError`] from `log::set_boxed_logger` (a logger was already
+/// installed) is absorbed so that repeated initialisation stays harmless. The `Result` is kept so
+/// callers can propagate a future failure without changing signatures.
 pub fn init_logging(
     console_enabled: bool,
     explicit_level: Option<LevelFilter>,

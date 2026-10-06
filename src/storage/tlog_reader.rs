@@ -25,6 +25,13 @@ pub struct LogFileReader<R: Read + Seek> {
 }
 
 impl<R: Read + Seek> LogFileReader<R> {
+    /// Read and validate a table-log file header.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::Io`] when the header cannot be read, [`StorageError::InvalidMagic`]
+    /// when the file is not a tlog, [`StorageError::UnsupportedVersion`] for an unknown storage
+    /// version, and [`StorageError::InvalidHeaderLength`] when the declared header size is wrong.
     pub fn new(mut reader: R) -> Result<Self, StorageError> {
         let mut hdr_buf = [0u8; FILE_HEADER_LEN];
         reader.read_exact(&mut hdr_buf)?;

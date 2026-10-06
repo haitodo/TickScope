@@ -51,6 +51,12 @@ pub struct BrokerParquetSource {
 }
 
 impl BrokerParquetSource {
+    /// Discover the broker Hive partitions under `root_dir`, skipping entries that do not parse.
+    ///
+    /// # Errors
+    ///
+    /// Never fails today (unreadable partition directories are skipped); the `Result` keeps a future
+    /// discovery failure from changing every call site.
     pub fn new(
         broker_id: BrokerId,
         broker_name: &str,
@@ -223,6 +229,9 @@ impl BrokerParquetSource {
     }
 
     /// Load the partition corresponding to the given year and month.
+    /// # Errors
+    ///
+    /// Propagates the error from [`Self::load_partition_by_idx`].
     pub fn load_partition(&mut self, year: i32, month: u32) -> Result<bool, String> {
         let idx = self.partitions.iter().position(|p| p.year == year && p.month == month);
         let Some(idx) = idx else {
@@ -232,6 +241,9 @@ impl BrokerParquetSource {
     }
 
     /// Load partition by internal index (0-based) using memory cache.
+    /// # Errors
+    ///
+    /// Returns a message naming the Parquet file when it cannot be opened or read.
     pub fn load_partition_by_idx(&mut self, idx: usize) -> Result<bool, String> {
         if idx >= self.partitions.len() {
             return Ok(false);
@@ -303,6 +315,9 @@ impl BrokerParquetSource {
     }
 
     /// Load the partition containing or nearest to the specified UTC millisecond timestamp.
+    /// # Errors
+    ///
+    /// Propagates the error from [`Self::load_partition`] when the covering partition cannot be read.
     pub fn load_for_utc_ms(&mut self, utc_ms: i64) -> Result<bool, String> {
         let dt = chrono::DateTime::from_timestamp(utc_ms / 1000, 0)
             .map(|d| d.naive_utc());

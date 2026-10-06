@@ -5,6 +5,10 @@ use std::fs;
 use std::path::Path;
 
 /// An explicit path always wins; portable installs need no external config.
+/// # Errors
+///
+/// Returns [`ConfigError::PathCheck`] when a candidate path cannot be inspected, and any error
+/// from [`load_config_from_file`] or [`load_config_from_str`] for the first source that exists.
 pub fn load_startup_config(
     explicit: Option<&Path>,
     exe_dir: &Path,
@@ -25,6 +29,12 @@ pub fn load_startup_config(
     load_config_from_str(include_str!("../../config/default.toml"))
 }
 
+/// Read and validate a configuration file.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::Io`] when the file cannot be read, [`ConfigError::Parse`] when it is
+/// not valid TOML, and [`ConfigError::Validation`] when the parsed values are invalid.
 pub fn load_config_from_file<P: AsRef<Path>>(path: P) -> Result<AppConfig, ConfigError> {
     let p = path.as_ref();
     let content = fs::read_to_string(p).map_err(|e| ConfigError::Io {
@@ -34,6 +44,12 @@ pub fn load_config_from_file<P: AsRef<Path>>(path: P) -> Result<AppConfig, Confi
     load_config_from_str(&content)
 }
 
+/// Parse and validate a configuration from a TOML string.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::Parse`] when `s` does not match the configuration schema, and
+/// [`ConfigError::Validation`] when [`AppConfig::validate`] rejects the parsed values.
 pub fn load_config_from_str(s: &str) -> Result<AppConfig, ConfigError> {
     let config: AppConfig = toml::from_str(s)?;
     config.validate()?;

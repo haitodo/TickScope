@@ -168,6 +168,10 @@ impl TerminalManager {
     }
 
     /// Launch terminal for a single broker.
+    /// # Errors
+    ///
+    /// Returns a message when no executable path is known for the broker, or when the terminal
+    /// process cannot be spawned.
     pub fn launch(&mut self, broker_id: BrokerId, minimized: bool) -> Result<u32, String> {
         let exe_path = self
             .get_exe_path(broker_id)

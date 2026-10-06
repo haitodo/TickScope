@@ -60,6 +60,12 @@ pub struct CliArgs {
 
 impl CliArgs {
     /// Parse arguments from an iterator of strings (excluding the executable name).
+    /// # Errors
+    ///
+    /// Returns [`CliError::EmptyConfigPath`] or [`CliError::MultipleConfigFiles`] when the
+    /// configuration path is empty or given twice, [`CliError::MissingOptionValue`] when an option
+    /// that takes a value is the last argument, [`CliError::UnknownOption`] for an unrecognised
+    /// flag, and [`CliError::InvalidLogLevel`] for an invalid `--log-level` value.
     pub fn parse<I, T>(args: I) -> Result<Self, CliError>
     where
         I: IntoIterator<Item = T>,
@@ -214,6 +220,10 @@ impl CliArgs {
 }
 
 /// Parse a log level string into a `LevelFilter`.
+/// # Errors
+///
+/// Returns [`CliError::InvalidLogLevel`] when `s` is not one of `off`, `error`, `warn`, `info`,
+/// `debug` or `trace`. Matching is case-insensitive, and `err` / `warning` are accepted aliases.
 pub fn parse_level_filter(s: &str) -> Result<LevelFilter, CliError> {
     match s.trim().to_ascii_lowercase().as_str() {
         "off" => Ok(LevelFilter::Off),

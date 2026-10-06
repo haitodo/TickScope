@@ -30,6 +30,15 @@ pub struct ReplayCoordinator {
 }
 
 impl ReplayCoordinator {
+    /// # Errors
+    ///
+    /// Returns a message from [`AppConfig::validate`] when the configuration is invalid, and a
+    /// per-broker message when that broker has no Parquet source under `tick_dir`.
+    ///
+    /// # Panics
+    ///
+    /// The spawned clock thread unwraps `interval.checked_sub(elapsed)`; the loop interval is a fixed
+    /// positive constant, so this cannot fire.
     pub fn new(
         config: AppConfig,
         tick_dir: &Path,

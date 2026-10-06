@@ -27,6 +27,18 @@ pub enum ProtocolError {
     MalformedPayload(String),
 }
 
+/// Decode and validate a frame header.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::NeedMore`] when `buf` is shorter than a header,
+/// [`ProtocolError::InvalidMagic`], [`ProtocolError::UnsupportedVersion`] or
+/// [`ProtocolError::InvalidHeaderLength`] for header field violations,
+/// [`ProtocolError::UnknownMessageType`] for an unrecognised message type,
+/// [`ProtocolError::InvalidHeaderFlags`] when the flags do not match the message type,
+/// [`ProtocolError::PayloadLengthExceedsMax`] for an oversized payload, and
+/// [`ProtocolError::PayloadLengthMismatch`] / [`ProtocolError::MalformedPayload`] /
+/// [`ProtocolError::ArithmeticOverflow`] when the declared payload cannot match the message type.
 pub fn decode_header(buf: &[u8]) -> Result<Header, ProtocolError> {
     if buf.len() < HEADER_LENGTH as usize {
         return Err(ProtocolError::NeedMore {
@@ -260,6 +272,14 @@ pub fn encode_batch_ack(ack: &BatchAckPayload, buf: &mut [u8]) {
     buf[0..8].copy_from_slice(&ack.sequence_end.to_le_bytes());
 }
 
+/// Decode a STATUS payload.
+///
+/// `buf` must hold exactly [`STATUS_PAYLOAD_LENGTH`] bytes; the caller validates the length.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::MalformedPayload`] when the detail flags contain unknown bits or when
+/// the sequence range is inverted (`sequence_first > sequence_last` while the range flag is set).
 pub fn decode_status(buf: &[u8]) -> Result<StatusPayload, ProtocolError> {
     let status_code = le_u16(buf, 0);
     let phase = le_u16(buf, 2);

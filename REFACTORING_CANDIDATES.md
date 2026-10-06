@@ -481,15 +481,27 @@ cargo clippy --fix --all-targets --features replay --allow-dirty `
 | `clippy::use_self` | 91 | **適用済み**（`impl Foo { fn new() -> Foo }` → `-> Self`） |
 | `clippy::str_to_string` | 108 | 見送り（上記理由） |
 
-### ドキュメント補完（42 箇所・任意）
+### ドキュメント補完（33 関数）★対応済み
 
-| lint | 本番 | 修正内容 |
-| :--- | ---: | :--- |
-| `clippy::missing_errors_doc` | 30 | `Result` を返す公開関数の doc に `# Errors` 節を追加 |
-| `clippy::missing_panics_doc` | 12 | panic しうる公開関数の doc に `# Panics` 節を追加 |
+**対応状況**: 完了。`missing_errors_doc` 30 件・`missing_panics_doc` 5 件（関数としては 33 件。
+うち 2 件は両方に該当）をすべて解消し、**21 ファイル / +198 行**（doc のみ、コード変更なし）。
 
-機械適用はできない（文章を書く必要がある）ので **LLM エージェントが最も得意なタイプ**。
-既存コメントは英語 382 行 / 日本語 19 行なので、**追記も英語**で統一する。
+- 実装を読んでから書いた。エラー節は実際に返す variant と条件を列挙し、
+  存在しない variant は書いていない。
+- `# Panics` は Clippy が指摘した実際の panic 箇所（`try_into().unwrap()`、
+  `checked_sub(..).unwrap()`、`get_mut(..).unwrap()`、`remove(..).unwrap()`）を確認し、
+  いずれも「不変条件により到達しない」ことを根拠とともに明記した。
+- 例外として、実際には失敗しない関数（`logging::init_logging`、
+  `storage::tlog_writer::encode_record`、`BrokerParquetSource::new`）は
+  「現在は失敗しない。Result は将来の失敗に備えて残している」と正直に書いた。
+
+検証: `cargo doc --no-deps --features replay` が警告なし /
+      doc 2 lint が 0 件 / cargo test 41 スイート 417 passed 0 failed
+
+| lint | 対応前 | 対応後 |
+| :--- | ---: | ---: |
+| `clippy::missing_errors_doc` | 30 | 0 |
+| `clippy::missing_panics_doc` | 5 | 0 |
 
 ### 重複している小関数の統合（2 件対応済み・1 件は見送り）
 

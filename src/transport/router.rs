@@ -47,6 +47,12 @@ pub struct TransportRouter {
 }
 
 impl TransportRouter {
+    /// Bind the shared loopback listener and prepare the per-broker routing state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the loopback port cannot be bound, inspected, or switched to
+    /// non-blocking mode.
     pub fn bind_loopback(
         receivers: HashMap<BrokerId, Arc<TransportReceiver>>,
         progress_interval_ms: u64,

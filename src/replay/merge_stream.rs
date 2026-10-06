@@ -13,6 +13,11 @@ impl MergeStream {
     }
 
     /// Load partition for all brokers for the specified UTC millisecond timestamp, accounting for physical receive delays.
+    /// Make sure every source has the partition covering `utc_ms` loaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first per-source error, which names the Parquet file that could not be read.
     pub fn load_for_utc_ms(&mut self, utc_ms: i64) -> Result<(), String> {
         for s in &mut self.sources {
             let _ = s.load_for_utc_ms(utc_ms - s.receive_delay_ms)?;

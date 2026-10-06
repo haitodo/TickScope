@@ -223,6 +223,12 @@ impl Default for LatencyRingBuffer {
 }
 
 impl LatencyRingBuffer {
+    /// Create an empty latency histogram.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the boxed buffer cannot be converted to `[u64; LATENCY_RING_CAPACITY]`, which cannot
+    /// happen because the buffer is allocated from that same constant.
     pub fn new() -> Self {
         let buffer: Box<[u64; LATENCY_RING_CAPACITY]> =
             vec![0u64; LATENCY_RING_CAPACITY].into_boxed_slice().try_into().unwrap();

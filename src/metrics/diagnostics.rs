@@ -105,6 +105,12 @@ pub struct DiagnosticsRuntime {
 }
 
 impl DiagnosticsRuntime {
+    /// Start the diagnostics sampler, creating `directory` and a fresh per-run CSV.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message naming the path that could not be created when the diagnostics directory or
+    /// the per-run CSV file cannot be opened.
     pub fn start(
         directory: impl AsRef<Path>,
         run_id: RunId,
