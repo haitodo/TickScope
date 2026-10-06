@@ -116,6 +116,7 @@ fn test_virtual_clock_pause_freezes_time_and_preserves_live_health() {
             mt5_ms: 1_785_520_800_000,
             bid: 155.000 + (b_id as f64 * 0.01),
             ask: 155.002 + (b_id as f64 * 0.01),
+            receive_delay_ms: 0,
         };
         let item = make_ingress_tick_batch(b_id, 1, &[tick], 1, false, run_id);
         engine.on_ingress_item(item);
@@ -158,33 +159,33 @@ fn test_5_broker_k_way_merge_stream_chronological_ordering() {
     // Create 5 fake broker sources with interleaved ticks
     let mut s1 = BrokerParquetSource::new(1, "OANDA", "usdjpy", root).unwrap();
     s1.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 1, utc_ms: 100, mt5_ms: 100, bid: 150.0, ask: 150.02 },
-        ReplayTick { broker_id: 1, utc_ms: 150, mt5_ms: 150, bid: 150.0, ask: 150.02 },
-        ReplayTick { broker_id: 1, utc_ms: 300, mt5_ms: 300, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 1, utc_ms: 100, mt5_ms: 100, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick { broker_id: 1, utc_ms: 150, mt5_ms: 150, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick { broker_id: 1, utc_ms: 300, mt5_ms: 300, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
     ]);
 
     let mut s2 = BrokerParquetSource::new(2, "Tradeview", "usdjpy", root).unwrap();
     s2.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 2, utc_ms: 110, mt5_ms: 110, bid: 150.0, ask: 150.02 },
-        ReplayTick { broker_id: 2, utc_ms: 200, mt5_ms: 200, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 2, utc_ms: 110, mt5_ms: 110, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick { broker_id: 2, utc_ms: 200, mt5_ms: 200, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
     ]);
 
     let mut s3 = BrokerParquetSource::new(3, "Dukascopy", "usdjpy", root).unwrap();
     s3.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 3, utc_ms: 120, mt5_ms: 120, bid: 150.0, ask: 150.02 },
-        ReplayTick { broker_id: 3, utc_ms: 250, mt5_ms: 250, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 3, utc_ms: 120, mt5_ms: 120, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick { broker_id: 3, utc_ms: 250, mt5_ms: 250, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
     ]);
 
     let mut s4 = BrokerParquetSource::new(4, "Axiory", "usdjpy", root).unwrap();
     s4.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 4, utc_ms: 130, mt5_ms: 130, bid: 150.0, ask: 150.02 },
-        ReplayTick { broker_id: 4, utc_ms: 150, mt5_ms: 150, bid: 150.0, ask: 150.02 }, // tie with broker 1
+        ReplayTick { broker_id: 4, utc_ms: 130, mt5_ms: 130, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick { broker_id: 4, utc_ms: 150, mt5_ms: 150, bid: 150.0, ask: 150.02, receive_delay_ms: 0 }, // tie with broker 1
     ]);
 
     let mut s5 = BrokerParquetSource::new(5, "JFX", "usdjpy", root).unwrap();
     s5.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 5, utc_ms: 140, mt5_ms: 140, bid: 150.0, ask: 150.02 },
-        ReplayTick { broker_id: 5, utc_ms: 400, mt5_ms: 400, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 5, utc_ms: 140, mt5_ms: 140, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick { broker_id: 5, utc_ms: 400, mt5_ms: 400, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
     ]);
 
     let mut merge = MergeStream::new(vec![s1, s2, s3, s4, s5]);
@@ -220,9 +221,9 @@ fn test_merge_stream_receive_delay_ordering_and_seek() {
         .with_receive_delay_ms(20);
     s_dom.current_ticks = Arc::new(vec![
         // utc 1100 -> effective 1120
-        ReplayTick { broker_id: 5, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 5, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02, receive_delay_ms: 20 },
         // utc 1200 -> effective 1220
-        ReplayTick { broker_id: 5, utc_ms: 1200, mt5_ms: 1200, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 5, utc_ms: 1200, mt5_ms: 1200, bid: 150.0, ask: 150.02, receive_delay_ms: 20 },
     ]);
 
     // Overseas broker (e.g. Tradeview: delay = 180ms)
@@ -230,9 +231,9 @@ fn test_merge_stream_receive_delay_ordering_and_seek() {
         .with_receive_delay_ms(180);
     s_ovs.current_ticks = Arc::new(vec![
         // utc 1000 -> effective 1180
-        ReplayTick { broker_id: 2, utc_ms: 1000, mt5_ms: 1000, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 2, utc_ms: 1000, mt5_ms: 1000, bid: 150.0, ask: 150.02, receive_delay_ms: 180 },
         // utc 1100 -> effective 1280
-        ReplayTick { broker_id: 2, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02 },
+        ReplayTick { broker_id: 2, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02, receive_delay_ms: 180 },
     ]);
 
     let mut merge = MergeStream::new(vec![s_dom, s_ovs]);
@@ -283,6 +284,7 @@ fn test_consecutive_batches_accepted_without_duplicate_drop() {
             mt5_ms: 1000 + i * 10 + 10800_000,
             bid: 150.0 + (i as f64 * 0.001),
             ask: 150.02 + (i as f64 * 0.001),
+            receive_delay_ms: 0,
         });
     }
     let item1 = make_ingress_tick_batch(1, 1, &batch1, 1, false, run_id);
@@ -297,6 +299,7 @@ fn test_consecutive_batches_accepted_without_duplicate_drop() {
             mt5_ms: 1000 + i * 10 + 10800_000,
             bid: 150.0 + (i as f64 * 0.001),
             ask: 150.02 + (i as f64 * 0.001),
+            receive_delay_ms: 0,
         });
     }
     let item2 = make_ingress_tick_batch(1, 1, &batch2, 51, false, run_id);
@@ -340,6 +343,7 @@ fn test_5_broker_instant_seek_and_warmup_rebuild() {
                 mt5_ms: (target_utc - 60_000) + i * 1000 + 10800_000,
                 bid: 150.0 + (b_id as f64 * 0.01),
                 ask: 150.02 + (b_id as f64 * 0.01),
+                receive_delay_ms: 0,
             });
         }
         // Warmup ticks (len - 1 as warmup, final as live)
@@ -406,6 +410,7 @@ fn test_missing_partition_broker_does_not_deadlock_replay() {
             mt5_ms: now_utc + 10800_000,
             bid: 150.0,
             ask: 150.02,
+            receive_delay_ms: 0,
         };
         let item = make_ingress_tick_batch(b_id, 1, &[tick], 1, false, run_id);
         engine.on_ingress_item(item);
@@ -689,6 +694,7 @@ fn test_simulate_replay_seek_and_playback_candles() {
     let mut sources = Vec::new();
     for &(b_id, name) in &[(1, "OANDA"), (2, "Tradeview"), (3, "Dukascopy"), (4, "Axiory"), (5, "JFX")] {
         if let Ok(mut src) = BrokerParquetSource::new(b_id, name, "usdjpy", tick_dir) {
+            src = src.with_receive_delay_profile();
             let _ = src.load_partition(2026, 8);
             sources.push(src);
         }
@@ -821,17 +827,21 @@ fn test_simulate_replay_seek_and_playback_candles() {
             "Realtime quote points should have historical depth immediately after jump, found {}",
             proj.realtime_quote_points.len()
         );
-        let first_pt = proj.realtime_quote_points.first().unwrap();
-        let last_pt = proj.realtime_quote_points.last().unwrap();
-        assert!(
-            last_pt.mono_ns >= first_pt.mono_ns,
-            "Realtime quote points must be chronologically ordered after jump"
-        );
-        println!(
-            "  Realtime quote points populated after jump: {} points, span: {:.2}s",
-            proj.realtime_quote_points.len(),
-            (last_pt.mono_ns.0.saturating_sub(first_pt.mono_ns.0)) as f64 / 1_000_000_000.0
-        );
+        let _first_pt = proj.realtime_quote_points.first().unwrap();
+        let mut inversions = 0;
+        for (idx, w) in proj.realtime_quote_points.windows(2).enumerate() {
+            if w[0].mono_ns > w[1].mono_ns {
+                inversions += 1;
+                if inversions <= 5 {
+                    println!(
+                        "  [INVERSION #{}] at index {}: {:?} > {:?}",
+                        inversions, idx, w[0].mono_ns, w[1].mono_ns
+                    );
+                }
+            }
+        }
+        println!("  Total timestamp inversions after jump: {}", inversions);
+        assert_eq!(inversions, 0, "Timestamps in realtime_quote_points must be strictly non-decreasing!");
     }
 
     // 4. Play 5 seconds forward after jump

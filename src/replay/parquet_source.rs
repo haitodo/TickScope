@@ -18,6 +18,14 @@ pub struct ReplayTick {
     pub mt5_ms: i64,
     pub bid: f64,
     pub ask: f64,
+    pub receive_delay_ms: i64,
+}
+
+impl ReplayTick {
+    #[inline]
+    pub fn effective_utc_ms(&self) -> i64 {
+        self.utc_ms + self.receive_delay_ms
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -345,7 +353,8 @@ impl BrokerParquetSource {
             let _ = self.try_advance_partition();
         }
         if self.cursor < self.current_ticks.len() {
-            let t = self.current_ticks[self.cursor];
+            let mut t = self.current_ticks[self.cursor];
+            t.receive_delay_ms = self.receive_delay_ms;
             self.cursor += 1;
             Some(t)
         } else {
@@ -401,6 +410,10 @@ impl BrokerParquetSource {
             if start < end {
                 result.extend_from_slice(&self.current_ticks[start..end]);
             }
+        }
+
+        for t in &mut result {
+            t.receive_delay_ms = self.receive_delay_ms;
         }
 
         result
@@ -481,6 +494,7 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
                     mt5_ms,
                     bid,
                     ask,
+                    receive_delay_ms: 0,
                 });
             }
         }
@@ -504,6 +518,7 @@ mod tests {
             mt5_ms: 1700007200000,
             bid: 150.123,
             ask: 150.125,
+            receive_delay_ms: 0,
         };
         assert_eq!(t.broker_id, 1);
         assert_eq!(t.bid, 150.123);

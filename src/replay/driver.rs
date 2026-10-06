@@ -316,10 +316,11 @@ pub fn make_ingress_tick_batch_with_mono(
     rx_mono_override: Option<MonoNs>,
 ) -> IngressItem {
     let mut raw_ticks = Vec::with_capacity(ticks.len());
-    let mut max_utc = 0;
+    let mut max_eff_utc = 0;
     for (idx, t) in ticks.iter().enumerate() {
-        if t.utc_ms > max_utc {
-            max_utc = t.utc_ms;
+        let eff = t.effective_utc_ms();
+        if eff > max_eff_utc {
+            max_eff_utc = eff;
         }
         raw_ticks.push(TickRecord {
             sequence: start_seq + idx as u64,
@@ -352,8 +353,8 @@ pub fn make_ingress_tick_batch_with_mono(
         payload: FramePayload::TickBatch(raw_ticks),
     };
 
-    let rx_mono_ns = rx_mono_override.unwrap_or_else(|| MonoNs((max_utc as u64).saturating_mul(1_000_000)));
-    let rx_unix_ns = Some(max_utc.saturating_mul(1_000_000));
+    let rx_mono_ns = rx_mono_override.unwrap_or_else(|| MonoNs((max_eff_utc.max(0) as u64).saturating_mul(1_000_000)));
+    let rx_unix_ns = Some(max_eff_utc.saturating_mul(1_000_000));
 
     IngressItem::Frame(ReceivedFrame {
         frame,

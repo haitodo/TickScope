@@ -4,7 +4,6 @@
 use super::clock::VirtualClock;
 use super::driver::make_ingress_tick_batch;
 use super::merge_stream::MergeStream;
-use super::parquet_source::ReplayTick;
 use crate::core::types::{BrokerId, MonoNs, RunId};
 use crate::protocol::IngressItem;
 use crate::tick::engine::TickEngine;
@@ -106,13 +105,16 @@ impl PlaybackPump {
             }
 
             if !ticks.is_empty() {
-                // Group ticks by broker for efficient WireFrame dispatch
-                let mut broker_groups: HashMap<BrokerId, Vec<ReplayTick>> = HashMap::new();
-                for t in ticks {
-                    broker_groups.entry(t.broker_id).or_default().push(t);
-                }
-
-                for (b_id, b_ticks) in broker_groups {
+                // Dispatch consecutive runs of ticks per broker to preserve chronological
+                // interleaving and monotonically non-decreasing receive timestamps across all brokers.
+                let mut start = 0;
+                while start < ticks.len() {
+                    let b_id = ticks[start].broker_id;
+                    let mut end = start + 1;
+                    while end < ticks.len() && ticks[end].broker_id == b_id {
+                        end += 1;
+                    }
+                    let run_ticks = &ticks[start..end];
                     let seq = next_sequences.entry(b_id).or_insert_with(|| {
                         eng.channels
                             .get(&b_id)
@@ -122,13 +124,14 @@ impl PlaybackPump {
                     let ingress_item = make_ingress_tick_batch(
                         b_id,
                         current_session,
-                        &b_ticks,
+                        run_ticks,
                         *seq,
                         false,
                         run_id,
                     );
-                    *seq += b_ticks.len() as u64;
+                    *seq += run_ticks.len() as u64;
                     eng.on_ingress_item(ingress_item);
+                    start = end;
                 }
             }
 

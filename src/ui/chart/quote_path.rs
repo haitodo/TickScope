@@ -268,7 +268,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         } else {
             dim_color(color, if is_live(broker) { 105 } else { 55 })
         };
-        let mut previous = None;
+        let mut previous: Option<Pos2> = None;
         for (sample_index, pt) in quote_points.iter().enumerate() {
             let current = pt
                 .broker_mids
@@ -287,10 +287,17 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
                     )
                     .map(|x| Pos2::new(x, price_to_y(mid)))
                 });
-            if let (Some(a), Some(b)) = (previous, current) {
-                painter.line_segment([a, b], Stroke::new(1.0_f32, line_color));
+            if let Some(curr_pos) = current {
+                if let Some(prev_pos) = previous {
+                    // Defensive guard: never draw line segments backwards in time
+                    if curr_pos.x >= prev_pos.x {
+                        painter.line_segment([prev_pos, curr_pos], Stroke::new(1.0_f32, line_color));
+                        previous = Some(curr_pos);
+                    }
+                } else {
+                    previous = Some(curr_pos);
+                }
             }
-            previous = current;
         }
         if let Some(point) = previous {
             painter.circle_filled(point, if selected { 3.5 } else { 2.0 }, line_color);
@@ -299,7 +306,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
 
     // Draw Broker Median (consensus_mid) as one continuous line.
     {
-        let mut previous = None;
+        let mut previous: Option<Pos2> = None;
         for (index, pt) in quote_points.iter().enumerate() {
             let current = pt.consensus_mid.filter(|m| m.is_finite()).and_then(|mid| {
                 x_axis_coordinate(
@@ -314,13 +321,20 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
                 )
                 .map(|x| Pos2::new(x, price_to_y(mid)))
             });
-            if let (Some(a), Some(b)) = (previous, current) {
-                painter.line_segment(
-                    [a, b],
-                    Stroke::new(1.0_f32, dim_color(theme.median_line, 145)),
-                );
+            if let Some(curr_pos) = current {
+                if let Some(prev_pos) = previous {
+                    // Defensive guard: never draw line segments backwards in time
+                    if curr_pos.x >= prev_pos.x {
+                        painter.line_segment(
+                            [prev_pos, curr_pos],
+                            Stroke::new(1.0_f32, dim_color(theme.median_line, 145)),
+                        );
+                        previous = Some(curr_pos);
+                    }
+                } else {
+                    previous = Some(curr_pos);
+                }
             }
-            previous = current;
         }
     }
 }

@@ -1039,7 +1039,8 @@ impl TickEngine {
         let mut current_mids: HashMap<BrokerId, f64> = HashMap::new();
         let mut split_idx = 0;
         for (i, t) in warmup_ticks.iter().enumerate() {
-            if t.utc_ms >= cutoff_utc_ms && (warmup_ticks.len() - i) <= max_ticks {
+            let eff_utc = t.effective_utc_ms();
+            if eff_utc >= cutoff_utc_ms && (warmup_ticks.len() - i) <= max_ticks {
                 split_idx = i;
                 break;
             }
@@ -1052,12 +1053,16 @@ impl TickEngine {
         let recent_ticks = &warmup_ticks[split_idx..];
         self.realtime_quote_history.clear();
 
+        let mut last_mono_ns = MonoNs::ZERO;
         for t in recent_ticks {
             if t.bid.is_finite() && t.ask.is_finite() && t.bid > 0.0 && t.ask >= t.bid {
                 let mid = (t.bid + t.ask) / 2.0;
                 current_mids.insert(t.broker_id, mid);
 
-                let mono_ns = MonoNs((t.utc_ms.max(0) as u64).saturating_mul(1_000_000));
+                let eff_utc = t.effective_utc_ms();
+                // Ensure strictly monotonic non-decreasing timestamp invariant across all brokers
+                let mono_ns = MonoNs((eff_utc.max(0) as u64).saturating_mul(1_000_000)).max(last_mono_ns);
+                last_mono_ns = mono_ns;
                 let consensus_mid = compute_median_from_mids(&current_mids);
 
                 self.realtime_quote_history.push_back(RealtimeQuotePoint {
@@ -1069,6 +1074,20 @@ impl TickEngine {
                 while self.realtime_quote_history.len() > max_ticks {
                     self.realtime_quote_history.pop_front();
                 }
+            }
+        }
+
+        // 3. Anchor latest quotes up to target_mono so chart lines extend right to the seek point
+        let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
+        if !current_mids.is_empty() && last_mono_ns < target_mono {
+            let consensus_mid = compute_median_from_mids(&current_mids);
+            self.realtime_quote_history.push_back(RealtimeQuotePoint {
+                mono_ns: target_mono,
+                broker_mids: current_mids.clone(),
+                consensus_mid,
+            });
+            while self.realtime_quote_history.len() > max_ticks {
+                self.realtime_quote_history.pop_front();
             }
         }
     }
