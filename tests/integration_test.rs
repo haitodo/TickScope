@@ -9,6 +9,7 @@ use tick_scope::core::ports::SnapshotExchangePort;
 use tick_scope::core::types::*;
 use tick_scope::protocol::*;
 use tick_scope::runtime::coordinator::RuntimeCoordinator;
+use tick_scope::tick::engine::TickEngine;
 
 fn send_test_tick(stream: &mut TcpStream, broker_id: BrokerId, seq: Sequence, time_msc: i64, bid: f64, ask: f64) {
     let frame = Frame {
@@ -405,5 +406,267 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
     assert_eq!(q.ask, 150.125);
     assert_eq!(q.rx_mono_ns, MonoNs(50_000_000));
 }
+
+#[test]
+fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
+    let mut config = AppConfig::default();
+    config.brokers = vec![BrokerConfig {
+        id: 10,
+        name: "WarmupBroker".to_string(),
+        host: "127.0.0.1".to_string(),
+        port: 19110,
+        symbol: "USDJPY".to_string(),
+        point_size: 0.001,
+        pip_size: 0.01,
+        utc_offset_sec: 0,
+        utc_verified: true,
+        auto_utc_offset: false,
+        timezone_rule: TimezoneRule::Fixed,
+        terminal_path: None,
+        receive_delay_ms: None,
+    }];
+
+    let mut engine = TickEngine::new(config);
+    engine.on_ingress_item(IngressItem::Connected {
+        broker_id: 10,
+        generation: 1,
+        connected_at_mono: MonoNs(100_000_000_000), // 100s mono
+    });
+
+    // Send a batch of warmup ticks spanning 30 seconds into the past
+    // Current PC time: 1,700,000,030,000 ms (unix)
+    let current_unix_ns = 1_700_000_030_000_000_000i64;
+    let current_mono_ns = MonoNs(100_000_000_000); // 100s
+
+    let mut warmup_ticks = Vec::new();
+    for sec in 0..30 {
+        warmup_ticks.push(TickRecord {
+            sequence: 1 + sec as u64,
+            broker_time_msc: 1_700_000_000_000 + sec * 1000, // 30s ago to now
+            ea_elapsed_us: 10,
+            bid: 150.0 + sec as f64 * 0.01,
+            ask: 150.02 + sec as f64 * 0.01,
+            last: 0.0,
+            volume: 1,
+            volume_real: 1.0,
+            flags: 0,
+            reserved: 0,
+        });
+    }
+
+    let rf = ReceivedFrame {
+        frame: Frame {
+            header: Header {
+                magic: MAGIC_TICK,
+                protocol_version: PROTOCOL_VERSION,
+                message_type: MSG_TYPE_TICK_BATCH,
+                header_length: HEADER_LENGTH,
+                header_flags: HEADER_FLAG_WARMUP, // WARMUP!
+                broker_id: 10,
+                session_id: 888,
+                sequence_start: 1,
+                tick_count: warmup_ticks.len() as u32,
+                payload_length: (warmup_ticks.len() * TICK_RECORD_LENGTH) as u32,
+            },
+            payload: FramePayload::TickBatch(warmup_ticks),
+        },
+        raw_wire_bytes: std::sync::Arc::new(Vec::new()),
+        run_id: RunId::new_random(),
+        rx_mono_ns: current_mono_ns,
+        rx_unix_ns: Some(current_unix_ns),
+        connection_generation: 1,
+        frame_index: 1,
+    };
+
+    engine.on_ingress_item(IngressItem::Frame(rf));
+
+    let proj = engine.make_projection_at(UtcMs(1_700_000_030_000), current_mono_ns);
+
+    // 1. Verify realtime_quote_points are populated
+    assert_eq!(
+        proj.realtime_quote_points.len(),
+        30,
+        "All 30 warmup ticks must be recorded into realtime quote points"
+    );
+
+    // 2. Verify timestamps span across the past (~30 seconds window)
+    let first = proj.realtime_quote_points.first().unwrap();
+    let last = proj.realtime_quote_points.last().unwrap();
+    let span_sec = (last.mono_ns.0.saturating_sub(first.mono_ns.0)) as f64 / 1_000_000_000.0;
+    assert!(
+        (span_sec - 29.0).abs() < 1.5,
+        "Warmup points must span ~29 seconds into the past, got {:.2}s",
+        span_sec
+    );
+
+    // 3. Verify broker mid is populated in points
+    assert!(first.broker_mids.contains_key(&10));
+    assert!(last.broker_mids.contains_key(&10));
+
+    // 4. Verify broker health freshness was NOT falsely marked Live by warmup ticks
+    let overview = proj.broker_overviews.iter().find(|b| b.broker_id == 10).unwrap();
+    assert_ne!(
+        overview.health.data_freshness,
+        FreshnessState::Live,
+        "Warmup ticks must not mark data freshness as Live"
+    );
+}
+
+#[test]
+fn test_multi_broker_warmup_ticks_interleaved_chronologically() {
+    let mut config = AppConfig::default();
+    config.brokers = vec![
+        BrokerConfig {
+            id: 1,
+            name: "BrokerA".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 19101,
+            symbol: "USDJPY".to_string(),
+            point_size: 0.001,
+            pip_size: 0.01,
+            utc_offset_sec: 0,
+            utc_verified: true,
+            auto_utc_offset: false,
+            timezone_rule: TimezoneRule::Fixed,
+            terminal_path: None,
+            receive_delay_ms: None,
+        },
+        BrokerConfig {
+            id: 2,
+            name: "BrokerB".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 19102,
+            symbol: "USDJPY".to_string(),
+            point_size: 0.001,
+            pip_size: 0.01,
+            utc_offset_sec: 0,
+            utc_verified: true,
+            auto_utc_offset: false,
+            timezone_rule: TimezoneRule::Fixed,
+            terminal_path: None,
+            receive_delay_ms: None,
+        },
+    ];
+
+    let mut engine = TickEngine::new(config);
+    engine.on_ingress_item(IngressItem::Connected {
+        broker_id: 1,
+        generation: 1,
+        connected_at_mono: MonoNs(100_000_000_000),
+    });
+    engine.on_ingress_item(IngressItem::Connected {
+        broker_id: 2,
+        generation: 1,
+        connected_at_mono: MonoNs(101_000_000_000),
+    });
+
+    let current_unix_ns = 1_700_000_030_000_000_000i64;
+    let current_mono_ns = MonoNs(100_000_000_000);
+
+    // 1. Broker A sends warmup ticks (seconds 0 to 20)
+    let ticks_a: Vec<TickRecord> = (0..=20)
+        .map(|sec| TickRecord {
+            sequence: 1 + sec as u64,
+            broker_time_msc: 1_700_000_000_000 + sec * 1000,
+            ea_elapsed_us: 10,
+            bid: 150.10,
+            ask: 150.12,
+            last: 0.0,
+            volume: 1,
+            volume_real: 1.0,
+            flags: 0,
+            reserved: 0,
+        })
+        .collect();
+
+    engine.on_ingress_item(IngressItem::Frame(ReceivedFrame {
+        frame: Frame {
+            header: Header {
+                magic: MAGIC_TICK,
+                protocol_version: PROTOCOL_VERSION,
+                message_type: MSG_TYPE_TICK_BATCH,
+                header_length: HEADER_LENGTH,
+                header_flags: HEADER_FLAG_WARMUP,
+                broker_id: 1,
+                session_id: 101,
+                sequence_start: 1,
+                tick_count: ticks_a.len() as u32,
+                payload_length: (ticks_a.len() * TICK_RECORD_LENGTH) as u32,
+            },
+            payload: FramePayload::TickBatch(ticks_a),
+        },
+        raw_wire_bytes: std::sync::Arc::new(Vec::new()),
+        run_id: RunId::new_random(),
+        rx_mono_ns: current_mono_ns,
+        rx_unix_ns: Some(current_unix_ns),
+        connection_generation: 1,
+        frame_index: 1,
+    }));
+
+    // 2. Broker B connects a second later and sends warmup ticks (seconds 5 to 25)
+    let ticks_b: Vec<TickRecord> = (5..=25)
+        .map(|sec| TickRecord {
+            sequence: 1 + (sec - 5) as u64,
+            broker_time_msc: 1_700_000_000_000 + sec * 1000,
+            ea_elapsed_us: 10,
+            bid: 150.20,
+            ask: 150.22,
+            last: 0.0,
+            volume: 1,
+            volume_real: 1.0,
+            flags: 0,
+            reserved: 0,
+        })
+        .collect();
+
+    engine.on_ingress_item(IngressItem::Frame(ReceivedFrame {
+        frame: Frame {
+            header: Header {
+                magic: MAGIC_TICK,
+                protocol_version: PROTOCOL_VERSION,
+                message_type: MSG_TYPE_TICK_BATCH,
+                header_length: HEADER_LENGTH,
+                header_flags: HEADER_FLAG_WARMUP,
+                broker_id: 2,
+                session_id: 102,
+                sequence_start: 1,
+                tick_count: ticks_b.len() as u32,
+                payload_length: (ticks_b.len() * TICK_RECORD_LENGTH) as u32,
+            },
+            payload: FramePayload::TickBatch(ticks_b),
+        },
+        raw_wire_bytes: std::sync::Arc::new(Vec::new()),
+        run_id: RunId::new_random(),
+        rx_mono_ns: MonoNs(current_mono_ns.0 + 1_000_000_000), // 1s later
+        rx_unix_ns: Some(current_unix_ns + 1_000_000_000),
+        connection_generation: 1,
+        frame_index: 1,
+    }));
+
+    let proj = engine.make_projection_at(UtcMs(1_700_000_031_000), MonoNs(current_mono_ns.0 + 1_000_000_000));
+
+    // Verify all points remain strictly sorted by mono_ns
+    for window in proj.realtime_quote_points.windows(2) {
+        assert!(
+            window[0].mono_ns <= window[1].mono_ns,
+            "Realtime quote points must remain strictly sorted: {:?} vs {:?}",
+            window[0].mono_ns,
+            window[1].mono_ns
+        );
+    }
+
+    // Verify that points around second 10 contain both Broker 1 and Broker 2
+    let mid_points: Vec<_> = proj
+        .realtime_quote_points
+        .iter()
+        .filter(|p| p.broker_mids.contains_key(&1) && p.broker_mids.contains_key(&2))
+        .collect();
+    assert!(
+        !mid_points.is_empty(),
+        "Overlapping warmup window must contain mid prices for both Broker 1 and Broker 2"
+    );
+}
+
+
 
 

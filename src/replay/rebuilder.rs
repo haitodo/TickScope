@@ -78,8 +78,8 @@ impl StateRebuilder {
 
         if !warmup_ticks.is_empty() {
             let mut broker_groups: HashMap<BrokerId, Vec<ReplayTick>> = HashMap::new();
-            for t in warmup_ticks {
-                broker_groups.entry(t.broker_id).or_default().push(t);
+            for t in &warmup_ticks {
+                broker_groups.entry(t.broker_id).or_default().push(*t);
             }
 
             for (b_id, b_ticks) in broker_groups {
@@ -113,6 +113,9 @@ impl StateRebuilder {
                 );
                 eng.on_ingress_item(live_item);
             }
+
+            // Reconstruct Realtime Quote Path history across the full screen width upon seek
+            eng.rebuild_quote_history_from_replay_ticks(&warmup_ticks, target_utc_ms);
         }
 
         // 5. Advance watermark for all connected brokers to target_mono so all warmup frames drain

@@ -725,6 +725,22 @@ fn test_simulate_replay_seek_and_playback_candles() {
                 println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
             }
         }
+        assert!(
+            proj.realtime_quote_points.len() >= 10,
+            "Realtime quote points should have historical depth after rebuild, found {}",
+            proj.realtime_quote_points.len()
+        );
+        let first_pt = proj.realtime_quote_points.first().unwrap();
+        let last_pt = proj.realtime_quote_points.last().unwrap();
+        assert!(
+            last_pt.mono_ns >= first_pt.mono_ns,
+            "Realtime quote points must be chronologically ordered"
+        );
+        println!(
+            "  Realtime quote points populated at start: {} points, span: {:.2}s",
+            proj.realtime_quote_points.len(),
+            (last_pt.mono_ns.0.saturating_sub(first_pt.mono_ns.0)) as f64 / 1_000_000_000.0
+        );
     }
 
     // 2. Play 5 seconds forward: pop ticks and feed
@@ -800,6 +816,22 @@ fn test_simulate_replay_seek_and_playback_candles() {
                 println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
             }
         }
+        assert!(
+            proj.realtime_quote_points.len() >= 10,
+            "Realtime quote points should have historical depth immediately after jump, found {}",
+            proj.realtime_quote_points.len()
+        );
+        let first_pt = proj.realtime_quote_points.first().unwrap();
+        let last_pt = proj.realtime_quote_points.last().unwrap();
+        assert!(
+            last_pt.mono_ns >= first_pt.mono_ns,
+            "Realtime quote points must be chronologically ordered after jump"
+        );
+        println!(
+            "  Realtime quote points populated after jump: {} points, span: {:.2}s",
+            proj.realtime_quote_points.len(),
+            (last_pt.mono_ns.0.saturating_sub(first_pt.mono_ns.0)) as f64 / 1_000_000_000.0
+        );
     }
 
     // 4. Play 5 seconds forward after jump

@@ -803,21 +803,77 @@ impl TickEngine {
                         }
 
                         // Append point to Realtime Quote Path history for all active brokers
+                        let tick_mono_ns = if is_warmup {
+                            let tick_utc_ms = tick.broker_time_msc - (utc_offset as i64 * 1000);
+                            if let Some(unix_ns) = rf.rx_unix_ns {
+                                let now_utc_ms = unix_ns / 1_000_000;
+                                let age_ms = (now_utc_ms - tick_utc_ms).max(0) as u64;
+                                MonoNs(rf.rx_mono_ns.0.saturating_sub(age_ms.saturating_mul(1_000_000)))
+                            } else {
+                                rf.rx_mono_ns
+                            }
+                        } else {
+                            rf.rx_mono_ns
+                        };
+
                         let mut mids = HashMap::with_capacity(self.latest_quotes.len());
+                        if quote.is_valid && quote.mid.is_finite() {
+                            mids.insert(broker_id, quote.mid);
+                        }
                         for (&bid, q) in &self.latest_quotes {
-                            if q.is_valid && !q.is_warmup && q.mid.is_finite()
-                                && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
-                                    <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
-                            {
-                                mids.insert(bid, q.mid);
+                            if bid != broker_id && q.is_valid && q.mid.is_finite() {
+                                if is_warmup {
+                                    mids.insert(bid, q.mid);
+                                } else if !q.is_warmup
+                                    && rf.rx_mono_ns.0.saturating_sub(q.rx_mono_ns.0)
+                                        <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
+                                {
+                                    mids.insert(bid, q.mid);
+                                }
                             }
                         }
-                        let consensus = self.consensus_calc.compute(self.latest_quotes.values(), rf.rx_mono_ns);
-                        self.realtime_quote_history.push_back(RealtimeQuotePoint {
-                            mono_ns: rf.rx_mono_ns,
+
+                        let consensus_mid = if is_warmup {
+                            compute_median_from_mids(&mids)
+                        } else {
+                            let consensus = self.consensus_calc.compute(self.latest_quotes.values(), rf.rx_mono_ns);
+                            consensus.consensus_mid
+                        };
+
+                        let pt = RealtimeQuotePoint {
+                            mono_ns: tick_mono_ns,
                             broker_mids: mids,
-                            consensus_mid: consensus.consensus_mid,
-                        });
+                            consensus_mid,
+                        };
+
+                        if self.realtime_quote_history.is_empty()
+                            || tick_mono_ns >= self.realtime_quote_history.back().unwrap().mono_ns
+                        {
+                            self.realtime_quote_history.push_back(pt);
+                        } else {
+                            let idx = self.realtime_quote_history.partition_point(|p| p.mono_ns < tick_mono_ns);
+                            let merged = if idx < self.realtime_quote_history.len()
+                                && self.realtime_quote_history[idx].mono_ns.0.saturating_sub(tick_mono_ns.0) <= 20_000_000
+                            {
+                                let p = &mut self.realtime_quote_history[idx];
+                                p.broker_mids.insert(broker_id, quote.mid);
+                                p.consensus_mid = compute_median_from_mids(&p.broker_mids);
+                                true
+                            } else if idx > 0
+                                && tick_mono_ns.0.saturating_sub(self.realtime_quote_history[idx - 1].mono_ns.0) <= 20_000_000
+                            {
+                                let p = &mut self.realtime_quote_history[idx - 1];
+                                p.broker_mids.insert(broker_id, quote.mid);
+                                p.consensus_mid = compute_median_from_mids(&p.broker_mids);
+                                true
+                            } else {
+                                false
+                            };
+                            if !merged {
+                                self.realtime_quote_history.insert(idx, pt);
+                            }
+                        }
+
                         while self.realtime_quote_history.len() > self.config.display.visible_ticks {
                             self.realtime_quote_history.pop_front();
                         }
@@ -939,6 +995,80 @@ impl TickEngine {
             }
             if let Some(elapsed) = frame_processing_elapsed {
                 diagnostics.record_duration(DiagnosticStage::EngineFrameProcessing, elapsed);
+            }
+        }
+    }
+}
+
+/// Helper function to calculate median mid price across active brokers
+pub fn compute_median_from_mids(mids: &HashMap<BrokerId, f64>) -> Option<f64> {
+    if mids.is_empty() {
+        return None;
+    }
+    let mut vals: Vec<f64> = mids.values().copied().filter(|v| v.is_finite()).collect();
+    if vals.is_empty() {
+        return None;
+    }
+    vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = vals.len();
+    if n % 2 == 1 {
+        Some(vals[n / 2])
+    } else {
+        Some((vals[n / 2 - 1] + vals[n / 2]) / 2.0)
+    }
+}
+
+#[cfg(feature = "replay")]
+impl TickEngine {
+    /// Reconstructs the Realtime Quote Path history for all brokers across the full screen width
+    /// (e.g. visible_seconds window / visible_ticks count) upon startup or seek operations.
+    pub fn rebuild_quote_history_from_replay_ticks(
+        &mut self,
+        warmup_ticks: &[crate::replay::ReplayTick],
+        target_utc_ms: i64,
+    ) {
+        if warmup_ticks.is_empty() {
+            return;
+        }
+
+        let visible_sec = self.config.display.visible_seconds.max(60);
+        let cutoff_utc_ms = target_utc_ms.saturating_sub((visible_sec as i64 + 10) * 1000);
+        let max_ticks = self.config.display.visible_ticks.max(1200);
+
+        // 1. Identify latest mid for each broker prior to cutoff_utc_ms so broker lines start fully connected
+        let mut current_mids: HashMap<BrokerId, f64> = HashMap::new();
+        let mut split_idx = 0;
+        for (i, t) in warmup_ticks.iter().enumerate() {
+            if t.utc_ms >= cutoff_utc_ms && (warmup_ticks.len() - i) <= max_ticks {
+                split_idx = i;
+                break;
+            }
+            if t.bid.is_finite() && t.ask.is_finite() && t.bid > 0.0 && t.ask >= t.bid {
+                current_mids.insert(t.broker_id, (t.bid + t.ask) / 2.0);
+            }
+        }
+
+        // 2. Clear transient quote history and build chronologically interleaved points
+        let recent_ticks = &warmup_ticks[split_idx..];
+        self.realtime_quote_history.clear();
+
+        for t in recent_ticks {
+            if t.bid.is_finite() && t.ask.is_finite() && t.bid > 0.0 && t.ask >= t.bid {
+                let mid = (t.bid + t.ask) / 2.0;
+                current_mids.insert(t.broker_id, mid);
+
+                let mono_ns = MonoNs((t.utc_ms.max(0) as u64).saturating_mul(1_000_000));
+                let consensus_mid = compute_median_from_mids(&current_mids);
+
+                self.realtime_quote_history.push_back(RealtimeQuotePoint {
+                    mono_ns,
+                    broker_mids: current_mids.clone(),
+                    consensus_mid,
+                });
+
+                while self.realtime_quote_history.len() > max_ticks {
+                    self.realtime_quote_history.pop_front();
+                }
             }
         }
     }
