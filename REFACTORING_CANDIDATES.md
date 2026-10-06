@@ -88,7 +88,7 @@ cargo clippy --fix --all-targets --features replay --allow-dirty --allow-staged 
 | 除外した lint | 理由 |
 | :--- | :--- |
 | `must_use_candidate` (240) / `return_self_not_must_use` (64) | → **対応済み**（両方 0）。`#[must_use]` を 255 箇所に付与。呼び出し側への波及は `unused_must_use` **7 箇所だけ**で、すべて `setup_console()`（戻り値がどこでも未使用）だった。この関数は副作用が目的なので属性を外し、理由コメント付き `#[allow]` にしている |
-| `manual_midpoint` (36) | `f64::midpoint` は Rust 1.85+。MSRV の決定が必要（付録 B） |
+| `manual_midpoint` (36) | → **対応済み**（36 → 0）。`clippy.toml` に `msrv = "1.82"` を宣言したことで、`f64::midpoint` は 1.85+ なので提案されなくなった。コードは変更していない |
 | `wildcard_imports` (35) | ~~glob import の展開は可読性を下げる場合がある。方針判断が必要~~ → **対応済み**（35 → 0）。`--fix` で展開したが、**テストコードでのみ使う名前が展開から漏れて 3 ファイルがコンパイルエラーになった**ため、`#[cfg(test)] mod tests` の中に個別 import を補った（モジュール先頭に置くと非テスト時に未使用警告になる） |
 
 **残っているデフォルト Clippy 警告 5 件**（いずれも自動修正不可・要判断）:
@@ -618,10 +618,23 @@ Clipy の suggestion を機械適用する際、`match_same_arms` は**複数 sp
 
 ## 付録 B. 環境メモ（作業前に確認）
 
-1. **MSRV が README と実態でずれている**
-   README は「Rust 1.80+」と書いているが、`Option::is_none_or`（Rust 1.82 で安定化）を既に 3 箇所で使用
-   （`src/storage/tlog_writer.rs:317`、`src/ui/chart/bottom/persistence.rs:33`、`src/ui/chart/bottom/dispersion.rs:79`）。
-   実質 1.82+ が必要。`f64::midpoint`（1.85+）を使うなら README の更新か `clippy.toml` の `msrv` 指定が必要。
+1. ~~**MSRV が README と実態でずれている**~~ → **対応済み（MSRV = 1.82）**。
+   `Cargo.toml` に `rust-version = "1.82"`、`clippy.toml` に `msrv = "1.82"` を追加し、README を
+   「Rust 1.82+」に修正した。当初の見立て（`Option::is_none_or` が 1.82 で安定化＝実質 1.82+）は正しかったが、
+   **`msrv` を宣言したことで `clippy::incompatible_msrv` が 4 件出て、実際には 1.87/1.88 の API を使っていたことが判明した**:
+
+   | 箇所 | 使っていた API | 安定版 | 対応 |
+   | :--- | :--- | ---: | :--- |
+   | `deploy/discovery.rs` | `slice::as_chunks` | 1.88 | `chunks_exact(2)` に置換 |
+   | `metrics/fingerprint.rs` | `is_multiple_of` | 1.87 | `% 2 == 0` に置換 |
+   | `protocol/codec.rs` | `const fn` 内の `Vec::len` | 1.87 | `const` を外した |
+   | `replay/merge_stream.rs` | 同上 | 1.87 | `const` を外した |
+
+   下 2 つは `missing_const_for_fn` を適用したコミットで付けた `const` で、MSRV 未宣言のため
+   Clippy が最新前提で提案していたもの。`msrv` を宣言すると `missing_const_for_fn` も
+   MSRV を考慮するようになり、再発しない。
+   なお「宣言するだけ」で終わらせなかった理由: 宣言と実態が食い違ったままでは
+   `incompatible_msrv` が警告を出し続け、MSRV の約束としても嘘になるため。
 
 2. **ビルド用ディレクトリの権限**
    `D:\dev\TickScope\target` は所有者が別ユーザー（`DESK\CodexSandboxOffline`）になっており、

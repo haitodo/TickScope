@@ -45,7 +45,7 @@ impl StreamingDecoder {
     }
 
     #[must_use]
-    pub const fn buffer_len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         self.buffer.len() - self.consumed
     }
 

@@ -97,8 +97,10 @@ pub fn discover_mt5_terminals(config: &Mt5DeployConfig) -> (Vec<DiscoveredTermin
 pub fn read_origin(terminal_dir: &Path) -> Option<String> {
     let bytes = fs::read(terminal_dir.join("origin.txt")).ok()?;
     let content = if bytes.starts_with(&[0xff, 0xfe]) || bytes.get(1) == Some(&0) {
-        let (chunks, _) = bytes.as_chunks::<2>();
-        let u16s: Vec<u16> = chunks.iter().map(|&[b0, b1]| u16::from_le_bytes([b0, b1])).collect();
+        let u16s: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
         String::from_utf16(&u16s).ok()?
     } else {
         String::from_utf8(bytes).ok()?

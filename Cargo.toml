@@ -2,6 +2,7 @@
 name = "tick-scope"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.82"
 default-run = "tick-scope"
 authors = ["TickScope Team"]
 description = "TickScope FX multi-broker real-time tick comparison and visualization application"

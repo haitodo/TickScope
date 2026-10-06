@@ -283,7 +283,7 @@ fn test_consecutive_batches_accepted_without_duplicate_drop() {
         batch1.push(ReplayTick {
             broker_id: 1,
             utc_ms: 1000 + i * 10,
-            mt5_ms: 1000 + i * 10 + 10800_000,
+            mt5_ms: 1000 + i * 10 + 10_800_000,
             bid: 150.0 + (i as f64 * 0.001),
             ask: 150.02 + (i as f64 * 0.001),
             receive_delay_ms: 0,
@@ -298,7 +298,7 @@ fn test_consecutive_batches_accepted_without_duplicate_drop() {
         batch2.push(ReplayTick {
             broker_id: 1,
             utc_ms: 1000 + i * 10,
-            mt5_ms: 1000 + i * 10 + 10800_000,
+            mt5_ms: 1000 + i * 10 + 10_800_000,
             bid: 150.0 + (i as f64 * 0.001),
             ask: 150.02 + (i as f64 * 0.001),
             receive_delay_ms: 0,
@@ -342,7 +342,7 @@ fn test_5_broker_instant_seek_and_warmup_rebuild() {
             ticks.push(ReplayTick {
                 broker_id: b_id,
                 utc_ms: (target_utc - 60_000) + i * 1000,
-                mt5_ms: (target_utc - 60_000) + i * 1000 + 10800_000,
+                mt5_ms: (target_utc - 60_000) + i * 1000 + 10_800_000,
                 bid: 150.0 + (f64::from(b_id) * 0.01),
                 ask: 150.02 + (f64::from(b_id) * 0.01),
                 receive_delay_ms: 0,
@@ -409,7 +409,7 @@ fn test_missing_partition_broker_does_not_deadlock_replay() {
         let tick = ReplayTick {
             broker_id: b_id,
             utc_ms: now_utc,
-            mt5_ms: now_utc + 10800_000,
+            mt5_ms: now_utc + 10_800_000,
             bid: 150.0,
             ask: 150.02,
             receive_delay_ms: 0,

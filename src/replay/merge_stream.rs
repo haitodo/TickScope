@@ -122,7 +122,7 @@ impl MergeStream {
 
     /// Return total broker sources in this merge stream.
     #[must_use]
-    pub const fn broker_count(&self) -> usize {
+    pub fn broker_count(&self) -> usize {
         self.sources.len()
     }
 }

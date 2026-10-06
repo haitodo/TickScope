@@ -1,0 +1,10 @@
+# Clippy configuration.
+#
+# `msrv` must match `rust-version` in Cargo.toml. Declaring it makes Clippy judge
+# suggestions against the version we actually promise to support: without it Clippy
+# assumes the newest toolchain and proposes APIs (for example `f64::midpoint`, 1.85+)
+# that would silently raise the requirement.
+#
+# 1.82 is the real floor today because the code uses `Option::is_none_or` (stabilised
+# in 1.82) in src/storage/tlog_writer.rs, src/tick/engine.rs and the bottom panels.
+msrv = "1.82"

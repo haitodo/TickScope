@@ -390,7 +390,7 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
         raw_wire_bytes: std::sync::Arc::new(Vec::new()),
         run_id: RunId::new_random(),
         rx_mono_ns: MonoNs(50_000_000),
-        rx_unix_ns: Some(1700000000000_000_000),
+        rx_unix_ns: Some(1_700_000_000_000_000_000),
         connection_generation: 1,
         frame_index: 1,
     };

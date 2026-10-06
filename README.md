@@ -239,7 +239,7 @@ cargo build --release --features replay --bin tick-scope-replay
 ## 開発・ビルド
 
 ### 必要環境
-- Rust 1.80+（2021 edition）
+- Rust 1.82+（2021 edition / `Cargo.toml` の `rust-version` と `clippy.toml` の `msrv` で固定）
 - Windows 10 / 11
 
 ### コマンド
