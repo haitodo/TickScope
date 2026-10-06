@@ -175,7 +175,7 @@ impl MultiBrokerBurstDetector {
         }
     }
 
-    pub fn window_ms(&self) -> u64 {
+    pub const fn window_ms(&self) -> u64 {
         self.window_ns / 1_000_000
     }
 

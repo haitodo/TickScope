@@ -88,7 +88,7 @@ impl Default for ConsensusCalculator {
 }
 
 impl ConsensusCalculator {
-    pub fn new(stale_after_ms: u64) -> Self {
+    pub const fn new(stale_after_ms: u64) -> Self {
         Self {
             stale_after_ms,
             outlier_threshold: None,
@@ -96,12 +96,12 @@ impl ConsensusCalculator {
         }
     }
 
-    pub fn with_threshold(mut self, threshold: f64) -> Self {
+    pub const fn with_threshold(mut self, threshold: f64) -> Self {
         self.outlier_threshold = Some(threshold);
         self
     }
 
-    pub fn with_mad_multiplier(mut self, multiplier: f64) -> Self {
+    pub const fn with_mad_multiplier(mut self, multiplier: f64) -> Self {
         self.mad_multiplier = multiplier;
         self
     }

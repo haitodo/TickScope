@@ -153,7 +153,7 @@ struct ActiveLog {
     next_record_index: u64,
 }
 
-fn log_broker_id(record: &LogRecord) -> BrokerId {
+const fn log_broker_id(record: &LogRecord) -> BrokerId {
     match record {
         LogRecord::RawFrame(raw) => raw.broker_id,
         LogRecord::Diagnostic(diagnostic) => diagnostic.broker_id,

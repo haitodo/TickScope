@@ -21,13 +21,13 @@ pub enum TerminalProcessStatus {
 }
 
 impl TerminalProcessStatus {
-    pub fn is_running(&self) -> bool {
-        matches!(self, TerminalProcessStatus::Running { .. })
+    pub const fn is_running(&self) -> bool {
+        matches!(self, Self::Running { .. })
     }
 
-    pub fn pid(&self) -> Option<u32> {
+    pub const fn pid(&self) -> Option<u32> {
         match self {
-            TerminalProcessStatus::Running { pid } => Some(*pid),
+            Self::Running { pid } => Some(*pid),
             _ => None,
         }
     }

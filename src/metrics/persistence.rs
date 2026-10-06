@@ -45,7 +45,7 @@ impl QuotePersistenceTracker {
         }
     }
 
-    pub fn broker_id(&self) -> BrokerId {
+    pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
 
@@ -188,11 +188,11 @@ pub struct RepricingPersistenceTracker {
 impl RepricingPersistenceTracker {
     pub const DEFAULT_WINDOW_MS: u64 = 500;
 
-    pub fn new(broker_id: BrokerId) -> Self {
+    pub const fn new(broker_id: BrokerId) -> Self {
         Self::with_window_ms(broker_id, Self::DEFAULT_WINDOW_MS)
     }
 
-    pub fn with_window_ms(broker_id: BrokerId, window_ms: u64) -> Self {
+    pub const fn with_window_ms(broker_id: BrokerId, window_ms: u64) -> Self {
         Self {
             broker_id,
             total_leads: 0,
@@ -203,29 +203,29 @@ impl RepricingPersistenceTracker {
         }
     }
 
-    pub fn broker_id(&self) -> BrokerId {
+    pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
 
-    pub fn total_leads(&self) -> u64 {
+    pub const fn total_leads(&self) -> u64 {
         self.total_leads
     }
 
-    pub fn follow_count(&self) -> u64 {
+    pub const fn follow_count(&self) -> u64 {
         self.follow_count
     }
 
-    pub fn reversion_count(&self) -> u64 {
+    pub const fn reversion_count(&self) -> u64 {
         self.reversion_count
     }
 
     /// Record a lead event without immediate resolution.
-    pub fn record_lead(&mut self) {
+    pub const fn record_lead(&mut self) {
         self.total_leads += 1;
     }
 
     /// Record that other brokers followed this broker's lead.
-    pub fn record_follow(&mut self) {
+    pub const fn record_follow(&mut self) {
         self.follow_count += 1;
         if self.total_leads < self.follow_count + self.reversion_count {
             self.total_leads = self.follow_count + self.reversion_count;
@@ -233,7 +233,7 @@ impl RepricingPersistenceTracker {
     }
 
     /// Record that this broker reverted without others following.
-    pub fn record_reversion(&mut self) {
+    pub const fn record_reversion(&mut self) {
         self.reversion_count += 1;
         if self.total_leads < self.follow_count + self.reversion_count {
             self.total_leads = self.follow_count + self.reversion_count;
@@ -241,7 +241,7 @@ impl RepricingPersistenceTracker {
     }
 
     /// Record an explicit outcome for a lead event.
-    pub fn record_outcome(&mut self, followed: bool, reverted: bool) {
+    pub const fn record_outcome(&mut self, followed: bool, reverted: bool) {
         self.total_leads += 1;
         if followed {
             self.follow_count += 1;
@@ -272,7 +272,7 @@ impl RepricingPersistenceTracker {
     }
 
     /// Event-driven hook when this broker initiates a lead move.
-    pub fn on_lead_event(&mut self, event: &MoveEvent) {
+    pub const fn on_lead_event(&mut self, event: &MoveEvent) {
         if event.broker_id != self.broker_id {
             return;
         }
@@ -317,7 +317,7 @@ impl RepricingPersistenceTracker {
     }
 
     /// Checks if active pending lead has timed out.
-    pub fn check_expiration(&mut self, now_mono: MonoNs) {
+    pub const fn check_expiration(&mut self, now_mono: MonoNs) {
         if let Some(pending) = self.pending_lead.as_ref() {
             if now_mono.saturating_sub(pending.created_at).0 > self.window_ns {
                 self.pending_lead = None;

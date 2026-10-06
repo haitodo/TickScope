@@ -177,7 +177,7 @@ impl DashboardApp {
         self
     }
 
-    pub fn with_chart_max_quote_age_ms(mut self, age: u64) -> Self {
+    pub const fn with_chart_max_quote_age_ms(mut self, age: u64) -> Self {
         self.chart_max_quote_age_ms = age;
         self
     }
@@ -250,7 +250,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn always_on_top(&self) -> bool {
+    pub const fn always_on_top(&self) -> bool {
         self.always_on_top
     }
 
@@ -303,48 +303,48 @@ impl DashboardApp {
         self.save_state();
     }
 
-    pub fn window_geometry(&self) -> &WindowGeometryState {
+    pub const fn window_geometry(&self) -> &WindowGeometryState {
         &self.window_geometry
     }
 
-    pub fn set_window_geometry(&mut self, geometry: WindowGeometryState) {
+    pub const fn set_window_geometry(&mut self, geometry: WindowGeometryState) {
         self.window_geometry = geometry;
         self.state_dirty = true;
     }
 
-    pub fn is_window_resetting(&self) -> bool {
+    pub const fn is_window_resetting(&self) -> bool {
         self.window_reset_in_progress > 0
     }
 
-    pub fn mark_dirty(&mut self) {
+    pub const fn mark_dirty(&mut self) {
         self.state_dirty = true;
     }
 
-    pub fn mark_fonts_configured(&mut self) {
+    pub const fn mark_fonts_configured(&mut self) {
         self.fonts_configured = true;
     }
 
-    pub fn with_show_broker_overview(mut self, show: bool) -> Self {
+    pub const fn with_show_broker_overview(mut self, show: bool) -> Self {
         self.show_broker_overview = show;
         self
     }
 
-    pub fn show_broker_overview(&self) -> bool {
+    pub const fn show_broker_overview(&self) -> bool {
         self.show_broker_overview
     }
 
-    pub fn set_show_broker_overview(&mut self, show: bool) {
+    pub const fn set_show_broker_overview(&mut self, show: bool) {
         if self.show_broker_overview != show {
             self.show_broker_overview = show;
             self.state_dirty = true;
         }
     }
 
-    pub fn show_quick_settings(&self) -> bool {
+    pub const fn show_quick_settings(&self) -> bool {
         self.show_quick_settings
     }
 
-    pub fn set_show_quick_settings(&mut self, show: bool) {
+    pub const fn set_show_quick_settings(&mut self, show: bool) {
         self.show_quick_settings = show;
     }
 
@@ -468,17 +468,17 @@ impl DashboardApp {
         }
     }
 
-    pub fn with_pip_size(mut self, pip_size: f64) -> Self {
+    pub const fn with_pip_size(mut self, pip_size: f64) -> Self {
         self.pip_size = pip_size;
         self
     }
 
-    pub fn with_visible_seconds(mut self, visible_seconds: u64) -> Self {
+    pub const fn with_visible_seconds(mut self, visible_seconds: u64) -> Self {
         self.visible_seconds = visible_seconds;
         self
     }
 
-    pub fn with_visible_ticks(mut self, visible_ticks: usize) -> Self {
+    pub const fn with_visible_ticks(mut self, visible_ticks: usize) -> Self {
         self.visible_ticks = visible_ticks;
         self
     }
@@ -501,7 +501,7 @@ impl DashboardApp {
         self
     }
 
-    pub fn selected_pair(&self) -> (BrokerId, BrokerId) {
+    pub const fn selected_pair(&self) -> (BrokerId, BrokerId) {
         (self.selected_broker_a, self.selected_broker_b)
     }
 
@@ -560,7 +560,7 @@ impl DashboardApp {
         self.set_selected_pair(next_a, next_b);
     }
 
-    pub fn bottom_metric(&self) -> BottomMetric {
+    pub const fn bottom_metric(&self) -> BottomMetric {
         self.bottom_metric
     }
 
@@ -571,7 +571,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn candle_bar_width(&self) -> f32 {
+    pub const fn candle_bar_width(&self) -> f32 {
         self.candle_bar_width
     }
 
@@ -582,7 +582,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn candle_price_scale(&self) -> CandlePriceScaleMode {
+    pub const fn candle_price_scale(&self) -> CandlePriceScaleMode {
         self.candle_price_scale
     }
 
@@ -595,7 +595,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn candle_price_mode(&self) -> CandlePriceMode {
+    pub const fn candle_price_mode(&self) -> CandlePriceMode {
         self.candle_price_mode
     }
 
@@ -608,7 +608,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn candle_follow_criteria(&self) -> CandleFollowCriteria {
+    pub const fn candle_follow_criteria(&self) -> CandleFollowCriteria {
         self.candle_follow_criteria
     }
 
@@ -620,7 +620,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn top_x_axis_mode(&self) -> ChartXAxisMode {
+    pub const fn top_x_axis_mode(&self) -> ChartXAxisMode {
         self.top_x_axis_mode
     }
 
@@ -631,7 +631,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn bottom_x_axis_mode(&self) -> ChartXAxisMode {
+    pub const fn bottom_x_axis_mode(&self) -> ChartXAxisMode {
         self.bottom_x_axis_mode
     }
 
@@ -642,7 +642,7 @@ impl DashboardApp {
         }
     }
 
-    pub fn x_axis_mode(&self) -> ChartXAxisMode {
+    pub const fn x_axis_mode(&self) -> ChartXAxisMode {
         self.top_x_axis_mode
     }
 

@@ -15,7 +15,7 @@ pub struct FakeIngressSink {
 }
 
 impl FakeIngressSink {
-    pub fn new(capacity: usize) -> Self {
+    pub const fn new(capacity: usize) -> Self {
         Self {
             items: Mutex::new(Vec::new()),
             capacity,
@@ -54,7 +54,7 @@ pub struct FakeLogSink {
 }
 
 impl FakeLogSink {
-    pub fn new(capacity: usize) -> Self {
+    pub const fn new(capacity: usize) -> Self {
         Self {
             records: Mutex::new(Vec::new()),
             capacity,

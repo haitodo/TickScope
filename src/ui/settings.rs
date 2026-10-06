@@ -29,14 +29,14 @@ pub enum CandlePriceMode {
 }
 
 impl CandlePriceMode {
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
             Self::Bid => "Bid",
             Self::Mid => "Mid",
         }
     }
 
-    pub fn price_mode(self) -> PriceMode {
+    pub const fn price_mode(self) -> PriceMode {
         match self {
             Self::Bid => PriceMode::Bid,
             Self::Mid => PriceMode::Mid,
@@ -76,7 +76,7 @@ pub enum CandleFollowCriteria {
 }
 
 impl CandleFollowCriteria {
-    pub fn label(&self) -> &'static str {
+    pub const fn label(&self) -> &'static str {
         match self {
             Self::Median => "Median",
             Self::MarginEdge => "Margin Edge",
@@ -84,20 +84,20 @@ impl CandleFollowCriteria {
     }
 }
 
-fn default_active_pair() -> (BrokerId, BrokerId) {
+const fn default_active_pair() -> (BrokerId, BrokerId) {
     (1, 2)
 }
 
-fn default_timeframe_ms() -> i64 {
+const fn default_timeframe_ms() -> i64 {
     10000
 }
 
 
-fn default_candle_bar_width() -> f32 {
+const fn default_candle_bar_width() -> f32 {
     DEFAULT_CANDLE_BAR_WIDTH
 }
 
-fn default_window_size() -> [f32; 2] {
+const fn default_window_size() -> [f32; 2] {
     [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]
 }
 
@@ -145,11 +145,11 @@ impl WindowGeometryState {
     }
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
 
-fn default_non_minimized_broker_id() -> Option<BrokerId> {
+const fn default_non_minimized_broker_id() -> Option<BrokerId> {
     Some(1)
 }
 

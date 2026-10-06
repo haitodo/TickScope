@@ -15,7 +15,7 @@ pub struct SignificantMidMoveDetector {
 }
 
 impl SignificantMidMoveDetector {
-    pub fn new(
+    pub const fn new(
         broker_id: BrokerId,
         point_size: f64,
         trigger_move_points: f64,
@@ -33,7 +33,7 @@ impl SignificantMidMoveDetector {
         }
     }
 
-    pub fn reset(&mut self, new_segment_id: AnalysisSegmentId) {
+    pub const fn reset(&mut self, new_segment_id: AnalysisSegmentId) {
         self.anchor_quote = None;
         self.cooldown_until = MonoNs::ZERO;
         self.segment_id = new_segment_id;

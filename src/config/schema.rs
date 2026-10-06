@@ -30,7 +30,7 @@ pub enum ConfigError {
 
 impl From<String> for ConfigError {
     fn from(s: String) -> Self {
-        ConfigError::Validation(s)
+        Self::Validation(s)
     }
 }
 
@@ -67,11 +67,11 @@ pub struct BrokerConfig {
 }
 
 
-fn default_broker_port() -> u16 {
+const fn default_broker_port() -> u16 {
     39001
 }
 
-fn default_auto_utc_offset() -> bool {
+const fn default_auto_utc_offset() -> bool {
     true
 }
 
@@ -106,13 +106,13 @@ pub struct ProtocolConfig {
     pub debug_resync_limit: u32,
 }
 
-fn default_max_payload() -> u32 {
+const fn default_max_payload() -> u32 {
     1_048_576
 }
 fn default_ack_mode() -> String {
     "required".to_string()
 }
-fn default_debug_resync_limit() -> u32 {
+const fn default_debug_resync_limit() -> u32 {
     65_536
 }
 
@@ -136,13 +136,13 @@ pub struct IngressConfig {
     pub progress_interval_ms: u64,
 }
 
-fn default_max_frames() -> usize {
+const fn default_max_frames() -> usize {
     256
 }
-fn default_max_bytes() -> usize {
+const fn default_max_bytes() -> usize {
     8 * 1024 * 1024
 }
-fn default_progress_interval() -> u64 {
+const fn default_progress_interval() -> u64 {
     1
 }
 
@@ -171,22 +171,22 @@ pub struct LoggerConfig {
     pub flush_interval_ms: u64,
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
-fn default_false() -> bool {
+const fn default_false() -> bool {
     false
 }
 fn default_log_dir() -> String {
     "data/logs".to_string()
 }
-fn default_queue_records() -> usize {
+const fn default_queue_records() -> usize {
     1024
 }
-fn default_queue_bytes() -> usize {
+const fn default_queue_bytes() -> usize {
     32 * 1024 * 1024
 }
-fn default_flush_interval() -> u64 {
+const fn default_flush_interval() -> u64 {
     1000
 }
 
@@ -220,22 +220,22 @@ pub struct MatcherConfig {
     pub max_quote_skew_ms: u64,
 }
 
-fn default_trigger_move() -> f64 {
+const fn default_trigger_move() -> f64 {
     2.0
 }
-fn default_matching_window() -> u64 {
+const fn default_matching_window() -> u64 {
     100
 }
-fn default_event_cooldown() -> u64 {
+const fn default_event_cooldown() -> u64 {
     20
 }
-fn default_ema_alpha() -> f64 {
+const fn default_ema_alpha() -> f64 {
     0.1
 }
-fn default_pending_capacity() -> usize {
+const fn default_pending_capacity() -> usize {
     8192
 }
-fn default_max_quote_skew() -> u64 {
+const fn default_max_quote_skew() -> u64 {
     100
 }
 
@@ -260,10 +260,10 @@ pub struct HealthConfig {
     pub heartbeat_timeout_ms: u64,
 }
 
-fn default_stale_after() -> u64 {
+const fn default_stale_after() -> u64 {
     1000
 }
-fn default_heartbeat_timeout() -> u64 {
+const fn default_heartbeat_timeout() -> u64 {
     1500
 }
 
@@ -290,19 +290,19 @@ pub struct DisplayConfig {
     pub chart_max_quote_age_ms: u64,
 }
 
-fn default_repaint_hz() -> u32 {
+const fn default_repaint_hz() -> u32 {
     60
 }
-fn default_timeframe_ms() -> i64 {
+const fn default_timeframe_ms() -> i64 {
     60000
 }
-fn default_visible_seconds() -> u64 {
+const fn default_visible_seconds() -> u64 {
     60
 }
-fn default_visible_ticks() -> usize {
+const fn default_visible_ticks() -> usize {
     1200
 }
-fn default_chart_max_quote_age() -> u64 {
+const fn default_chart_max_quote_age() -> u64 {
     1000
 }
 
@@ -340,7 +340,7 @@ fn default_slots() -> Vec<SlotRetention> {
         SlotRetention { period_ms: 60000, slots: 120 },
     ]
 }
-fn default_ledger_cap() -> usize {
+const fn default_ledger_cap() -> usize {
     16_384
 }
 
@@ -410,7 +410,7 @@ pub struct AppConfig {
     pub mt5: Mt5DeployConfig,
 }
 
-fn default_active_pair() -> (BrokerId, BrokerId) {
+const fn default_active_pair() -> (BrokerId, BrokerId) {
     (1, 2)
 }
 

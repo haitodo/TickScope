@@ -26,97 +26,97 @@ pub enum BottomMetric {
 }
 
 impl BottomMetric {
-    pub const ALL: [BottomMetric; 8] = [
-        BottomMetric::QuotePath,
-        BottomMetric::MidDiff,
-        BottomMetric::BidAskDiff,
-        BottomMetric::SpreadDiff,
-        BottomMetric::LeadLag,
-        BottomMetric::MidDispersion,
-        BottomMetric::MoveBreadthView,
-        BottomMetric::QuotePersistence,
+    pub const ALL: [Self; 8] = [
+        Self::QuotePath,
+        Self::MidDiff,
+        Self::BidAskDiff,
+        Self::SpreadDiff,
+        Self::LeadLag,
+        Self::MidDispersion,
+        Self::MoveBreadthView,
+        Self::QuotePersistence,
     ];
 
-    pub fn key_number(&self) -> u32 {
+    pub const fn key_number(&self) -> u32 {
         match self {
-            BottomMetric::MidDiff => 2,
-            BottomMetric::BidAskDiff => 3,
-            BottomMetric::SpreadDiff => 4,
-            BottomMetric::LeadLag => 5,
-            BottomMetric::MidDispersion => 6,
-            BottomMetric::MoveBreadthView => 7,
-            BottomMetric::QuotePersistence => 8,
-            BottomMetric::QuotePath => 1,
+            Self::MidDiff => 2,
+            Self::BidAskDiff => 3,
+            Self::SpreadDiff => 4,
+            Self::LeadLag => 5,
+            Self::MidDispersion => 6,
+            Self::MoveBreadthView => 7,
+            Self::QuotePersistence => 8,
+            Self::QuotePath => 1,
         }
     }
 
-    pub fn label(&self) -> &'static str {
+    pub const fn label(&self) -> &'static str {
         match self {
-            BottomMetric::MidDiff => "2: Mid Diff",
-            BottomMetric::BidAskDiff => "3: Bid/Ask Diff",
-            BottomMetric::SpreadDiff => "4: Spread Diff",
-            BottomMetric::LeadLag => "5: Lead/Lag",
-            BottomMetric::MidDispersion => "6: Dispersion",
-            BottomMetric::MoveBreadthView => "7: Breadth",
-            BottomMetric::QuotePersistence => "8: Persistence",
-            BottomMetric::QuotePath => "1: Quote Path",
+            Self::MidDiff => "2: Mid Diff",
+            Self::BidAskDiff => "3: Bid/Ask Diff",
+            Self::SpreadDiff => "4: Spread Diff",
+            Self::LeadLag => "5: Lead/Lag",
+            Self::MidDispersion => "6: Dispersion",
+            Self::MoveBreadthView => "7: Breadth",
+            Self::QuotePersistence => "8: Persistence",
+            Self::QuotePath => "1: Quote Path",
         }
     }
 
-    pub fn title(&self) -> &'static str {
+    pub const fn title(&self) -> &'static str {
         match self {
-            BottomMetric::MidDiff => "Mid Price Difference (A - B)",
-            BottomMetric::BidAskDiff => "Bid & Ask Difference (A - B)",
-            BottomMetric::SpreadDiff => "Spread Difference (A - B)",
-            BottomMetric::LeadLag => "Lead / Lag Diagnostics",
-            BottomMetric::MidDispersion => "Mid Dispersion (Deviation from Broker Median)",
-            BottomMetric::MoveBreadthView => "Directional Move Breadth",
-            BottomMetric::QuotePersistence => "Quote Freshness / Age per Broker",
-            BottomMetric::QuotePath => "Realtime Multi-Broker Quote Path",
+            Self::MidDiff => "Mid Price Difference (A - B)",
+            Self::BidAskDiff => "Bid & Ask Difference (A - B)",
+            Self::SpreadDiff => "Spread Difference (A - B)",
+            Self::LeadLag => "Lead / Lag Diagnostics",
+            Self::MidDispersion => "Mid Dispersion (Deviation from Broker Median)",
+            Self::MoveBreadthView => "Directional Move Breadth",
+            Self::QuotePersistence => "Quote Freshness / Age per Broker",
+            Self::QuotePath => "Realtime Multi-Broker Quote Path",
         }
     }
 
-    pub fn next(&self) -> Self {
+    pub const fn next(&self) -> Self {
         match self {
-            BottomMetric::MidDiff => BottomMetric::BidAskDiff,
-            BottomMetric::BidAskDiff => BottomMetric::SpreadDiff,
-            BottomMetric::SpreadDiff => BottomMetric::LeadLag,
-            BottomMetric::LeadLag => BottomMetric::MidDispersion,
-            BottomMetric::MidDispersion => BottomMetric::MoveBreadthView,
-            BottomMetric::MoveBreadthView => BottomMetric::QuotePersistence,
-            BottomMetric::QuotePersistence => BottomMetric::QuotePath,
-            BottomMetric::QuotePath => BottomMetric::MidDiff,
+            Self::MidDiff => Self::BidAskDiff,
+            Self::BidAskDiff => Self::SpreadDiff,
+            Self::SpreadDiff => Self::LeadLag,
+            Self::LeadLag => Self::MidDispersion,
+            Self::MidDispersion => Self::MoveBreadthView,
+            Self::MoveBreadthView => Self::QuotePersistence,
+            Self::QuotePersistence => Self::QuotePath,
+            Self::QuotePath => Self::MidDiff,
         }
     }
 
-    pub fn prev(&self) -> Self {
+    pub const fn prev(&self) -> Self {
         match self {
-            BottomMetric::MidDiff => BottomMetric::QuotePath,
-            BottomMetric::BidAskDiff => BottomMetric::MidDiff,
-            BottomMetric::SpreadDiff => BottomMetric::BidAskDiff,
-            BottomMetric::LeadLag => BottomMetric::SpreadDiff,
-            BottomMetric::MidDispersion => BottomMetric::LeadLag,
-            BottomMetric::MoveBreadthView => BottomMetric::MidDispersion,
-            BottomMetric::QuotePersistence => BottomMetric::MoveBreadthView,
-            BottomMetric::QuotePath => BottomMetric::QuotePersistence,
+            Self::MidDiff => Self::QuotePath,
+            Self::BidAskDiff => Self::MidDiff,
+            Self::SpreadDiff => Self::BidAskDiff,
+            Self::LeadLag => Self::SpreadDiff,
+            Self::MidDispersion => Self::LeadLag,
+            Self::MoveBreadthView => Self::MidDispersion,
+            Self::QuotePersistence => Self::MoveBreadthView,
+            Self::QuotePath => Self::QuotePersistence,
         }
     }
 
-    pub fn from_key_number(n: u32) -> Option<Self> {
+    pub const fn from_key_number(n: u32) -> Option<Self> {
         match n {
-            2 => Some(BottomMetric::MidDiff),
-            3 => Some(BottomMetric::BidAskDiff),
-            4 => Some(BottomMetric::SpreadDiff),
-            5 => Some(BottomMetric::LeadLag),
-            6 => Some(BottomMetric::MidDispersion),
-            7 => Some(BottomMetric::MoveBreadthView),
-            8 => Some(BottomMetric::QuotePersistence),
-            1 => Some(BottomMetric::QuotePath),
+            2 => Some(Self::MidDiff),
+            3 => Some(Self::BidAskDiff),
+            4 => Some(Self::SpreadDiff),
+            5 => Some(Self::LeadLag),
+            6 => Some(Self::MidDispersion),
+            7 => Some(Self::MoveBreadthView),
+            8 => Some(Self::QuotePersistence),
+            1 => Some(Self::QuotePath),
             _ => None,
         }
     }
 
-    pub fn category(&self) -> BottomMetricCategory {
+    pub const fn category(&self) -> BottomMetricCategory {
         match self {
             Self::MidDiff | Self::BidAskDiff | Self::SpreadDiff | Self::LeadLag => {
                 BottomMetricCategory::PairDiff
@@ -128,7 +128,7 @@ impl BottomMetric {
         }
     }
 
-    pub fn is_pair_metric(&self) -> bool {
+    pub const fn is_pair_metric(&self) -> bool {
         matches!(self.category(), BottomMetricCategory::PairDiff)
     }
 }
@@ -141,13 +141,13 @@ pub enum BottomMetricCategory {
 }
 
 impl BottomMetricCategory {
-    pub const ALL: [BottomMetricCategory; 3] = [
-        BottomMetricCategory::RawQuotes,
-        BottomMetricCategory::PairDiff,
-        BottomMetricCategory::MarketConsensus,
+    pub const ALL: [Self; 3] = [
+        Self::RawQuotes,
+        Self::PairDiff,
+        Self::MarketConsensus,
     ];
 
-    pub fn title(&self) -> &'static str {
+    pub const fn title(&self) -> &'static str {
         match self {
             Self::PairDiff => "Pair Differentials (2社比較)",
             Self::MarketConsensus => "Market Consensus (市場統計)",
@@ -155,7 +155,7 @@ impl BottomMetricCategory {
         }
     }
 
-    pub fn metrics(&self) -> &'static [BottomMetric] {
+    pub const fn metrics(&self) -> &'static [BottomMetric] {
         match self {
             Self::PairDiff => &[
                 BottomMetric::MidDiff,

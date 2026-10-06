@@ -22,7 +22,7 @@ impl SequenceLedger {
     }
 
     #[inline]
-    pub fn expected_sequence(&self) -> Sequence {
+    pub const fn expected_sequence(&self) -> Sequence {
         self.expected_sequence
     }
 

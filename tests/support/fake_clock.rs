@@ -12,7 +12,7 @@ pub struct FakeClock {
 }
 
 impl FakeClock {
-    pub fn new(initial_mono_ns: u64, initial_unix_ns: i64) -> Self {
+    pub const fn new(initial_mono_ns: u64, initial_unix_ns: i64) -> Self {
         Self {
             run_id: RunId([1u8; 16]),
             mono_ns: AtomicU64::new(initial_mono_ns),

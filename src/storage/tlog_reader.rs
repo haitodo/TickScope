@@ -57,15 +57,15 @@ impl<R: Read + Seek> LogFileReader<R> {
         })
     }
 
-    pub fn run_id(&self) -> RunId {
+    pub const fn run_id(&self) -> RunId {
         self.run_id
     }
 
-    pub fn file_id(&self) -> u64 {
+    pub const fn file_id(&self) -> u64 {
         self.file_id
     }
 
-    pub fn broker_id(&self) -> BrokerId {
+    pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
 

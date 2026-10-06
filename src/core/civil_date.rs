@@ -13,7 +13,7 @@
 /// one position still compiles and still round-trips, but returns invalid dates
 /// such as `2026-3-0` for the last days of February.
 #[must_use]
-pub fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
+pub const fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
     let z = days_since_unix_epoch + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let day_of_era = z - era * 146_097;
@@ -48,7 +48,7 @@ pub fn ymd_to_days(year: i32, month: u32, day: u32) -> i64 {
 /// Days are floored rather than truncated, so timestamps before 1970-01-01 map to
 /// the correct date.
 #[must_use]
-pub fn unix_sec_to_ymd(unix_sec: i64) -> (i32, u32, u32) {
+pub const fn unix_sec_to_ymd(unix_sec: i64) -> (i32, u32, u32) {
     let (year, month, day) = civil_from_days(unix_sec.div_euclid(86_400));
     (year as i32, month, day)
 }

@@ -44,7 +44,7 @@ impl Default for SyncArbiter {
 }
 
 impl SyncArbiter {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             last_observed_mt5_ms: 0,
             last_observed_seek_epoch: 0,
@@ -53,7 +53,7 @@ impl SyncArbiter {
     }
 
     /// Reset internal tracking (e.g. on new connection).
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.last_observed_mt5_ms = 0;
         self.last_observed_seek_epoch = 0;
         self.last_observed_trade_revision = 0;
@@ -186,7 +186,7 @@ impl SyncArbiter {
     }
 
     /// Read last observed MT5 timestamp.
-    pub fn last_observed_mt5_ms(&self) -> i64 {
+    pub const fn last_observed_mt5_ms(&self) -> i64 {
         self.last_observed_mt5_ms
     }
 }

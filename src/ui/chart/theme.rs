@@ -57,7 +57,7 @@ impl Default for ChartTheme {
     }
 }
 
-pub fn broker_color_for(theme: &ChartTheme, index: usize) -> Color32 {
+pub const fn broker_color_for(theme: &ChartTheme, index: usize) -> Color32 {
     theme.broker_colors[index % theme.broker_colors.len()]
 }
 

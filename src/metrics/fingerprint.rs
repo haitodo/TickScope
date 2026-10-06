@@ -72,7 +72,7 @@ pub struct BrokerFingerprint {
 
 impl BrokerFingerprint {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub const fn new(
         broker_id: BrokerId,
         observed_lead_freq: f64,
         observed_follow_freq: f64,
@@ -96,7 +96,7 @@ impl BrokerFingerprint {
         }
     }
 
-    pub fn empty(broker_id: BrokerId) -> Self {
+    pub const fn empty(broker_id: BrokerId) -> Self {
         Self {
             broker_id,
             observed_lead_freq: 0.0,
@@ -110,7 +110,7 @@ impl BrokerFingerprint {
         }
     }
 
-    pub fn update_sample_context(&mut self, context: SampleContext) {
+    pub const fn update_sample_context(&mut self, context: SampleContext) {
         self.sample_context = context;
     }
 }
@@ -160,11 +160,11 @@ impl BrokerFingerprintTracker {
         }
     }
 
-    pub fn broker_id(&self) -> BrokerId {
+    pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
 
-    pub fn record_lead(&mut self) {
+    pub const fn record_lead(&mut self) {
         self.lead_events += 1;
         self.total_move_events += 1;
     }
@@ -180,14 +180,14 @@ impl BrokerFingerprintTracker {
         }
     }
 
-    pub fn record_spread_update(&mut self, is_expansion: bool) {
+    pub const fn record_spread_update(&mut self, is_expansion: bool) {
         self.total_spread_events += 1;
         if is_expansion {
             self.spread_expansion_events += 1;
         }
     }
 
-    pub fn record_tick(
+    pub const fn record_tick(
         &mut self,
         is_stale: bool,
         is_outlier: bool,

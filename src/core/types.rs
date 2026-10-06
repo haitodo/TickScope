@@ -45,7 +45,7 @@ pub struct MonoNs(pub u64);
 impl MonoNs {
     pub const ZERO: Self = Self(0);
 
-    pub fn saturating_sub(self, other: Self) -> Self {
+    pub const fn saturating_sub(self, other: Self) -> Self {
         Self(self.0.saturating_sub(other.0))
     }
 

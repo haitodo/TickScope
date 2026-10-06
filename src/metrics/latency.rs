@@ -54,50 +54,50 @@ impl PipelineTimestamps {
         render_mono_ns: MonoNs::ZERO,
     };
 
-    pub fn new(rx_mono_ns: MonoNs) -> Self {
+    pub const fn new(rx_mono_ns: MonoNs) -> Self {
         Self {
             rx_mono_ns,
             ..Self::ZERO
         }
     }
 
-    pub fn with_engine(mut self, engine_mono_ns: MonoNs) -> Self {
+    pub const fn with_engine(mut self, engine_mono_ns: MonoNs) -> Self {
         self.engine_mono_ns = engine_mono_ns;
         self
     }
 
-    pub fn with_projection(mut self, projection_mono_ns: MonoNs) -> Self {
+    pub const fn with_projection(mut self, projection_mono_ns: MonoNs) -> Self {
         self.projection_mono_ns = projection_mono_ns;
         self
     }
 
-    pub fn with_snapshot(mut self, snapshot_mono_ns: MonoNs) -> Self {
+    pub const fn with_snapshot(mut self, snapshot_mono_ns: MonoNs) -> Self {
         self.snapshot_mono_ns = snapshot_mono_ns;
         self
     }
 
-    pub fn with_render(mut self, render_mono_ns: MonoNs) -> Self {
+    pub const fn with_render(mut self, render_mono_ns: MonoNs) -> Self {
         self.render_mono_ns = render_mono_ns;
         self
     }
 
-    pub fn mark_engine(&mut self, now: MonoNs) {
+    pub const fn mark_engine(&mut self, now: MonoNs) {
         self.engine_mono_ns = now;
     }
 
-    pub fn mark_projection(&mut self, now: MonoNs) {
+    pub const fn mark_projection(&mut self, now: MonoNs) {
         self.projection_mono_ns = now;
     }
 
-    pub fn mark_snapshot(&mut self, now: MonoNs) {
+    pub const fn mark_snapshot(&mut self, now: MonoNs) {
         self.snapshot_mono_ns = now;
     }
 
-    pub fn mark_render(&mut self, now: MonoNs) {
+    pub const fn mark_render(&mut self, now: MonoNs) {
         self.render_mono_ns = now;
     }
 
-    pub fn tick_to_engine_ns(&self) -> Option<u64> {
+    pub const fn tick_to_engine_ns(&self) -> Option<u64> {
         if self.rx_mono_ns.0 > 0 && self.engine_mono_ns.0 >= self.rx_mono_ns.0 {
             Some(self.engine_mono_ns.0 - self.rx_mono_ns.0)
         } else {
@@ -105,7 +105,7 @@ impl PipelineTimestamps {
         }
     }
 
-    pub fn engine_to_projection_ns(&self) -> Option<u64> {
+    pub const fn engine_to_projection_ns(&self) -> Option<u64> {
         if self.engine_mono_ns.0 > 0 && self.projection_mono_ns.0 >= self.engine_mono_ns.0 {
             Some(self.projection_mono_ns.0 - self.engine_mono_ns.0)
         } else {
@@ -113,7 +113,7 @@ impl PipelineTimestamps {
         }
     }
 
-    pub fn projection_to_snapshot_ns(&self) -> Option<u64> {
+    pub const fn projection_to_snapshot_ns(&self) -> Option<u64> {
         if self.projection_mono_ns.0 > 0 && self.snapshot_mono_ns.0 >= self.projection_mono_ns.0 {
             Some(self.snapshot_mono_ns.0 - self.projection_mono_ns.0)
         } else {
@@ -121,7 +121,7 @@ impl PipelineTimestamps {
         }
     }
 
-    pub fn snapshot_to_ui_ns(&self) -> Option<u64> {
+    pub const fn snapshot_to_ui_ns(&self) -> Option<u64> {
         if self.snapshot_mono_ns.0 > 0 && self.render_mono_ns.0 >= self.snapshot_mono_ns.0 {
             Some(self.render_mono_ns.0 - self.snapshot_mono_ns.0)
         } else {
@@ -129,7 +129,7 @@ impl PipelineTimestamps {
         }
     }
 
-    pub fn total_latency_ns(&self) -> Option<u64> {
+    pub const fn total_latency_ns(&self) -> Option<u64> {
         if self.rx_mono_ns.0 > 0 && self.render_mono_ns.0 >= self.rx_mono_ns.0 {
             Some(self.render_mono_ns.0 - self.rx_mono_ns.0)
         } else {
@@ -184,11 +184,11 @@ pub struct StageLatencySummary {
 }
 
 impl StageLatencySummary {
-    pub fn queue_depth(&self) -> usize {
+    pub const fn queue_depth(&self) -> usize {
         self.queue_depth
     }
 
-    pub fn dropped_snapshots(&self) -> u64 {
+    pub const fn dropped_snapshots(&self) -> u64 {
         self.dropped_snapshots
     }
 }
@@ -248,21 +248,21 @@ impl LatencyRingBuffer {
     }
 
     #[inline]
-    pub fn total_samples(&self) -> u64 {
+    pub const fn total_samples(&self) -> u64 {
         self.total_samples
     }
 
     #[inline]
-    pub fn valid_count(&self) -> usize {
+    pub const fn valid_count(&self) -> usize {
         self.valid_count
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.valid_count == 0
     }
 
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.write_idx = 0;
         self.valid_count = 0;
         self.total_samples = 0;
@@ -391,47 +391,47 @@ impl LatencyMetrics {
 
     /// Record current ingestion/processing queue depth.
     #[inline]
-    pub fn record_queue_depth(&mut self, depth: usize) {
+    pub const fn record_queue_depth(&mut self, depth: usize) {
         self.queue_depth = depth;
     }
 
     /// Increment count of dropped snapshots (due to backpressure or UI frame skipping).
     #[inline]
-    pub fn increment_dropped_snapshots(&mut self) {
+    pub const fn increment_dropped_snapshots(&mut self) {
         self.dropped_snapshots = self.dropped_snapshots.saturating_add(1);
     }
 
     #[inline]
-    pub fn queue_depth(&self) -> usize {
+    pub const fn queue_depth(&self) -> usize {
         self.queue_depth
     }
 
     #[inline]
-    pub fn dropped_snapshots(&self) -> u64 {
+    pub const fn dropped_snapshots(&self) -> u64 {
         self.dropped_snapshots
     }
 
-    pub fn tick_to_engine(&self) -> &LatencyRingBuffer {
+    pub const fn tick_to_engine(&self) -> &LatencyRingBuffer {
         &self.tick_to_engine
     }
 
-    pub fn engine_to_projection(&self) -> &LatencyRingBuffer {
+    pub const fn engine_to_projection(&self) -> &LatencyRingBuffer {
         &self.engine_to_projection
     }
 
-    pub fn projection_to_snapshot(&self) -> &LatencyRingBuffer {
+    pub const fn projection_to_snapshot(&self) -> &LatencyRingBuffer {
         &self.projection_to_snapshot
     }
 
-    pub fn snapshot_to_ui(&self) -> &LatencyRingBuffer {
+    pub const fn snapshot_to_ui(&self) -> &LatencyRingBuffer {
         &self.snapshot_to_ui
     }
 
-    pub fn total_pipeline(&self) -> &LatencyRingBuffer {
+    pub const fn total_pipeline(&self) -> &LatencyRingBuffer {
         &self.total_pipeline
     }
 
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.tick_to_engine.clear();
         self.engine_to_projection.clear();
         self.projection_to_snapshot.clear();

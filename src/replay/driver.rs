@@ -33,7 +33,7 @@ pub struct ReplaySyncStatus {
     pub speed_mode: String,
 }
 
-fn default_multiplier() -> f64 {
+const fn default_multiplier() -> f64 {
     1.0
 }
 

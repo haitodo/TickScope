@@ -47,7 +47,7 @@ pub struct EvidenceChain {
 }
 
 impl EvidenceChain {
-    pub fn new(sample_count: u64, fresh_rate: f64) -> Self {
+    pub const fn new(sample_count: u64, fresh_rate: f64) -> Self {
         Self {
             sample_count,
             median_lag_ms: None,
@@ -58,17 +58,17 @@ impl EvidenceChain {
         }
     }
 
-    pub fn with_lag(mut self, lag_ms: f64) -> Self {
+    pub const fn with_lag(mut self, lag_ms: f64) -> Self {
         self.median_lag_ms = Some(lag_ms);
         self
     }
 
-    pub fn with_concordance(mut self, ratio: f64) -> Self {
+    pub const fn with_concordance(mut self, ratio: f64) -> Self {
         self.concordance_ratio = Some(ratio);
         self
     }
 
-    pub fn with_dispersion(mut self, dispersion: f64) -> Self {
+    pub const fn with_dispersion(mut self, dispersion: f64) -> Self {
         self.dispersion_points = Some(dispersion);
         self
     }
@@ -184,11 +184,11 @@ impl Default for HypothesisEngine {
 }
 
 impl HypothesisEngine {
-    pub fn new(config: HypothesisEngineConfig) -> Self {
+    pub const fn new(config: HypothesisEngineConfig) -> Self {
         Self { config }
     }
 
-    pub fn config(&self) -> &HypothesisEngineConfig {
+    pub const fn config(&self) -> &HypothesisEngineConfig {
         &self.config
     }
 

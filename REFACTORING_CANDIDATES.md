@@ -447,20 +447,25 @@ cargo test --features replay
 
 ---
 
-## 8. その他の機械的 lint（任意・効果は薄い）
+## 8. その他の機械的 lint ★一部対応済み
 
-`cargo clippy --fix` に以下の lint を足すと、さらに **本番 363 箇所**が自動で片付く。
+**対応状況**: `missing_const_for_fn` (164) と `use_self` (91) は適用済み
+（**38 ファイル / +245 −245 行**、純粋な置換のみ）。
+`str_to_string` (108) は **見送り** — `"x".to_string()` → `"x".to_owned()` は
+どちらも等価で慣用的であり、108 箇所を書き換えても読みやすさが上がらないため。
 
-| lint | 本番 | 修正内容 | 備考 |
-| :--- | ---: | :--- | :--- |
-| `clippy::missing_const_for_fn` | 164 | `fn` → `const fn` | const 化できるかはコンパイラが判定。`cargo check` が通れば正しい |
-| `clippy::str_to_string` | 108 | `"x".to_string()` → `"x".to_owned()` | 効果はほぼ無い。好みで除外可 |
-| `clippy::use_self` | 91 | `impl Foo { fn new() -> Foo }` → `-> Self` | リスクなし |
+適用したコマンド:
 
 ```powershell
 cargo clippy --fix --all-targets --features replay --allow-dirty `
-  -- -W clippy::missing_const_for_fn -W clippy::str_to_string -W clippy::use_self
+  -- -W clippy::missing_const_for_fn -W clippy::use_self
 ```
+
+| lint | 本番 | 状態 |
+| :--- | ---: | :--- |
+| `clippy::missing_const_for_fn` | 164 | **適用済み**（`fn` → `const fn`） |
+| `clippy::use_self` | 91 | **適用済み**（`impl Foo { fn new() -> Foo }` → `-> Self`） |
+| `clippy::str_to_string` | 108 | 見送り（上記理由） |
 
 ### ドキュメント補完（42 箇所・任意）
 

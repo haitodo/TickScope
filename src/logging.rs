@@ -80,7 +80,7 @@ pub struct ConsoleLogger {
 }
 
 impl ConsoleLogger {
-    pub fn new(level: LevelFilter, use_color: bool) -> Self {
+    pub const fn new(level: LevelFilter, use_color: bool) -> Self {
         Self {
             level,
             use_color,

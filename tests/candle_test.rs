@@ -4,7 +4,7 @@ use tick_scope::core::models::*;
 use tick_scope::core::types::*;
 use tick_scope::tick::candle::{calculate_slot_start, CandleBook};
 
-fn make_test_tick(broker_id: BrokerId, seq: Sequence, utc_ms: i64, bid: f64, ask: f64) -> NormalizedTick {
+const fn make_test_tick(broker_id: BrokerId, seq: Sequence, utc_ms: i64, bid: f64, ask: f64) -> NormalizedTick {
     NormalizedTick {
         observed: ObservedTick {
             tick_id: TickId {

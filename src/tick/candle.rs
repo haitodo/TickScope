@@ -5,7 +5,7 @@ use crate::core::models::*;
 use crate::core::types::*;
 use std::collections::{BTreeMap, HashMap};
 
-pub fn calculate_slot_start(utc_ms: UtcMs, period_ms: i64) -> UtcMs {
+pub const fn calculate_slot_start(utc_ms: UtcMs, period_ms: i64) -> UtcMs {
     let start = utc_ms.0.div_euclid(period_ms) * period_ms;
     UtcMs(start)
 }

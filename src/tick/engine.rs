@@ -205,7 +205,7 @@ impl TickEngine {
         self.latest_quotes.get(&broker_id)
     }
 
-    pub fn current_watermark(&self) -> MonoNs {
+    pub const fn current_watermark(&self) -> MonoNs {
         self.current_watermark
     }
 

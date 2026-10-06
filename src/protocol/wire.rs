@@ -134,7 +134,7 @@ pub enum IngressItem {
 }
 
 impl IngressItem {
-    pub fn broker_id(&self) -> BrokerId {
+    pub const fn broker_id(&self) -> BrokerId {
         match self {
             Self::Connected { broker_id, .. } => *broker_id,
             Self::Frame(rf) => rf.frame.header.broker_id,

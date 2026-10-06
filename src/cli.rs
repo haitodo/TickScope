@@ -65,7 +65,7 @@ impl CliArgs {
         I: IntoIterator<Item = T>,
         T: Into<String>,
     {
-        let mut cli = CliArgs::default();
+        let mut cli = Self::default();
         let mut iter = args.into_iter().map(Into::into).peekable();
 
         while let Some(arg) = iter.next() {
@@ -175,7 +175,7 @@ impl CliArgs {
         Ok(cli)
     }
 
-    fn set_config_path(cli: &mut CliArgs, path: PathBuf) -> Result<(), CliError> {
+    fn set_config_path(cli: &mut Self, path: PathBuf) -> Result<(), CliError> {
         if path.as_os_str().is_empty() || path.to_string_lossy().trim().is_empty() {
             return Err(CliError::EmptyConfigPath);
         }
@@ -190,7 +190,7 @@ impl CliArgs {
     }
 
     /// Help text displayed for `--help`.
-    pub fn help_text() -> &'static str {
+    pub const fn help_text() -> &'static str {
         concat!(
             "TickScope - Multi-Broker Real-time FX Tick Comparison\n\n",
             "USAGE:\n",

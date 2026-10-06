@@ -31,26 +31,26 @@ impl TimezoneRule {
     /// Resolves the UTC offset in seconds for the given Unix timestamp (in seconds).
     pub fn resolve_offset(&self, unix_sec: i64, fallback_offset: i32) -> i32 {
         match self {
-            TimezoneRule::NyClose => {
+            Self::NyClose => {
                 if is_us_dst(unix_sec) {
                     10800 // +3h (US Summer Time)
                 } else {
                     7200 // +2h (US Winter / Standard Time)
                 }
             }
-            TimezoneRule::Fixed => fallback_offset,
-            TimezoneRule::Jst => 32400,
-            TimezoneRule::Utc => 0,
+            Self::Fixed => fallback_offset,
+            Self::Jst => 32400,
+            Self::Utc => 0,
         }
     }
 
     /// Display label for UI and logs.
-    pub fn label(&self) -> &'static str {
+    pub const fn label(&self) -> &'static str {
         match self {
-            TimezoneRule::NyClose => "NY Close (Auto DST)",
-            TimezoneRule::Fixed => "Fixed",
-            TimezoneRule::Jst => "JST (UTC+9)",
-            TimezoneRule::Utc => "UTC (UTC+0)",
+            Self::NyClose => "NY Close (Auto DST)",
+            Self::Fixed => "Fixed",
+            Self::Jst => "JST (UTC+9)",
+            Self::Utc => "UTC (UTC+0)",
         }
     }
 }

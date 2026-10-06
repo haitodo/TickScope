@@ -23,7 +23,7 @@ pub struct ReplayTick {
 
 impl ReplayTick {
     #[inline]
-    pub fn effective_utc_ms(&self) -> i64 {
+    pub const fn effective_utc_ms(&self) -> i64 {
         self.utc_ms + self.receive_delay_ms
     }
 }
@@ -199,7 +199,7 @@ impl BrokerParquetSource {
         })
     }
 
-    pub fn with_receive_delay_ms(mut self, delay_ms: i64) -> Self {
+    pub const fn with_receive_delay_ms(mut self, delay_ms: i64) -> Self {
         self.receive_delay_ms = delay_ms;
         self
     }
@@ -218,7 +218,7 @@ impl BrokerParquetSource {
     }
 
     #[inline]
-    pub fn effective_utc_ms(&self, tick: &ReplayTick) -> i64 {
+    pub const fn effective_utc_ms(&self, tick: &ReplayTick) -> i64 {
         tick.utc_ms + self.receive_delay_ms
     }
 

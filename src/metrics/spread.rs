@@ -21,7 +21,7 @@ impl SpreadTracker {
         }
     }
 
-    pub fn broker_id(&self) -> BrokerId {
+    pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
 
@@ -52,11 +52,11 @@ impl SpreadTracker {
         }
     }
 
-    pub fn min_spread(&self) -> Option<f64> {
+    pub const fn min_spread(&self) -> Option<f64> {
         self.min_spread
     }
 
-    pub fn max_spread(&self) -> Option<f64> {
+    pub const fn max_spread(&self) -> Option<f64> {
         self.max_spread
     }
 

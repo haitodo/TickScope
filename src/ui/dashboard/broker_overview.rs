@@ -58,7 +58,7 @@ fn value(ui: &mut egui::Ui, text: String, color: Color32) {
     });
 }
 
-fn feed_status(b: &BrokerOverview) -> (&'static str, Color32, &'static str) {
+const fn feed_status(b: &BrokerOverview) -> (&'static str, Color32, &'static str) {
     match b.health.connection {
         ConnectionState::Disconnected => (
             "Offline",

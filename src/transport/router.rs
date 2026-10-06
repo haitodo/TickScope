@@ -81,7 +81,7 @@ impl TransportRouter {
         })
     }
 
-    pub fn local_port(&self) -> u16 {
+    pub const fn local_port(&self) -> u16 {
         self.port
     }
 

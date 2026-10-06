@@ -13,7 +13,7 @@ pub struct SnapshotBuilder {
 }
 
 impl SnapshotBuilder {
-    pub fn new(run_id: RunId) -> Self {
+    pub const fn new(run_id: RunId) -> Self {
         Self {
             run_id,
             snapshot_revision: AtomicU64::new(0),
