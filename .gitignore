@@ -1,5 +1,8 @@
 # Rust build artifacts
 target/
+# Build cache used when target/ is not writable (CARGO_TARGET_DIR=.clippy-target).
+# Must stay ignored: committing it once added ~10k build artifacts to a commit.
+.clippy-target/
 **/*.rs.bk
 *.pdb
 
