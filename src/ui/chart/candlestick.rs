@@ -600,6 +600,12 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         );
     }
 
+    let live_market_price = fallback_price.or_else(|| {
+        broker_overviews
+            .iter()
+            .find_map(|b| b.latest_quote.as_ref().map(|q| q.mid))
+    });
+
     if let Some((open_pos, hist)) = trade_items {
         draw_trade_overlays_impl(
             ui.as_deref_mut(),
@@ -615,6 +621,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             hist,
             pip_size,
             price_decimals,
+            live_market_price,
         );
     }
 }
@@ -649,6 +656,7 @@ pub fn draw_trade_overlays(
         history,
         pip_size,
         price_decimals_for_pip(pip_size),
+        None,
     );
 }
 
@@ -666,6 +674,7 @@ fn draw_trade_overlays_impl(
     history: &[ReplayTrade],
     pip_size: f64,
     price_decimals: usize,
+    live_market_price: Option<f64>,
 ) {
     if view.slot_starts.is_empty() || view.period_ms <= 0 {
         return;
@@ -674,7 +683,14 @@ fn draw_trade_overlays_impl(
     let clip_painter = painter.with_clip_rect(plot_rect);
 
     // 1. チャート上部ヘッダーHUD (オープンポジションの常時サマリー表示)
-    draw_header_position_hud(painter, chart_rect, open_positions, pip_size);
+    draw_header_position_hud(
+        painter,
+        chart_rect,
+        open_positions,
+        pip_size,
+        price_decimals,
+        live_market_price,
+    );
 
     // 2. 履歴トレード (振り返りモード時に全履歴を展開)
     for trade in history {
@@ -876,9 +892,10 @@ fn draw_trade_overlays_impl(
             );
         }
 
-        // ③ 右側価格軸上のポジションタグ (TradingViewスタイル)
+        // ③ 右側価格軸上のポジションタグ (形式B: 建値 (+pips))
+        let cur_price = live_market_price.or(trade.current_price);
         let pips = if pip_size > 0.0 {
-            if let Some(cur) = trade.current_price {
+            if let Some(cur) = cur_price {
                 let diff = if is_buy { cur - trade.open_price } else { trade.open_price - cur };
                 diff / pip_size
             } else {
@@ -892,8 +909,9 @@ fn draw_trade_overlays_impl(
             plot_rect,
             chart_rect,
             entry_y,
-            is_buy,
+            trade.open_price,
             pips,
+            price_decimals,
             entry_color,
         );
     }
@@ -981,8 +999,9 @@ fn draw_price_axis_position_badge(
     plot_rect: Rect,
     chart_rect: Rect,
     y: f32,
-    is_buy: bool,
+    open_price: f64,
     pips: f64,
+    price_decimals: usize,
     color: Color32,
 ) {
     let axis_left = plot_rect.right();
@@ -994,7 +1013,8 @@ fn draw_price_axis_position_badge(
     let badge_h = 16.0;
     let badge_y = y.clamp(plot_rect.top() + badge_h * 0.5, plot_rect.bottom() - badge_h * 0.5);
 
-    let text = format!("{} {:+.1}p", if is_buy { "BUY" } else { "SELL" }, pips);
+    // 形式B: 建値 (+pips) 例: "150.235 (+1.8p)" (BUY/SELLなし)
+    let text = format!("{:.*} ({:+.1}p)", price_decimals, open_price, pips);
     let bg_color = if pips >= 0.0 {
         Color32::from_rgba_unmultiplied(0, 110, 60, 240)
     } else {
@@ -1004,10 +1024,10 @@ fn draw_price_axis_position_badge(
     let font_id = egui::FontId::monospace(10.0);
     let galley = painter.layout_no_wrap(text, font_id, Color32::WHITE);
     let text_w = galley.size().x;
-    let badge_w = (text_w + 10.0).clamp(56.0, 76.0);
+    let badge_w = (text_w + 8.0).clamp(62.0, 84.0);
 
     let badge_rect = Rect::from_center_size(
-        Pos2::new(axis_left + badge_w * 0.5 + 4.0, badge_y),
+        Pos2::new(axis_left + badge_w * 0.5 + 2.0, badge_y),
         egui::vec2(badge_w, badge_h),
     );
 
@@ -1028,6 +1048,8 @@ fn draw_header_position_hud(
     chart_rect: Rect,
     open_positions: &[ReplayTrade],
     pip_size: f64,
+    price_decimals: usize,
+    live_market_price: Option<f64>,
 ) {
     if open_positions.is_empty() {
         return;
@@ -1038,8 +1060,9 @@ fn draw_header_position_hud(
 
     for trade in open_positions {
         let is_buy = trade.side.eq_ignore_ascii_case("BUY");
+        let cur_price = live_market_price.or(trade.current_price);
         let pips = if pip_size > 0.0 {
-            if let Some(cur) = trade.current_price {
+            if let Some(cur) = cur_price {
                 let diff = if is_buy { cur - trade.open_price } else { trade.open_price - cur };
                 diff / pip_size
             } else {
@@ -1049,13 +1072,13 @@ fn draw_header_position_hud(
             0.0
         };
 
-        let side_str = if is_buy { "BUY" } else { "SELL" };
+        // スキャルピング用にBUY/SELLの文字を省き、ロット・建値・リアルタイムpipsを表示
         let text = format!(
-            "● {} {:.2}L @ {:.3} | {:+.1}p ({:+.0}円)",
-            side_str, trade.volume, trade.open_price, pips, trade.profit
+            "● {:.2}L @ {:.*} | {:+.1}p",
+            trade.volume, price_decimals, trade.open_price, pips
         );
 
-        let bg_color = if trade.profit >= 0.0 {
+        let bg_color = if pips >= 0.0 {
             Color32::from_rgba_unmultiplied(0, 80, 40, 225)
         } else {
             Color32::from_rgba_unmultiplied(120, 20, 30, 225)
