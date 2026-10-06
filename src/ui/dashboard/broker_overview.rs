@@ -446,13 +446,11 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
 mod layout_tests {
     use super::*;
     use crate::core::types::{MonoNs, Quote, TickId};
-    use crate::state::snapshot::SnapshotExchange;
-    use std::sync::Arc;
+    use crate::ui::test_support::headless_app;
 
     #[test]
     fn default_window_columns_stay_inside_viewport_across_feed_changes() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+        let mut app = headless_app().with_show_broker_overview(true);
         let ctx = egui::Context::default();
         crate::ui::fonts::setup_fonts(&ctx);
         style::configure(&ctx);
@@ -596,8 +594,7 @@ mod layout_tests {
 
     #[test]
     fn controls_are_not_clipped_on_left_or_right() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+        let mut app = headless_app().with_show_broker_overview(true);
         let ctx = egui::Context::default();
         crate::ui::fonts::setup_fonts(&ctx);
         style::configure(&ctx);
@@ -668,8 +665,7 @@ mod layout_tests {
     #[test]
     fn auto_fit_height_scales_with_broker_count() {
         let measure_height = |count: usize| -> f32 {
-            let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-            let mut app = DashboardApp::new(exchange, (1, 2)).with_show_broker_overview(true);
+            let mut app = headless_app().with_show_broker_overview(true);
             let ctx = egui::Context::default();
             crate::ui::fonts::setup_fonts(&ctx);
             style::configure(&ctx);

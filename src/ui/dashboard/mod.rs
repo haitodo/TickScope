@@ -980,14 +980,12 @@ impl eframe::App for DashboardApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::UiSnapshot;
-    use crate::state::snapshot::SnapshotExchange;
+    use crate::ui::test_support::headless_app;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn test_set_broker_a_and_b_with_swapping() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2));
+        let mut app = headless_app();
 
         assert_eq!(app.selected_pair(), (1, 2));
 
@@ -1006,8 +1004,7 @@ mod tests {
 
     #[test]
     fn test_cycle_pair_forward_and_backward() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2));
+        let mut app = headless_app();
         let brokers = vec![1, 2, 3];
 
         // Forward cycling
@@ -1027,8 +1024,7 @@ mod tests {
     fn test_pair_selection_handler_called() {
         let call_count = Arc::new(AtomicUsize::new(0));
         let count_clone = Arc::clone(&call_count);
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2)).with_pair_selection_handler(Arc::new(
+        let mut app = headless_app().with_pair_selection_handler(Arc::new(
             move |_| {
                 count_clone.fetch_add(1, Ordering::SeqCst);
             },
@@ -1043,8 +1039,7 @@ mod tests {
 
     #[test]
     fn test_show_broker_overview_toggle() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2));
+        let mut app = headless_app();
 
         // Default should be collapsed (false)
         assert!(!app.show_broker_overview());
@@ -1058,8 +1053,7 @@ mod tests {
 
     #[test]
     fn test_show_quick_settings_toggle() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2));
+        let mut app = headless_app();
 
         // Default should be closed (false)
         assert!(!app.show_quick_settings());
@@ -1073,8 +1067,7 @@ mod tests {
 
     #[test]
     fn test_quick_settings_keyboard_shortcuts() {
-        let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
-        let mut app = DashboardApp::new(exchange, (1, 2));
+        let mut app = headless_app();
 
         let ctx = egui::Context::default();
 

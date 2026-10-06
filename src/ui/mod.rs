@@ -8,6 +8,9 @@ pub mod icon;
 pub mod settings;
 pub(crate) mod style;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 pub use chart::*;
 pub use dashboard::*;
 pub use dpi::*;
