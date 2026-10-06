@@ -1,7 +1,6 @@
 //! Storage serialization and binary logger worker.
 
 use super::error::StorageError;
-use crate::core::civil_date::civil_from_days;
 use crate::core::ports::{AppendResult, LogSinkPort};
 use crate::core::types::*;
 use crate::protocol::crc32c::crc32c;
@@ -219,13 +218,9 @@ fn queued_record_bytes(record: &LogRecord) -> usize {
     }
 }
 
+/// Current UTC date (`YYYY-MM-DD`) used to pick the log file's rotation bucket.
 fn utc_date_now() -> String {
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0);
-    let (year, month, day) = civil_from_days(seconds.div_euclid(86_400));
-    format!("{year:04}-{month:02}-{day:02}")
+    crate::logging::format_utc_date(std::time::SystemTime::now())
 }
 
 impl AsyncLogger {

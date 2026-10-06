@@ -10,15 +10,29 @@ use std::io::Write;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-/// Format a `SystemTime` as UTC timestamp string `YYYY-MM-DD HH:MM:SS.mmm`.
-pub fn format_utc_timestamp(time: SystemTime) -> String {
-    let duration = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
+/// Splits a `SystemTime` into `(days since epoch, seconds within the day, milliseconds)`.
+fn utc_split(time: SystemTime) -> (i64, u32, u32) {
+    let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
     let total_secs = duration.as_secs() as i64;
-    let millis = duration.subsec_millis();
-    let (year, month, day) = civil_from_days(total_secs.div_euclid(86_400));
-    let day_secs = total_secs.rem_euclid(86_400) as u32;
+    (
+        total_secs.div_euclid(86_400),
+        total_secs.rem_euclid(86_400) as u32,
+        duration.subsec_millis(),
+    )
+}
+
+/// Format a `SystemTime` as UTC date string `YYYY-MM-DD`.
+#[must_use]
+pub fn format_utc_date(time: SystemTime) -> String {
+    let (year, month, day) = civil_from_days(utc_split(time).0);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Format a `SystemTime` as UTC timestamp string `YYYY-MM-DD HH:MM:SS.mmm`.
+#[must_use]
+pub fn format_utc_timestamp(time: SystemTime) -> String {
+    let (days, day_secs, millis) = utc_split(time);
+    let (year, month, day) = civil_from_days(days);
     let hour = day_secs / 3600;
     let min = (day_secs % 3600) / 60;
     let sec = day_secs % 60;
@@ -346,6 +360,13 @@ mod tests {
         // correction in the shared calendar silently returns the wrong month.
         let time = SystemTime::UNIX_EPOCH + Duration::from_millis(1_772_323_199_999);
         assert_eq!(format_utc_timestamp(time), "2026-02-28 23:59:59.999");
+    }
+
+    #[test]
+    fn test_format_utc_date_known_values() {
+        assert_eq!(format_utc_date(SystemTime::UNIX_EPOCH), "1970-01-01");
+        let late_february = SystemTime::UNIX_EPOCH + Duration::from_millis(1_772_323_199_999);
+        assert_eq!(format_utc_date(late_february), "2026-02-28");
     }
 
     #[test]
