@@ -41,6 +41,7 @@ pub fn normalize_tick(
 /// Rounds raw seconds difference to the nearest hourly offset (multiple of 3600 seconds).
 /// This eliminates millisecond jitter, network delays, and minor clock drift, reliably
 /// identifying standard FX timezone offsets such as GMT+0, GMT+2 (7200), GMT+3 (10800), GMT+9 (32400).
+#[must_use]
 pub fn round_to_hourly_offset(raw_sec: f64) -> i32 {
     let hours = (raw_sec / 3600.0).round() as i32;
     hours * 3600

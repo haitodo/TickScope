@@ -5,6 +5,7 @@ use crate::core::models::{CandleSlot, PriceMode, SlotState, SlotCoverage, Ohlc, 
 use crate::core::types::{UtcMs, BrokerId, NormalizedTick};
 use std::collections::{BTreeMap, HashMap};
 
+#[must_use]
 pub const fn calculate_slot_start(utc_ms: UtcMs, period_ms: i64) -> UtcMs {
     let start = utc_ms.0.div_euclid(period_ms) * period_ms;
     UtcMs(start)
@@ -20,6 +21,7 @@ pub struct CandleBook {
 }
 
 impl CandleBook {
+    #[must_use]
     pub fn new(supported_periods: Vec<i64>) -> Self {
         let retentions = supported_periods.iter().map(|&period_ms| SlotRetention {
             period_ms,
@@ -187,6 +189,7 @@ impl CandleBook {
         }
     }
 
+    #[must_use]
     pub fn get_candle_view(
         &self,
         period_ms: i64,

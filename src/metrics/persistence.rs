@@ -27,10 +27,12 @@ pub struct QuotePersistenceTracker {
 impl QuotePersistenceTracker {
     pub const DEFAULT_MAX_HISTORY: usize = 5000;
 
+    #[must_use]
     pub fn new(broker_id: BrokerId) -> Self {
         Self::with_capacity(broker_id, Self::DEFAULT_MAX_HISTORY)
     }
 
+    #[must_use]
     pub fn with_capacity(broker_id: BrokerId, max_history: usize) -> Self {
         Self {
             broker_id,
@@ -45,6 +47,7 @@ impl QuotePersistenceTracker {
         }
     }
 
+    #[must_use]
     pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
@@ -105,21 +108,25 @@ impl QuotePersistenceTracker {
         self.durations_ms.push_back(duration_ms);
     }
 
+    #[must_use]
     pub fn sample_count(&self) -> u64 {
         self.durations_ms.len() as u64
     }
 
     /// Median (p50) quote persistence in milliseconds.
+    #[must_use]
     pub fn median_persistence_ms(&self) -> Option<f64> {
         self.percentile(0.50)
     }
 
     /// 95th percentile (p95) quote persistence in milliseconds.
+    #[must_use]
     pub fn p95_persistence_ms(&self) -> Option<f64> {
         self.percentile(0.95)
     }
 
     /// Calculate arbitrary percentile in [0.0, 1.0].
+    #[must_use]
     pub fn percentile(&self, pct: f64) -> Option<f64> {
         if self.durations_ms.is_empty() {
             return None;
@@ -140,6 +147,7 @@ impl QuotePersistenceTracker {
     }
 
     /// Produces the statistical sample context for this persistence tracker.
+    #[must_use]
     pub fn sample_context(&self) -> SampleContext {
         let window_ms = match (self.first_seen_ns, self.last_seen_ns) {
             (Some(first), Some(last)) => last.saturating_sub(first).as_millis() as u64,
@@ -188,10 +196,12 @@ pub struct RepricingPersistenceTracker {
 impl RepricingPersistenceTracker {
     pub const DEFAULT_WINDOW_MS: u64 = 500;
 
+    #[must_use]
     pub const fn new(broker_id: BrokerId) -> Self {
         Self::with_window_ms(broker_id, Self::DEFAULT_WINDOW_MS)
     }
 
+    #[must_use]
     pub const fn with_window_ms(broker_id: BrokerId, window_ms: u64) -> Self {
         Self {
             broker_id,
@@ -203,18 +213,22 @@ impl RepricingPersistenceTracker {
         }
     }
 
+    #[must_use]
     pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
 
+    #[must_use]
     pub const fn total_leads(&self) -> u64 {
         self.total_leads
     }
 
+    #[must_use]
     pub const fn follow_count(&self) -> u64 {
         self.follow_count
     }
 
+    #[must_use]
     pub const fn reversion_count(&self) -> u64 {
         self.reversion_count
     }
@@ -252,6 +266,7 @@ impl RepricingPersistenceTracker {
     }
 
     /// Follow rate: proportion of times other brokers followed the lead move.
+    #[must_use]
     pub fn follow_rate(&self) -> f64 {
         let total = self.total_leads.max(self.follow_count + self.reversion_count);
         if total == 0 {
@@ -262,6 +277,7 @@ impl RepricingPersistenceTracker {
     }
 
     /// Reversion rate: proportion of times the leader reverted without followers.
+    #[must_use]
     pub fn reversion_rate(&self) -> f64 {
         let total = self.total_leads.max(self.follow_count + self.reversion_count);
         if total == 0 {

@@ -33,6 +33,7 @@ pub enum QuoteGeometry {
 
 impl QuoteGeometry {
     /// Classify quote change geometry from old and new bid/ask prices.
+    #[must_use]
     pub fn classify(old_bid: f64, old_ask: f64, new_bid: f64, new_ask: f64) -> Self {
         classify_quote_geometry(old_bid, old_ask, new_bid, new_ask)
     }
@@ -48,6 +49,7 @@ impl QuoteGeometry {
 /// - Bid +1, Ask -1 -> `SpreadCompression` (symmetric)
 /// - Bid +3, Ask -1 -> `MixedQuote` (§35)
 /// - Bid -3, Ask +1 -> `OppositeSideMove`
+#[must_use]
 pub fn classify_quote_geometry(old_bid: f64, old_ask: f64, new_bid: f64, new_ask: f64) -> QuoteGeometry {
     let db = new_bid - old_bid;
     let da = new_ask - old_ask;
@@ -139,11 +141,13 @@ pub struct MoveBreadth {
 
 impl MoveBreadth {
     /// Human-readable ratio string for UP breadth (e.g. "4/4").
+    #[must_use]
     pub fn up_ratio_str(&self) -> String {
         format!("{}/{}", self.up_count, self.total_brokers)
     }
 
     /// Human-readable ratio string for DOWN breadth (e.g. "1/4").
+    #[must_use]
     pub fn down_ratio_str(&self) -> String {
         format!("{}/{}", self.down_count, self.total_brokers)
     }
@@ -167,6 +171,7 @@ impl Default for MultiBrokerBurstDetector {
 
 impl MultiBrokerBurstDetector {
     /// Create a new detector with window in milliseconds and minimum brokers.
+    #[must_use]
     pub fn new(window_ms: u64, min_brokers: usize) -> Self {
         Self {
             window_ns: window_ms.saturating_mul(1_000_000),
@@ -175,6 +180,7 @@ impl MultiBrokerBurstDetector {
         }
     }
 
+    #[must_use]
     pub const fn window_ms(&self) -> u64 {
         self.window_ns / 1_000_000
     }
@@ -217,6 +223,7 @@ impl MultiBrokerBurstDetector {
     }
 
     /// Detect if there is a qualified `EventCluster` in the specified direction.
+    #[must_use]
     pub fn detect_cluster(
         &self,
         direction: MoveDirection,
@@ -232,6 +239,7 @@ impl MultiBrokerBurstDetector {
     }
 
     /// Evaluate the current observation window, excluding unavailable feeds.
+    #[must_use]
     pub fn detect_cluster_at(
         &self,
         direction: MoveDirection,
@@ -286,6 +294,7 @@ impl MultiBrokerBurstDetector {
     }
 
     /// Compute directional `MoveBreadth` for the current rolling window.
+    #[must_use]
     pub fn compute_breadth(
         &self,
         total_brokers: usize,
@@ -319,6 +328,7 @@ impl MultiBrokerBurstDetector {
     }
 
     /// Compute directional `MoveBreadth` explicitly filtering out known stale brokers.
+    #[must_use]
     pub fn compute_breadth_with_stale_brokers(
         &self,
         total_brokers: usize,

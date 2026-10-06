@@ -21,6 +21,7 @@ pub struct StreamingDecoder {
 }
 
 impl StreamingDecoder {
+    #[must_use]
     pub fn new(max_payload_length: usize, debug_resync_limit: usize) -> Self {
         Self::new_with_raw_capture(max_payload_length, debug_resync_limit, true)
     }
@@ -28,6 +29,7 @@ impl StreamingDecoder {
     /// Construct a decoder that can skip the per-frame raw-byte copy when raw
     /// capture is disabled. The default constructor keeps the historical API
     /// behaviour and retains raw bytes.
+    #[must_use]
     pub fn new_with_raw_capture(
         max_payload_length: usize,
         debug_resync_limit: usize,
@@ -42,6 +44,7 @@ impl StreamingDecoder {
         }
     }
 
+    #[must_use]
     pub const fn buffer_len(&self) -> usize {
         self.buffer.len() - self.consumed
     }

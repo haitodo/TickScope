@@ -17,6 +17,7 @@ pub struct PrecisionTimerGuard {
 }
 
 impl PrecisionTimerGuard {
+    #[must_use]
     pub fn new(period_ms: u32) -> Self {
         #[cfg(windows)]
         {

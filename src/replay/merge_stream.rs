@@ -8,6 +8,7 @@ pub struct MergeStream {
 }
 
 impl MergeStream {
+    #[must_use]
     pub const fn new(sources: Vec<BrokerParquetSource>) -> Self {
         Self { sources }
     }
@@ -120,6 +121,7 @@ impl MergeStream {
     }
 
     /// Return total broker sources in this merge stream.
+    #[must_use]
     pub const fn broker_count(&self) -> usize {
         self.sources.len()
     }

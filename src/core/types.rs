@@ -26,6 +26,7 @@ impl fmt::Display for TickId {
 pub struct RunId(pub [u8; 16]);
 
 impl RunId {
+    #[must_use]
     pub fn new_random() -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
         let d = SystemTime::now()
@@ -45,10 +46,12 @@ pub struct MonoNs(pub u64);
 impl MonoNs {
     pub const ZERO: Self = Self(0);
 
+    #[must_use]
     pub const fn saturating_sub(self, other: Self) -> Self {
         Self(self.0.saturating_sub(other.0))
     }
 
+    #[must_use]
     pub fn as_millis(self) -> f64 {
         self.0 as f64 / 1_000_000.0
     }
@@ -129,10 +132,12 @@ pub struct SymbolMeta {
 }
 
 impl SymbolMeta {
+    #[must_use]
     pub fn points_to_price(&self, points: f64) -> f64 {
         points * self.point_size
     }
 
+    #[must_use]
     pub fn price_to_points(&self, price: f64) -> f64 {
         if self.point_size > 0.0 {
             price / self.point_size

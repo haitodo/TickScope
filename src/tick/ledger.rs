@@ -12,6 +12,7 @@ pub struct SequenceLedger {
 }
 
 impl SequenceLedger {
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         Self {
             expected_sequence: 0,
@@ -22,6 +23,7 @@ impl SequenceLedger {
     }
 
     #[inline]
+    #[must_use]
     pub const fn expected_sequence(&self) -> Sequence {
         self.expected_sequence
     }

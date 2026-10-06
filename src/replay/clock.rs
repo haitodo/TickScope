@@ -33,6 +33,7 @@ pub struct VirtualClock {
 }
 
 impl VirtualClock {
+    #[must_use]
     pub fn new(run_id: RunId, initial_utc_ms: i64) -> Self {
         Self {
             run_id,
@@ -121,6 +122,7 @@ impl VirtualClock {
     }
 
     /// Get current virtual UTC millisecond timestamp.
+    #[must_use]
     pub fn current_utc_ms(&self) -> i64 {
         let state = self.state.read();
         if state.is_playing {
@@ -133,11 +135,13 @@ impl VirtualClock {
     }
 
     /// Check if replay is currently playing.
+    #[must_use]
     pub fn is_playing(&self) -> bool {
         self.state.read().is_playing
     }
 
     /// Current speed multiplier.
+    #[must_use]
     pub fn multiplier(&self) -> f64 {
         self.state.read().multiplier
     }

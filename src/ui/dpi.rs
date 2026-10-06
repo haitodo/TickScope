@@ -17,6 +17,7 @@ pub mod windows {
 
     /// Queries the DPI scale factor (e.g. 1.0, 1.5) for a given screen point (x, y).
     /// Used at startup to determine the DPI of the monitor where the window will appear.
+    #[must_use]
     pub fn get_dpi_scale_at_point(x: i32, y: i32) -> f32 {
         unsafe {
             let pt = windows_sys::Win32::Foundation::POINT { x, y };

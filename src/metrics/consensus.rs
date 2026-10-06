@@ -88,6 +88,7 @@ impl Default for ConsensusCalculator {
 }
 
 impl ConsensusCalculator {
+    #[must_use]
     pub const fn new(stale_after_ms: u64) -> Self {
         Self {
             stale_after_ms,
@@ -96,11 +97,13 @@ impl ConsensusCalculator {
         }
     }
 
+    #[must_use]
     pub const fn with_threshold(mut self, threshold: f64) -> Self {
         self.outlier_threshold = Some(threshold);
         self
     }
 
+    #[must_use]
     pub const fn with_mad_multiplier(mut self, multiplier: f64) -> Self {
         self.mad_multiplier = multiplier;
         self
@@ -259,6 +262,7 @@ impl ConsensusCalculator {
     }
 
     /// Convenience helper for computing from a slice of quotes.
+    #[must_use]
     pub fn compute_slice(&self, quotes: &[Quote], now_mono: MonoNs) -> ObservedBrokerConsensus {
         self.compute(quotes.iter(), now_mono)
     }

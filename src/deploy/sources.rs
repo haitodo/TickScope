@@ -18,6 +18,7 @@ pub struct SourceFiles {
 }
 
 /// Locate source files, prioritizing live disk files and falling back to embedded code.
+#[must_use]
 pub fn load_source_files() -> SourceFiles {
     let candidate_dirs = [
         PathBuf::from("mt5"),

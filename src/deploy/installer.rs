@@ -40,6 +40,7 @@ pub struct DeployReport {
     pub warnings: Vec<String>,
 }
 
+#[must_use]
 pub fn tsv_safe(value: &str) -> String {
     value
         .chars()
@@ -50,6 +51,7 @@ pub fn tsv_safe(value: &str) -> String {
         .collect()
 }
 
+#[must_use]
 pub fn connection_map_contents(brokers: &[BrokerConfig]) -> String {
     let mut contents = String::from("TICKSCOPE\t1\n");
     for broker in brokers {
@@ -64,6 +66,7 @@ pub fn connection_map_contents(brokers: &[BrokerConfig]) -> String {
     contents
 }
 
+#[must_use]
 pub fn deploy_file_idempotent(target_path: &Path, content: &str) -> FileDeployResult {
     let rel_name = target_path
         .file_name().map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
@@ -141,6 +144,7 @@ pub fn deploy_file_idempotent(target_path: &Path, content: &str) -> FileDeployRe
     }
 }
 
+#[must_use]
 pub fn deploy_to_terminal(terminal: &DiscoveredTerminal, sources: &SourceFiles) -> TerminalDeployReport {
     let mut results = Vec::new();
 

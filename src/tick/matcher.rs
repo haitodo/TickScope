@@ -19,6 +19,7 @@ pub struct OneToOneEventMatcher {
 }
 
 impl OneToOneEventMatcher {
+    #[must_use]
     pub fn new(
         broker_a: BrokerId,
         broker_b: BrokerId,

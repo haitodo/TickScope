@@ -44,6 +44,7 @@ impl Default for SyncArbiter {
 }
 
 impl SyncArbiter {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             mt5_ms: 0,
@@ -186,6 +187,7 @@ impl SyncArbiter {
     }
 
     /// Read last observed MT5 timestamp.
+    #[must_use]
     pub const fn mt5_ms(&self) -> i64 {
         self.mt5_ms
     }

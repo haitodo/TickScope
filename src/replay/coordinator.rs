@@ -157,6 +157,7 @@ impl ReplayCoordinator {
         })
     }
 
+    #[must_use]
     pub fn clock_port(&self) -> Arc<dyn ClockPort> {
         Arc::new(self.clock.clone())
     }
@@ -165,6 +166,7 @@ impl ReplayCoordinator {
         self.engine.lock().set_active_pair(pair);
     }
 
+    #[must_use]
     pub fn pair_selection_handler(&self) -> Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync> {
         let engine = self.engine.clone();
         Arc::new(move |pair| engine.lock().set_active_pair(pair))

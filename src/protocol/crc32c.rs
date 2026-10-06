@@ -22,6 +22,7 @@ const CRC32C_TABLE: [u32; 256] = {
     table
 };
 
+#[must_use]
 pub fn crc32c(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     for &byte in data {

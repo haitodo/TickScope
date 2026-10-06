@@ -15,6 +15,7 @@ pub struct SignificantMidMoveDetector {
 }
 
 impl SignificantMidMoveDetector {
+    #[must_use]
     pub const fn new(
         broker_id: BrokerId,
         point_size: f64,

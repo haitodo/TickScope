@@ -72,11 +72,13 @@ impl TransportReceiver {
         }
     }
 
+    #[must_use]
     pub const fn with_activity_timeout(mut self, timeout: Duration) -> Self {
         self.activity_timeout = timeout;
         self
     }
 
+    #[must_use]
     pub fn with_diagnostics(mut self, diagnostics: DiagnosticsHandle) -> Self {
         self.diagnostics = Some(diagnostics);
         self

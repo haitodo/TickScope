@@ -23,6 +23,7 @@ pub enum HypothesisType {
 
 impl HypothesisType {
     /// Human-readable default title prefixed with "Possible " (RFC Section 48, 78).
+    #[must_use]
     pub const fn default_title(&self) -> &'static str {
         match self {
             Self::PossibleFiltering => "Possible Quote Filtering",
@@ -47,6 +48,7 @@ pub struct EvidenceChain {
 }
 
 impl EvidenceChain {
+    #[must_use]
     pub const fn new(sample_count: u64, fresh_rate: f64) -> Self {
         Self {
             sample_count,
@@ -58,21 +60,25 @@ impl EvidenceChain {
         }
     }
 
+    #[must_use]
     pub const fn with_lag(mut self, lag_ms: f64) -> Self {
         self.median_lag_ms = Some(lag_ms);
         self
     }
 
+    #[must_use]
     pub const fn with_concordance(mut self, ratio: f64) -> Self {
         self.concordance_ratio = Some(ratio);
         self
     }
 
+    #[must_use]
     pub const fn with_dispersion(mut self, dispersion: f64) -> Self {
         self.dispersion_points = Some(dispersion);
         self
     }
 
+    #[must_use]
     pub fn with_item(mut self, item: impl Into<String>) -> Self {
         self.items.push(item.into());
         self
@@ -95,6 +101,7 @@ pub struct Hypothesis {
 }
 
 impl Hypothesis {
+    #[must_use]
     pub fn new(
         broker_id: BrokerId,
         hypothesis_type: HypothesisType,
@@ -184,16 +191,19 @@ impl Default for HypothesisEngine {
 }
 
 impl HypothesisEngine {
+    #[must_use]
     pub const fn new(config: HypothesisEngineConfig) -> Self {
         Self { config }
     }
 
+    #[must_use]
     pub const fn config(&self) -> &HypothesisEngineConfig {
         &self.config
     }
 
     /// Evaluates a broker's fingerprint along with optional persistence and repricing trackers.
     /// Returns all candidate hypotheses meeting observational evidence criteria.
+    #[must_use]
     pub fn evaluate(
         &self,
         fingerprint: &BrokerFingerprint,
@@ -236,6 +246,7 @@ impl HypothesisEngine {
     }
 
     /// Evaluates only from fingerprint when trackers are not available.
+    #[must_use]
     pub fn evaluate_fingerprint(&self, fingerprint: &BrokerFingerprint) -> Vec<Hypothesis> {
         self.evaluate(fingerprint, None, None)
     }

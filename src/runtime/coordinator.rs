@@ -23,6 +23,7 @@ pub struct SystemClock {
 }
 
 impl SystemClock {
+    #[must_use]
     pub fn new(run_id: RunId) -> Self {
         Self {
             run_id,
@@ -405,6 +406,7 @@ impl RuntimeCoordinator {
             .map(DiagnosticsRuntime::handle)
     }
 
+    #[must_use]
     pub fn pair_selection_handler(&self) -> Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync> {
         let engine = self.engine.clone();
         Arc::new(move |pair| engine.lock().set_active_pair(pair))

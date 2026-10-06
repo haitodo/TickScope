@@ -189,6 +189,7 @@ pub fn encode_header(hdr: &Header, buf: &mut [u8]) {
     buf[36..40].copy_from_slice(&hdr.payload_length.to_le_bytes());
 }
 
+#[must_use]
 pub fn decode_tick_record(buf: &[u8]) -> (TickRecord, Option<String>) {
     let sequence = le_u64(buf, 0);
     let broker_time_msc = le_i64(buf, 8);
@@ -239,6 +240,7 @@ pub fn encode_tick_record(t: &TickRecord, buf: &mut [u8]) {
     buf[68..72].copy_from_slice(&t.reserved.to_le_bytes());
 }
 
+#[must_use]
 pub fn decode_heartbeat(buf: &[u8]) -> HeartbeatPayload {
     let session_id = le_u64(buf, 0);
     let last_sequence = le_u64(buf, 8);
@@ -263,6 +265,7 @@ pub fn encode_heartbeat(hb: &HeartbeatPayload, buf: &mut [u8]) {
     buf[28..36].copy_from_slice(&hb.heartbeat_elapsed_us.to_le_bytes());
 }
 
+#[must_use]
 pub fn decode_batch_ack(buf: &[u8]) -> BatchAckPayload {
     let sequence_end = le_u64(buf, 0);
     BatchAckPayload { sequence_end }

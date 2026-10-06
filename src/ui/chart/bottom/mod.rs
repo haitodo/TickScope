@@ -37,6 +37,7 @@ impl BottomMetric {
         Self::QuotePersistence,
     ];
 
+    #[must_use]
     pub const fn key_number(&self) -> u32 {
         match self {
             Self::MidDiff => 2,
@@ -50,6 +51,7 @@ impl BottomMetric {
         }
     }
 
+    #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
             Self::MidDiff => "2: Mid Diff",
@@ -63,6 +65,7 @@ impl BottomMetric {
         }
     }
 
+    #[must_use]
     pub const fn title(&self) -> &'static str {
         match self {
             Self::MidDiff => "Mid Price Difference (A - B)",
@@ -76,6 +79,7 @@ impl BottomMetric {
         }
     }
 
+    #[must_use]
     pub const fn next(&self) -> Self {
         match self {
             Self::MidDiff => Self::BidAskDiff,
@@ -89,6 +93,7 @@ impl BottomMetric {
         }
     }
 
+    #[must_use]
     pub const fn prev(&self) -> Self {
         match self {
             Self::MidDiff => Self::QuotePath,
@@ -102,6 +107,7 @@ impl BottomMetric {
         }
     }
 
+    #[must_use]
     pub const fn from_key_number(n: u32) -> Option<Self> {
         match n {
             2 => Some(Self::MidDiff),
@@ -116,6 +122,7 @@ impl BottomMetric {
         }
     }
 
+    #[must_use]
     pub const fn category(&self) -> BottomMetricCategory {
         match self {
             Self::MidDiff | Self::BidAskDiff | Self::SpreadDiff | Self::LeadLag => {
@@ -128,6 +135,7 @@ impl BottomMetric {
         }
     }
 
+    #[must_use]
     pub const fn is_pair_metric(&self) -> bool {
         matches!(self.category(), BottomMetricCategory::PairDiff)
     }
@@ -147,6 +155,7 @@ impl BottomMetricCategory {
         Self::MarketConsensus,
     ];
 
+    #[must_use]
     pub const fn title(&self) -> &'static str {
         match self {
             Self::PairDiff => "Pair Differentials (2社比較)",
@@ -155,6 +164,7 @@ impl BottomMetricCategory {
         }
     }
 
+    #[must_use]
     pub const fn metrics(&self) -> &'static [BottomMetric] {
         match self {
             Self::PairDiff => &[

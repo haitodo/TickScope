@@ -114,6 +114,7 @@ pub fn encode_record(
     Ok(envelope)
 }
 
+#[must_use]
 pub fn create_file_header(run_id: RunId, file_id: u64, broker_id: BrokerId) -> [u8; FILE_HEADER_LEN] {
     let mut hdr = [0u8; FILE_HEADER_LEN];
     hdr[0..4].copy_from_slice(&STORAGE_MAGIC);

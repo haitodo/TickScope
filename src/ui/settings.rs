@@ -30,6 +30,7 @@ pub enum CandlePriceMode {
 }
 
 impl CandlePriceMode {
+    #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Bid => "Bid",
@@ -37,6 +38,7 @@ impl CandlePriceMode {
         }
     }
 
+    #[must_use]
     pub const fn price_mode(self) -> PriceMode {
         match self {
             Self::Bid => PriceMode::Bid,
@@ -54,6 +56,7 @@ pub enum CandlePriceScaleMode {
 }
 
 impl CandlePriceScaleMode {
+    #[must_use]
     pub fn label(&self) -> String {
         match self {
             Self::Auto => "Auto".to_string(),
@@ -71,6 +74,7 @@ pub enum CandleFollowCriteria {
 }
 
 impl CandleFollowCriteria {
+    #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
             Self::Median => "Median",
@@ -222,6 +226,7 @@ impl Default for UiState {
 
 
 impl UiState {
+    #[must_use]
     pub fn is_broker_visible(&self, broker_id: BrokerId) -> bool {
         !self.hidden_brokers.contains(&broker_id)
     }
@@ -239,6 +244,7 @@ impl UiState {
         self.hidden_brokers.clear();
     }
 
+    #[must_use]
     pub fn is_mt5_target(&self, broker_id: BrokerId) -> bool {
         self.mt5_launch_targets.contains(&broker_id)
     }
@@ -362,6 +368,7 @@ impl UiState {
 
 
 /// Resolves the file path for persistent UI state.
+#[must_use]
 pub fn resolve_ui_state_path(exe_dir: &Path, cwd: &Path) -> PathBuf {
     let cwd_path = cwd.join("data").join("ui_state.json");
     if cwd_path.exists() {

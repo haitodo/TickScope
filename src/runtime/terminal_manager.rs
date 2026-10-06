@@ -21,10 +21,12 @@ pub enum TerminalProcessStatus {
 }
 
 impl TerminalProcessStatus {
+    #[must_use]
     pub const fn is_running(&self) -> bool {
         matches!(self, Self::Running { .. })
     }
 
+    #[must_use]
     pub const fn pid(&self) -> Option<u32> {
         match self {
             Self::Running { pid } => Some(*pid),
@@ -47,6 +49,7 @@ impl Default for TerminalManager {
 }
 
 impl TerminalManager {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             broker_terminals: HashMap::new(),
@@ -57,6 +60,7 @@ impl TerminalManager {
     }
 
     /// Resolve the MT5 executable path for a specific broker.
+    #[must_use]
     pub fn resolve_terminal_path(
         broker: &BrokerConfig,
         discovered: &[DiscoveredTerminal],
@@ -156,6 +160,7 @@ impl TerminalManager {
         }
     }
 
+    #[must_use]
     pub fn get_status(&self, broker_id: BrokerId) -> TerminalProcessStatus {
         self.status_cache
             .get(&broker_id)
@@ -163,6 +168,7 @@ impl TerminalManager {
             .unwrap_or(TerminalProcessStatus::NotFound)
     }
 
+    #[must_use]
     pub fn get_exe_path(&self, broker_id: BrokerId) -> Option<&PathBuf> {
         self.broker_terminals.get(&broker_id).and_then(|p| p.as_ref())
     }

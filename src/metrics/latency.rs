@@ -54,6 +54,7 @@ impl PipelineTimestamps {
         render_mono_ns: MonoNs::ZERO,
     };
 
+    #[must_use]
     pub const fn new(rx_mono_ns: MonoNs) -> Self {
         Self {
             rx_mono_ns,
@@ -61,21 +62,25 @@ impl PipelineTimestamps {
         }
     }
 
+    #[must_use]
     pub const fn with_engine(mut self, engine_mono_ns: MonoNs) -> Self {
         self.engine_mono_ns = engine_mono_ns;
         self
     }
 
+    #[must_use]
     pub const fn with_projection(mut self, projection_mono_ns: MonoNs) -> Self {
         self.projection_mono_ns = projection_mono_ns;
         self
     }
 
+    #[must_use]
     pub const fn with_snapshot(mut self, snapshot_mono_ns: MonoNs) -> Self {
         self.snapshot_mono_ns = snapshot_mono_ns;
         self
     }
 
+    #[must_use]
     pub const fn with_render(mut self, render_mono_ns: MonoNs) -> Self {
         self.render_mono_ns = render_mono_ns;
         self
@@ -97,6 +102,7 @@ impl PipelineTimestamps {
         self.render_mono_ns = now;
     }
 
+    #[must_use]
     pub const fn tick_to_engine_ns(&self) -> Option<u64> {
         if self.rx_mono_ns.0 > 0 && self.engine_mono_ns.0 >= self.rx_mono_ns.0 {
             Some(self.engine_mono_ns.0 - self.rx_mono_ns.0)
@@ -105,6 +111,7 @@ impl PipelineTimestamps {
         }
     }
 
+    #[must_use]
     pub const fn engine_to_projection_ns(&self) -> Option<u64> {
         if self.engine_mono_ns.0 > 0 && self.projection_mono_ns.0 >= self.engine_mono_ns.0 {
             Some(self.projection_mono_ns.0 - self.engine_mono_ns.0)
@@ -113,6 +120,7 @@ impl PipelineTimestamps {
         }
     }
 
+    #[must_use]
     pub const fn projection_to_snapshot_ns(&self) -> Option<u64> {
         if self.projection_mono_ns.0 > 0 && self.snapshot_mono_ns.0 >= self.projection_mono_ns.0 {
             Some(self.snapshot_mono_ns.0 - self.projection_mono_ns.0)
@@ -121,6 +129,7 @@ impl PipelineTimestamps {
         }
     }
 
+    #[must_use]
     pub const fn snapshot_to_ui_ns(&self) -> Option<u64> {
         if self.snapshot_mono_ns.0 > 0 && self.render_mono_ns.0 >= self.snapshot_mono_ns.0 {
             Some(self.render_mono_ns.0 - self.snapshot_mono_ns.0)
@@ -129,6 +138,7 @@ impl PipelineTimestamps {
         }
     }
 
+    #[must_use]
     pub const fn total_latency_ns(&self) -> Option<u64> {
         if self.rx_mono_ns.0 > 0 && self.render_mono_ns.0 >= self.rx_mono_ns.0 {
             Some(self.render_mono_ns.0 - self.rx_mono_ns.0)
@@ -149,6 +159,7 @@ pub struct PercentileStats {
 }
 
 impl PercentileStats {
+    #[must_use]
     pub const fn empty() -> Self {
         Self {
             sample_count: 0,
@@ -184,10 +195,12 @@ pub struct StageLatencySummary {
 }
 
 impl StageLatencySummary {
+    #[must_use]
     pub const fn queue_depth(&self) -> usize {
         self.queue_depth
     }
 
+    #[must_use]
     pub const fn dropped_snapshots(&self) -> u64 {
         self.dropped_snapshots
     }
@@ -229,6 +242,7 @@ impl LatencyRingBuffer {
     ///
     /// Panics if the boxed buffer cannot be converted to `[u64; LATENCY_RING_CAPACITY]`, which cannot
     /// happen because the buffer is allocated from that same constant.
+    #[must_use]
     pub fn new() -> Self {
         let buffer: Box<[u64; LATENCY_RING_CAPACITY]> =
             vec![0u64; LATENCY_RING_CAPACITY].into_boxed_slice().try_into().unwrap();
@@ -254,16 +268,19 @@ impl LatencyRingBuffer {
     }
 
     #[inline]
+    #[must_use]
     pub const fn total_samples(&self) -> u64 {
         self.total_samples
     }
 
     #[inline]
+    #[must_use]
     pub const fn valid_count(&self) -> usize {
         self.valid_count
     }
 
     #[inline]
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.valid_count == 0
     }
@@ -277,6 +294,7 @@ impl LatencyRingBuffer {
     /// Compute percentile statistics (in microseconds) for the rolling window.
     ///
     /// Uses stack-allocated scratch space to perform fast sorting without dynamic heap allocation.
+    #[must_use]
     pub fn compute_percentiles(&self) -> PercentileStats {
         if self.valid_count == 0 {
             return PercentileStats {
@@ -337,6 +355,7 @@ pub struct LatencyMetrics {
 }
 
 impl LatencyMetrics {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -408,31 +427,38 @@ impl LatencyMetrics {
     }
 
     #[inline]
+    #[must_use]
     pub const fn queue_depth(&self) -> usize {
         self.queue_depth
     }
 
     #[inline]
+    #[must_use]
     pub const fn dropped_snapshots(&self) -> u64 {
         self.dropped_snapshots
     }
 
+    #[must_use]
     pub const fn tick_to_engine(&self) -> &LatencyRingBuffer {
         &self.tick_to_engine
     }
 
+    #[must_use]
     pub const fn engine_to_projection(&self) -> &LatencyRingBuffer {
         &self.engine_to_projection
     }
 
+    #[must_use]
     pub const fn projection_to_snapshot(&self) -> &LatencyRingBuffer {
         &self.projection_to_snapshot
     }
 
+    #[must_use]
     pub const fn snapshot_to_ui(&self) -> &LatencyRingBuffer {
         &self.snapshot_to_ui
     }
 
+    #[must_use]
     pub const fn total_pipeline(&self) -> &LatencyRingBuffer {
         &self.total_pipeline
     }
@@ -448,6 +474,7 @@ impl LatencyMetrics {
     }
 
     /// Compute latency summary across all pipeline stages.
+    #[must_use]
     pub fn compute_summary(&self) -> StageLatencySummary {
         let tick_to_engine = self.tick_to_engine.compute_percentiles();
         let engine_to_projection = self.engine_to_projection.compute_percentiles();

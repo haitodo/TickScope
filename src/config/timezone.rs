@@ -29,6 +29,7 @@ pub enum TimezoneRule {
 
 impl TimezoneRule {
     /// Resolves the UTC offset in seconds for the given Unix timestamp (in seconds).
+    #[must_use]
     pub fn resolve_offset(&self, unix_sec: i64, fallback_offset: i32) -> i32 {
         match self {
             Self::NyClose => {
@@ -45,6 +46,7 @@ impl TimezoneRule {
     }
 
     /// Display label for UI and logs.
+    #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
             Self::NyClose => "NY Close (Auto DST)",
@@ -61,6 +63,7 @@ impl TimezoneRule {
 /// Rules (Energy Policy Act of 2005):
 /// - Starts: Second Sunday in March at 02:00 local standard time (07:00 UTC)
 /// - Ends: First Sunday in November at 02:00 local daylight time (06:00 UTC)
+#[must_use]
 pub fn is_us_dst(unix_sec: i64) -> bool {
     let (year, month, _) = unix_sec_to_ymd(unix_sec);
 

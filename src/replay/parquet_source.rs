@@ -23,6 +23,7 @@ pub struct ReplayTick {
 
 impl ReplayTick {
     #[inline]
+    #[must_use]
     pub const fn effective_utc_ms(&self) -> i64 {
         self.utc_ms + self.receive_delay_ms
     }
@@ -199,6 +200,7 @@ impl BrokerParquetSource {
         })
     }
 
+    #[must_use]
     pub const fn with_receive_delay_ms(mut self, delay_ms: i64) -> Self {
         self.receive_delay_ms = delay_ms;
         self
@@ -207,6 +209,7 @@ impl BrokerParquetSource {
     /// Apply measured physical network reception delay profile:
     /// Domestic brokers (JFX, OANDA): 15-30ms (default 20ms)
     /// Overseas brokers (Tradeview, Dukascopy, Axiory): 120-220ms (default 180ms)
+    #[must_use]
     pub fn with_receive_delay_profile(mut self) -> Self {
         let name_lower = self.broker_name.to_lowercase();
         self.receive_delay_ms = if name_lower.contains("jfx") || name_lower.contains("oanda") {
@@ -218,6 +221,7 @@ impl BrokerParquetSource {
     }
 
     #[inline]
+    #[must_use]
     pub const fn effective_utc_ms(&self, tick: &ReplayTick) -> i64 {
         tick.utc_ms + self.receive_delay_ms
     }

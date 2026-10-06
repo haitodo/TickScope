@@ -40,6 +40,7 @@ pub fn format_utc_timestamp(time: SystemTime) -> String {
 }
 
 /// Formats a single log line into a string buffer.
+#[must_use]
 pub fn format_log_line(
     timestamp: &str,
     level: Level,
@@ -80,6 +81,7 @@ pub struct ConsoleLogger {
 }
 
 impl ConsoleLogger {
+    #[must_use]
     pub const fn new(level: LevelFilter, use_color: bool) -> Self {
         Self {
             level,
@@ -123,6 +125,7 @@ impl log::Log for ConsoleLogger {
 }
 
 /// Detect whether the console environment supports ANSI / VT color codes.
+#[must_use]
 pub fn detect_color_support() -> bool {
     if std::env::var("NO_COLOR").is_ok() {
         return false;
@@ -185,6 +188,10 @@ pub fn init_disabled_logging() {
 }
 
 /// Attaches to the parent console or allocates a new console window if needed.
+///
+/// Returns whether a console is available after the call. Callers use this for its side
+/// effect only, so it is deliberately *not* `#[must_use]`.
+#[allow(clippy::must_use_candidate)]
 pub fn setup_console() -> bool {
     #[cfg(windows)]
     {
@@ -205,6 +212,7 @@ pub fn cleanup_console() {
 }
 
 /// Returns true if a new console window was allocated specifically for this process.
+#[must_use]
 pub fn is_console_allocated() -> bool {
     #[cfg(windows)]
     {
@@ -323,6 +331,7 @@ pub mod win_console {
     }
 
     /// Check if stderr console mode has virtual terminal processing enabled.
+    #[must_use]
     pub fn is_vt_color_supported() -> bool {
         let err_handle = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
         if err_handle.is_null() || err_handle == INVALID_HANDLE_VALUE {

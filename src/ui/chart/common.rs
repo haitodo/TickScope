@@ -7,6 +7,7 @@ pub const CHART_HEADER_HEIGHT: f32 = 40.0;
 pub const CHART_FOOTER_HEIGHT: f32 = 18.0;
 pub const PRICE_AXIS_WIDTH: f32 = 88.0;
 
+#[must_use]
 pub fn chart_plot_rect(rect: Rect, header_height: f32) -> Rect {
     let left = rect.left() + 2.0;
     let right = (rect.right() - PRICE_AXIS_WIDTH).max(left + 1.0);
@@ -15,20 +16,24 @@ pub fn chart_plot_rect(rect: Rect, header_height: f32) -> Rect {
     Rect::from_min_max(Pos2::new(left, top), Pos2::new(right, bottom))
 }
 
+#[must_use]
 pub fn is_live(broker: &BrokerOverview) -> bool {
     broker.health.connection == ConnectionState::Connected
         && broker.health.data_freshness == FreshnessState::Live
 }
 
+#[must_use]
 pub fn format_price_delta(value: f64) -> String {
     format!("{value:+.5}")
 }
 
+#[must_use]
 pub fn fixed_time_window(now_mono: MonoNs, visible_seconds: u64) -> (u64, u64) {
     let span_ns = visible_seconds.max(1).saturating_mul(1_000_000_000);
     (now_mono.0.saturating_sub(span_ns), now_mono.0)
 }
 
+#[must_use]
 pub fn x_axis_coordinate(
     mode: ChartXAxisMode,
     rect: Rect,
@@ -90,6 +95,7 @@ pub fn draw_x_axis_caption(
     );
 }
 
+#[must_use]
 pub fn price_decimals_for_pip(pip_size: f64) -> usize {
     if !pip_size.is_finite() || pip_size <= 0.0 {
         return 3;

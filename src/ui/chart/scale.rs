@@ -38,6 +38,7 @@ pub enum FollowStatusInfo {
     },
 }
 
+#[must_use]
 pub fn extract_valid_quote_candidates(
     broker_ids: &[BrokerId],
     broker_overviews: &[BrokerOverview],
@@ -53,6 +54,7 @@ pub fn extract_valid_quote_candidates(
     )
 }
 
+#[must_use]
 pub fn extract_valid_quote_candidates_for_mode(
     broker_ids: &[BrokerId],
     broker_overviews: &[BrokerOverview],

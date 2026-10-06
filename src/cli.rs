@@ -196,6 +196,7 @@ impl CliArgs {
     }
 
     /// Help text displayed for `--help`.
+    #[must_use]
     pub const fn help_text() -> &'static str {
         concat!(
             "TickScope - Multi-Broker Real-time FX Tick Comparison\n\n",

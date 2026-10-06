@@ -145,6 +145,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub fn with_trade_store(
         mut self,
         store: Arc<parking_lot::RwLock<crate::core::models::ReplayTradeStore>>,
@@ -153,6 +154,7 @@ impl DashboardApp {
         self
     }
 
+    #[must_use]
     pub fn with_ui_state(mut self, state: &UiState) -> Self {
         self.show_candle_context = state.show_candle_context;
         self.selected_timeframe_ms = state.selected_timeframe_ms;
@@ -178,31 +180,37 @@ impl DashboardApp {
         self
     }
 
+    #[must_use]
     pub const fn with_chart_max_quote_age_ms(mut self, age: u64) -> Self {
         self.chart_max_quote_age_ms = age;
         self
     }
 
+    #[must_use]
     pub fn with_ui_state_path(mut self, path: PathBuf) -> Self {
         self.ui_state_path = Some(path);
         self
     }
 
+    #[must_use]
     pub fn with_discovered_terminals(mut self, terminals: Vec<crate::deploy::DiscoveredTerminal>) -> Self {
         self.discovered_terminals = terminals;
         self
     }
 
+    #[must_use]
     pub fn with_broker_configs(mut self, configs: Vec<crate::config::BrokerConfig>) -> Self {
         self.broker_configs = configs;
         self
     }
 
+    #[must_use]
     pub fn with_mt5_config(mut self, config: crate::config::Mt5DeployConfig) -> Self {
         self.mt5_config = config;
         self
     }
 
+    #[must_use]
     pub fn is_mt5_target(&self, broker_id: BrokerId) -> bool {
         self.mt5_launch_targets.contains(&broker_id)
     }
@@ -226,6 +234,7 @@ impl DashboardApp {
         self.state_dirty = true;
     }
 
+    #[must_use]
     pub fn current_ui_state(&self) -> UiState {
         UiState {
             show_candle_context: self.show_candle_context,
@@ -251,6 +260,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn always_on_top(&self) -> bool {
         self.always_on_top
     }
@@ -304,6 +314,7 @@ impl DashboardApp {
         self.save_state();
     }
 
+    #[must_use]
     pub const fn window_geometry(&self) -> &WindowGeometryState {
         &self.window_geometry
     }
@@ -313,6 +324,7 @@ impl DashboardApp {
         self.state_dirty = true;
     }
 
+    #[must_use]
     pub const fn is_window_resetting(&self) -> bool {
         self.window_reset_in_progress > 0
     }
@@ -325,11 +337,13 @@ impl DashboardApp {
         self.fonts_configured = true;
     }
 
+    #[must_use]
     pub const fn with_show_broker_overview(mut self, show: bool) -> Self {
         self.show_broker_overview = show;
         self
     }
 
+    #[must_use]
     pub const fn show_broker_overview(&self) -> bool {
         self.show_broker_overview
     }
@@ -341,6 +355,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn show_quick_settings(&self) -> bool {
         self.show_quick_settings
     }
@@ -349,10 +364,12 @@ impl DashboardApp {
         self.show_quick_settings = show;
     }
 
+    #[must_use]
     pub fn hidden_brokers(&self) -> &[BrokerId] {
         &self.hidden_brokers
     }
 
+    #[must_use]
     pub fn is_broker_visible(&self, broker_id: BrokerId) -> bool {
         !self.hidden_brokers.contains(&broker_id)
     }
@@ -469,21 +486,25 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn with_pip_size(mut self, pip_size: f64) -> Self {
         self.pip_size = pip_size;
         self
     }
 
+    #[must_use]
     pub const fn with_visible_seconds(mut self, visible_seconds: u64) -> Self {
         self.visible_seconds = visible_seconds;
         self
     }
 
+    #[must_use]
     pub const fn with_visible_ticks(mut self, visible_ticks: usize) -> Self {
         self.visible_ticks = visible_ticks;
         self
     }
 
+    #[must_use]
     pub fn with_pair_selection_handler(
         mut self,
         handler: Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync>,
@@ -492,6 +513,7 @@ impl DashboardApp {
         self
     }
 
+    #[must_use]
     pub fn with_diagnostics(
         mut self,
         diagnostics: DiagnosticsHandle,
@@ -502,6 +524,7 @@ impl DashboardApp {
         self
     }
 
+    #[must_use]
     pub const fn selected_pair(&self) -> (BrokerId, BrokerId) {
         (self.selected_broker_a, self.selected_broker_b)
     }
@@ -561,6 +584,7 @@ impl DashboardApp {
         self.set_selected_pair(next_a, next_b);
     }
 
+    #[must_use]
     pub const fn bottom_metric(&self) -> BottomMetric {
         self.bottom_metric
     }
@@ -572,6 +596,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn candle_bar_width(&self) -> f32 {
         self.candle_bar_width
     }
@@ -583,6 +608,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn candle_price_scale(&self) -> CandlePriceScaleMode {
         self.candle_price_scale
     }
@@ -596,6 +622,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn candle_price_mode(&self) -> CandlePriceMode {
         self.candle_price_mode
     }
@@ -609,6 +636,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn candle_follow_criteria(&self) -> CandleFollowCriteria {
         self.candle_follow_criteria
     }
@@ -621,6 +649,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn top_x_axis_mode(&self) -> ChartXAxisMode {
         self.top_x_axis_mode
     }
@@ -632,6 +661,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn bottom_x_axis_mode(&self) -> ChartXAxisMode {
         self.bottom_x_axis_mode
     }
@@ -643,6 +673,7 @@ impl DashboardApp {
         }
     }
 
+    #[must_use]
     pub const fn x_axis_mode(&self) -> ChartXAxisMode {
         self.top_x_axis_mode
     }

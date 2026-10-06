@@ -37,15 +37,19 @@ pub const TRADE_MARK_BUY: Color32 = Color32::from_rgb(0, 230, 200);
 pub const TRADE_MARK_SELL: Color32 = Color32::from_rgb(255, 100, 150);
 /// Translucent trade backgrounds. Functions rather than constants because
 /// `Color32::from_rgba_unmultiplied` is not a `const fn` in egui 0.29.
+#[must_use]
 pub fn trade_tooltip_profit_bg() -> Color32 {
     Color32::from_rgba_unmultiplied(0, 110, 60, 240)
 }
+#[must_use]
 pub fn trade_tooltip_loss_bg() -> Color32 {
     Color32::from_rgba_unmultiplied(150, 30, 40, 240)
 }
+#[must_use]
 pub fn trade_pill_profit_bg() -> Color32 {
     Color32::from_rgba_unmultiplied(0, 80, 40, 225)
 }
+#[must_use]
 pub fn trade_pill_loss_bg() -> Color32 {
     Color32::from_rgba_unmultiplied(120, 20, 30, 225)
 }
@@ -100,11 +104,13 @@ impl Default for ChartTheme {
     }
 }
 
+#[must_use]
 pub const fn broker_color_for(theme: &ChartTheme, index: usize) -> Color32 {
     theme.broker_colors[index % theme.broker_colors.len()]
 }
 
 /// Match broker brand identity color based on broker name.
+#[must_use]
 pub fn broker_color_by_name(name: &str) -> Option<Color32> {
     let lower = name.to_lowercase();
     if lower.contains("oanda") {
@@ -123,6 +129,7 @@ pub fn broker_color_by_name(name: &str) -> Option<Color32> {
 }
 
 /// Resolve broker color prioritizing broker name match, falling back to theme palette index.
+#[must_use]
 pub fn broker_color_for_name(theme: &ChartTheme, name: Option<&str>, index: usize) -> Color32 {
     if let Some(n) = name {
         if let Some(c) = broker_color_by_name(n) {
@@ -132,10 +139,12 @@ pub fn broker_color_for_name(theme: &ChartTheme, name: Option<&str>, index: usiz
     broker_color_for(theme, index)
 }
 
+#[must_use]
 pub fn dim_color(color: Color32, alpha: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
 }
 
+#[must_use]
 pub fn dim_candle_color(color: Color32) -> Color32 {
     Color32::from_rgba_unmultiplied(color.r() / 2, color.g() / 2, color.b() / 2, color.a())
 }

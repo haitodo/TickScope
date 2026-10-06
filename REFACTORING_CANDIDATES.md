@@ -87,7 +87,7 @@ cargo clippy --fix --all-targets --features replay --allow-dirty --allow-staged 
 
 | 除外した lint | 理由 |
 | :--- | :--- |
-| `must_use_candidate` (240) / `return_self_not_must_use` (64) | `#[must_use]` を付けると戻り値を捨てている呼び出し側に `unused_must_use` が新規発生しうる。別コミットで扱うのが安全 |
+| `must_use_candidate` (240) / `return_self_not_must_use` (64) | → **対応済み**（両方 0）。`#[must_use]` を 255 箇所に付与。呼び出し側への波及は `unused_must_use` **7 箇所だけ**で、すべて `setup_console()`（戻り値がどこでも未使用）だった。この関数は副作用が目的なので属性を外し、理由コメント付き `#[allow]` にしている |
 | `manual_midpoint` (36) | `f64::midpoint` は Rust 1.85+。MSRV の決定が必要（付録 B） |
 | `wildcard_imports` (35) | ~~glob import の展開は可読性を下げる場合がある。方針判断が必要~~ → **対応済み**（35 → 0）。`--fix` で展開したが、**テストコードでのみ使う名前が展開から漏れて 3 ファイルがコンパイルエラーになった**ため、`#[cfg(test)] mod tests` の中に個別 import を補った（モジュール先頭に置くと非テスト時に未使用警告になる） |
 
@@ -149,10 +149,15 @@ cargo test --features replay
 
 ### 注意
 
-- **`must_use_candidate` が唯一の要注意項目**。240 箇所に `#[must_use]` を足すと、戻り値を捨てている呼び出し側で
+- ~~**`must_use_candidate` が唯一の要注意項目**~~ → **対応済み・実測では無風だった**。240 箇所に `#[must_use]` を足すと、戻り値を捨てている呼び出し側で
   `unused_must_use` が新規に出る可能性がある。出た場合は
   (a) 呼び出し側を直す、または (b) `must_use_candidate` だけ外す（`-A clippy::must_use_candidate`）。
-  他の 9 割は無風なので、**先に `-A clippy::must_use_candidate` で適用し、must_use は別コミットで扱う**のが安全。
+  他の 9 割は無風なので、**先に `-A clippy::must_use_candidate` で適用し、must_use は別コミットで扱う**のが安全、
+  というのが当初の見立てだった。**実測では `unused_must_use` は 7 箇所だけで、すべて `setup_console()` だった**
+  （`logging.rs:163`、`main.rs:32/41/48`、`bin/replay.rs:65/74/82`）。
+  この関数は「コンソールを用意する」ことが目的で戻り値はどこでも使っていないため、呼び出し側に `let _ =` を足すのではなく、
+  **`setup_console` 側の `#[must_use]` を外して理由コメント付きの `#[allow(clippy::must_use_candidate)]` にした**
+  （属性のほうが誤っていた例）。
 - `manual_midpoint` は `f64::midpoint`（Rust 1.85+）を使う。MSRV を 1.80 のまま維持したい場合は
   `clippy.toml` に `msrv = "1.80"` を書くか、この lint だけ除外する。
 - `wildcard_imports` は 1 ファイルあたり十数行の import 展開になる。

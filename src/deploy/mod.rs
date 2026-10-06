@@ -28,12 +28,14 @@ pub use sources::*;
 use crate::config::{BrokerConfig, Mt5DeployConfig};
 
 /// Execute full MT5 auto-deployment according to configuration.
+#[must_use]
 pub fn deploy_mt5_files(config: &Mt5DeployConfig) -> DeployReport {
     deploy_mt5_files_for_brokers(config, &[])
 }
 
 /// Deploy one common EA and a per-terminal map of broker symbols to the
 /// listener ports reserved by this `TickScope` process.
+#[must_use]
 pub fn deploy_mt5_files_for_brokers(config: &Mt5DeployConfig, brokers: &[BrokerConfig]) -> DeployReport {
     if !config.auto_deploy {
         return DeployReport {

@@ -15,6 +15,7 @@ pub enum DeployCompileStatus {
     Failed(DeployError),
 }
 
+#[must_use]
 pub fn compile_deployed_ea(terminal: &TerminalDeployReport, ea_path: &Path) -> DeployCompileStatus {
     let ex5_path = ea_path.with_extension("ex5");
     if terminal.results.iter().any(|r| matches!(r.status, DeployFileStatus::Failed(_))) {

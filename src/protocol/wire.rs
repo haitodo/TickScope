@@ -104,6 +104,7 @@ pub struct ReceivedFrame {
 
 impl ReceivedFrame {
     /// Return the wire size even when raw capture omitted the retained bytes.
+    #[must_use]
     pub fn wire_len(&self) -> usize {
         if self.raw_wire_bytes.is_empty() {
             (self.frame.header.header_length as usize)
@@ -134,6 +135,7 @@ pub enum IngressItem {
 }
 
 impl IngressItem {
+    #[must_use]
     pub const fn broker_id(&self) -> BrokerId {
         match self {
             Self::Connected { broker_id, .. }

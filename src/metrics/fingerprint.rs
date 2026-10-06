@@ -17,6 +17,7 @@ pub struct SampleContext {
 }
 
 impl SampleContext {
+    #[must_use]
     pub const fn new(sample_count: u64, window_ms: u64, fresh_rate: f64) -> Self {
         Self {
             sample_count,
@@ -25,6 +26,7 @@ impl SampleContext {
         }
     }
 
+    #[must_use]
     pub const fn empty() -> Self {
         Self {
             sample_count: 0,
@@ -72,6 +74,7 @@ pub struct BrokerFingerprint {
 
 impl BrokerFingerprint {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub const fn new(
         broker_id: BrokerId,
         observed_lead_freq: f64,
@@ -96,6 +99,7 @@ impl BrokerFingerprint {
         }
     }
 
+    #[must_use]
     pub const fn empty(broker_id: BrokerId) -> Self {
         Self {
             broker_id,
@@ -139,6 +143,7 @@ pub struct BrokerFingerprintTracker {
 impl BrokerFingerprintTracker {
     pub const DEFAULT_MAX_HISTORY: usize = 2048;
 
+    #[must_use]
     pub fn new(broker_id: BrokerId) -> Self {
         Self {
             broker_id,
@@ -160,6 +165,7 @@ impl BrokerFingerprintTracker {
         }
     }
 
+    #[must_use]
     pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
@@ -217,10 +223,12 @@ impl BrokerFingerprintTracker {
         }
     }
 
+    #[must_use]
     pub fn compile(&self) -> BrokerFingerprint {
         self.compile_fingerprint()
     }
 
+    #[must_use]
     pub fn compile_fingerprint(&self) -> BrokerFingerprint {
         let observed_lead_freq = if self.total_move_events > 0 {
             self.lead_events as f64 / self.total_move_events as f64

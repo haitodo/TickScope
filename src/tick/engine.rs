@@ -76,6 +76,7 @@ pub struct TickEngine {
 }
 
 impl TickEngine {
+    #[must_use]
     pub fn new(config: AppConfig) -> Self {
         let mut channels = HashMap::new();
         let mut spread_trackers = HashMap::new();
@@ -196,6 +197,7 @@ impl TickEngine {
         }
     }
 
+    #[must_use]
     pub fn with_diagnostics(mut self, diagnostics: DiagnosticsHandle) -> Self {
         self.performance_diagnostics = Some(diagnostics);
         self
@@ -208,10 +210,12 @@ impl TickEngine {
         self.diagnostics.push_back(diagnostic);
     }
 
+    #[must_use]
     pub fn latest_quote(&self, broker_id: BrokerId) -> Option<&Quote> {
         self.latest_quotes.get(&broker_id)
     }
 
+    #[must_use]
     pub const fn current_watermark(&self) -> MonoNs {
         self.current_watermark
     }
@@ -1008,6 +1012,7 @@ impl TickEngine {
 }
 
 /// Helper function to calculate median mid price across active brokers
+#[must_use]
 pub fn compute_median_from_mids(mids: &HashMap<BrokerId, f64>) -> Option<f64> {
     if mids.is_empty() {
         return None;

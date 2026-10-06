@@ -12,6 +12,7 @@ pub struct SpreadTracker {
 }
 
 impl SpreadTracker {
+    #[must_use]
     pub fn new(broker_id: BrokerId) -> Self {
         Self {
             broker_id,
@@ -21,6 +22,7 @@ impl SpreadTracker {
         }
     }
 
+    #[must_use]
     pub const fn broker_id(&self) -> BrokerId {
         self.broker_id
     }
@@ -52,18 +54,22 @@ impl SpreadTracker {
         }
     }
 
+    #[must_use]
     pub const fn min_spread(&self) -> Option<f64> {
         self.min_spread
     }
 
+    #[must_use]
     pub const fn max_spread(&self) -> Option<f64> {
         self.max_spread
     }
 
+    #[must_use]
     pub fn tick_rate_1s(&self) -> f64 {
         self.recent_ticks.len() as f64
     }
 
+    #[must_use]
     pub fn tick_rate_1s_at(&self, now_mono: MonoNs) -> f64 {
         let cutoff = now_mono.0.saturating_sub(1_000_000_000);
         self.recent_ticks.iter().filter(|tick| tick.0 >= cutoff).count() as f64

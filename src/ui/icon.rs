@@ -6,6 +6,7 @@ use eframe::egui;
 const ICON_BYTES: &[u8] = include_bytes!("../../logo/icon-256.png");
 
 /// Loads the application window icon from embedded PNG data.
+#[must_use]
 pub fn load_app_icon() -> Option<egui::IconData> {
     match image::load_from_memory(ICON_BYTES) {
         Ok(image) => {

@@ -38,6 +38,7 @@ const fn default_multiplier() -> f64 {
 }
 
 /// Helper to convert MT5 server milliseconds to true UTC using standard US DST rules.
+#[must_use]
 pub fn mt5_to_utc_ms(mt5_ms: i64) -> i64 {
     let sec = mt5_ms / 1000;
     let dt = chrono::DateTime::from_timestamp(sec, 0).map(|d| d.naive_utc());
@@ -56,6 +57,7 @@ pub fn mt5_to_utc_ms(mt5_ms: i64) -> i64 {
 }
 
 /// Helper to convert true UTC milliseconds to MT5 server milliseconds using standard US DST rules.
+#[must_use]
 pub fn utc_to_mt5_ms(utc_ms: i64) -> i64 {
     let sec = utc_ms / 1000;
     let dt = chrono::DateTime::from_timestamp(sec, 0).map(|d| d.naive_utc());
@@ -73,6 +75,7 @@ pub fn utc_to_mt5_ms(utc_ms: i64) -> i64 {
     utc_ms + offset_hours * 3600 * 1000
 }
 
+#[must_use]
 pub fn is_us_dst(year: i32, month: u32, day: u32) -> bool {
     if !(3..=11).contains(&month) {
         return false;
@@ -285,6 +288,7 @@ impl ReplayDriver {
 }
 
 /// Helper function to create an `IngressItem::Frame` for batch tick ingestion.
+#[must_use]
 pub fn make_ingress_tick_batch(
     broker_id: BrokerId,
     session_id: SessionId,
@@ -306,6 +310,7 @@ pub fn make_ingress_tick_batch(
 
 /// Helper function to create an `IngressItem::Frame` with an optional explicit `rx_mono_ns` override.
 /// Used during SEEK atomic state rebuild to anchor the final quote to `target_mono`, preventing false Stale flags.
+#[must_use]
 pub fn make_ingress_tick_batch_with_mono(
     broker_id: BrokerId,
     session_id: SessionId,

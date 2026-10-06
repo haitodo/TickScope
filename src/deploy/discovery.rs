@@ -12,6 +12,7 @@ pub struct DiscoveredTerminal {
 }
 
 /// Discover all local MT5 terminal data folders.
+#[must_use]
 pub fn discover_mt5_terminals(config: &Mt5DeployConfig) -> (Vec<DiscoveredTerminal>, Vec<String>) {
     let mut terminals = Vec::new();
     let mut warnings = Vec::new();
@@ -92,6 +93,7 @@ pub fn discover_mt5_terminals(config: &Mt5DeployConfig) -> (Vec<DiscoveredTermin
     (terminals, warnings)
 }
 
+#[must_use]
 pub fn read_origin(terminal_dir: &Path) -> Option<String> {
     let bytes = fs::read(terminal_dir.join("origin.txt")).ok()?;
     let content = if bytes.starts_with(&[0xff, 0xfe]) || bytes.get(1) == Some(&0) {
@@ -104,6 +106,7 @@ pub fn read_origin(terminal_dir: &Path) -> Option<String> {
     Some(content.trim_matches(|c: char| c.is_whitespace() || c == '\0' || c == '\u{feff}').to_string())
 }
 
+#[must_use]
 pub fn resolve_terminal_friendly_name(terminal_dir: &Path, folder_name: &str) -> String {
     if let Some(origin_content) = read_origin(terminal_dir) {
         let origin = origin_content.trim();
@@ -117,6 +120,7 @@ pub fn resolve_terminal_friendly_name(terminal_dir: &Path, folder_name: &str) ->
     folder_name.to_string()
 }
 
+#[must_use]
 pub fn find_metaeditor_in(dir: &Path, depth: u8) -> Option<PathBuf> {
     for name in ["MetaEditor64.exe", "MetaEditor.exe"] {
         let candidate = dir.join(name);
@@ -138,6 +142,7 @@ pub fn find_metaeditor_in(dir: &Path, depth: u8) -> Option<PathBuf> {
     None
 }
 
+#[must_use]
 pub fn find_metaeditor() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("TICKSCOPE_METAEDITOR_PATH") {
         let path = PathBuf::from(path);

@@ -200,10 +200,12 @@ impl DiagnosticsRuntime {
         })
     }
 
+    #[must_use]
     pub fn handle(&self) -> DiagnosticsHandle {
         self.handle.clone()
     }
 
+    #[must_use]
     pub fn output_path(&self) -> &Path {
         &self.output_path
     }

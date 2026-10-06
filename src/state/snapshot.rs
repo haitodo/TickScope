@@ -13,6 +13,7 @@ pub struct SnapshotBuilder {
 }
 
 impl SnapshotBuilder {
+    #[must_use]
     pub const fn new(run_id: RunId) -> Self {
         Self {
             run_id,
@@ -72,6 +73,7 @@ pub struct SnapshotExchange {
 }
 
 impl SnapshotExchange {
+    #[must_use]
     pub fn new(initial: Arc<UiSnapshot>) -> Self {
         Self {
             current: ArcSwap::from(initial),
@@ -79,6 +81,7 @@ impl SnapshotExchange {
         }
     }
 
+    #[must_use]
     pub fn new_empty(run_id: RunId) -> Self {
         let initial = UiSnapshot {
             run_id,

@@ -8,6 +8,7 @@ use crate::tick::engine::TickEngine;
 use std::collections::HashMap;
 
 impl TickEngine {
+    #[must_use]
     pub fn make_projection(&self, current_utc_now: UtcMs) -> EngineProjection {
         self.make_projection_at(current_utc_now, self.current_watermark)
     }
