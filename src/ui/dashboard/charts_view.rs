@@ -56,20 +56,22 @@ pub fn render_charts_view(
 
         let visible_broker_ids = app.visible_broker_ids(&snapshot.broker_overviews);
 
-        let trade_data = if app.show_trade_overlay {
-            app.trade_store.as_ref().map(|s| {
-                let guard = s.read();
-                let history = if app.show_trade_history {
-                    guard.history.clone()
-                } else {
-                    Vec::new()
-                };
-                (guard.open_positions.clone(), history)
-            })
+        let trade_store = app.trade_store.clone();
+        let show_trade_overlay = app.show_trade_overlay;
+        let show_trade_history = app.show_trade_history;
+        let trade_guard = if show_trade_overlay {
+            trade_store.as_ref().map(|s| s.read())
         } else {
             None
         };
-        let trade_slices = trade_data.as_ref().map(|(o, h)| (o.as_slice(), h.as_slice()));
+        let trade_slices = trade_guard.as_ref().map(|g| {
+            let history_slice: &[crate::core::models::ReplayTrade] = if show_trade_history {
+                g.history.as_slice()
+            } else {
+                &[]
+            };
+            (g.open_positions.as_slice(), history_slice)
+        });
 
         if app.show_candle_context {
             draw_candlestick_chart_for_brokers_with_trades_interactive(
@@ -111,6 +113,7 @@ pub fn render_charts_view(
                 &app.theme,
             );
         }
+        drop(trade_guard);
 
         // 2. Bottom Metric Selector Toolbar
         let toolbar_rect = egui::Rect::from_min_size(

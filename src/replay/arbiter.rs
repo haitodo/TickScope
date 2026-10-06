@@ -28,6 +28,9 @@ pub enum ArbiterAction {
     Ignore,
 }
 
+/// Maximum historical trades retained for review overlay to minimize memory and CPU overhead.
+pub const MAX_REPLAY_TRADE_HISTORY: usize = 20;
+
 pub struct SyncArbiter {
     last_observed_mt5_ms: i64,
     last_observed_seek_epoch: u64,
@@ -120,6 +123,10 @@ impl SyncArbiter {
                     for h in &mut history {
                         h.open_utc_ms = mt5_to_utc_ms(h.open_time_msc);
                         h.close_utc_ms = h.close_time_msc.map(mt5_to_utc_ms);
+                    }
+                    if history.len() > MAX_REPLAY_TRADE_HISTORY {
+                        let excess = history.len() - MAX_REPLAY_TRADE_HISTORY;
+                        history.drain(0..excess);
                     }
                     store.history = history;
                     updated = true;
@@ -325,5 +332,29 @@ mod tests {
         });
         arbiter.evaluate(&v3, &clock, &trade_store);
         assert_eq!(trade_store.read().history.len(), 2, "History must update on revision change");
+
+        // 4. Overfill history beyond MAX_REPLAY_TRADE_HISTORY (e.g. 25 trades) -> must retain latest 20
+        let items: Vec<_> = (1..=25)
+            .map(|i| {
+                serde_json::json!({
+                    "ticket": i,
+                    "type": "BUY",
+                    "volume": 0.1,
+                    "open_price": 150.0 + (i as f64) * 0.01,
+                    "open_time_msc": 100_000 + i * 1_000,
+                    "profit": 10.0 * (i as f64)
+                })
+            })
+            .collect();
+        let v4 = serde_json::json!({
+            "virtual_time_msc": 200_000,
+            "trade_revision": 3,
+            "history": items
+        });
+        arbiter.evaluate(&v4, &clock, &trade_store);
+        let history = trade_store.read().history.clone();
+        assert_eq!(history.len(), MAX_REPLAY_TRADE_HISTORY);
+        assert_eq!(history.first().unwrap().ticket, 6, "Oldest items (1..=5) must be pruned");
+        assert_eq!(history.last().unwrap().ticket, 25, "Latest items must be preserved");
     }
 }
