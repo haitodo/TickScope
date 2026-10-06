@@ -1,6 +1,7 @@
 use crate::core::models::{BrokerOverview, MoveDirection};
 use crate::core::types::BrokerId;
 use crate::metrics::{EventCluster, MoveBreadth};
+use crate::ui::shared::broker_name;
 use crate::ui::chart::theme::ChartTheme;
 use egui::{Color32, Pos2, Rect};
 
@@ -75,12 +76,7 @@ pub fn draw_move_breadth_view(
             egui::FontId::monospace(11.0),
             crate::ui::style::TEXT_LABEL,
         );
-        let name_of = |bid: BrokerId| -> &str {
-            broker_overviews
-                .iter()
-                .find(|b| b.broker_id == bid)
-                .map_or("?", |b| b.name.as_str())
-        };
+        let name_of = |bid: BrokerId| -> &str { broker_name(broker_overviews, bid, "?") };
         for (i, cl) in clusters.iter().rev().take(3).enumerate() {
             let d = match cl.direction {
                 MoveDirection::Up => "UP",

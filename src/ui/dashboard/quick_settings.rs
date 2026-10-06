@@ -1,4 +1,5 @@
 use super::DashboardApp;
+use crate::ui::shared::format_pips;
 use crate::core::models::UiSnapshot;
 use crate::ui::chart::ChartXAxisMode;
 use crate::ui::settings::{
@@ -153,11 +154,7 @@ pub fn render_quick_settings(
                 for &pips in &VALID_CANDLE_FIXED_PIPS {
                     let is_sel =
                         app.candle_price_scale == CandlePriceScaleMode::Fixed(pips);
-                    let label = if (pips.fract()).abs() < 1e-4 {
-                        format!("{pips:.0}p")
-                    } else {
-                        format!("{pips:.1}p")
-                    };
+                    let label = format_pips(pips, "p");
                     if ui.selectable_label(is_sel, label).clicked() {
                         app.set_candle_price_scale(CandlePriceScaleMode::Fixed(pips));
                     }

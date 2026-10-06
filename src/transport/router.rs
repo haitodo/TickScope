@@ -126,7 +126,9 @@ impl TransportRouter {
     }
 
     fn route(&self, mut stream: TcpStream) {
-        stream.set_nodelay(true).ok();
+        if let Err(error) = stream.set_nodelay(true) {
+            log::warn!("Failed to enable TCP_NODELAY on the routed EA connection: {error}");
+        }
         if let Err(error) = stream.set_read_timeout(Some(Duration::from_secs(2))) {
             log::warn!("Failed to configure route handshake timeout: {error}");
             return;
@@ -156,7 +158,9 @@ impl TransportRouter {
             .generations
             .get(&broker_id)
             .map_or(1, |counter| counter.fetch_add(1, Ordering::AcqRel) + 1);
-        stream.set_read_timeout(None).ok();
+        if let Err(error) = stream.set_read_timeout(None) {
+            log::warn!("Failed to clear the read timeout on the routed EA connection: {error}");
+        }
 
         // Connection Takeover: if a previous connection is still active for this broker,
         // shut down its socket so its receiver loop unblocks immediately and terminates.

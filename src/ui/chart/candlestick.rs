@@ -8,6 +8,7 @@ use super::scale::{
     draw_clip_marker, extract_valid_quote_candidates_for_mode, resolve_candle_follow_scale,
     FollowStatusInfo, MarginEdgeLatchSide,
 };
+use crate::ui::shared::broker_name;
 use super::theme::{broker_color_for_name, dim_candle_color, ChartTheme};
 use egui::{Color32, Pos2, Rect, Stroke};
 
@@ -515,10 +516,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                             + broker_index as f32 * (bar_width + candle_gap)
                             + bar_width * 0.5)
                             .round();
-                        let color_index = broker_overviews
-                            .iter()
-                            .position(|b| b.broker_id == *broker_id)
-                            .unwrap_or(broker_index);
+                        let color_index = crate::ui::shared::broker_index(broker_overviews, *broker_id, broker_index);
                         let broker_name = broker_overviews
                             .iter()
                             .find(|b| b.broker_id == *broker_id)
@@ -553,14 +551,8 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     let mut legend_y = rect.top() + 6.0;
     let mut hidden_legends = 0;
     for (broker_index, broker_id) in broker_ids.iter().enumerate() {
-        let color_index = broker_overviews
-            .iter()
-            .position(|b| b.broker_id == *broker_id)
-            .unwrap_or(broker_index);
-        let name = broker_overviews
-            .iter()
-            .find(|b| b.broker_id == *broker_id)
-            .map_or("Broker", |b| b.name.as_str());
+        let color_index = crate::ui::shared::broker_index(broker_overviews, *broker_id, broker_index);
+        let name = broker_name(broker_overviews, *broker_id, "Broker");
         let color = broker_color_for_name(theme, Some(name), color_index);
         let label = format!("{name} [{broker_id}]");
         let width = 8.0 + label.len() as f32 * 7.0 + 12.0;

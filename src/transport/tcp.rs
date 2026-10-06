@@ -105,7 +105,9 @@ impl TransportReceiver {
                 }
             }
         };
-        listener.set_nonblocking(true).ok();
+        if let Err(error) = listener.set_nonblocking(true) {
+            log::warn!("Failed to set the shared MT5 listener to non-blocking: {error}");
+        }
 
         let mut generation: u64 = 0;
         let mut last_progress_time = std::time::Instant::now();
@@ -115,8 +117,12 @@ impl TransportReceiver {
             match listener.accept() {
                 Ok((stream, _peer_addr)) => {
                     generation += 1;
-                    stream.set_nodelay(true).ok();
-                    stream.set_nonblocking(true).ok();
+                    if let Err(error) = stream.set_nodelay(true) {
+                        log::warn!("Failed to enable TCP_NODELAY on the EA connection: {error}");
+                    }
+                    if let Err(error) = stream.set_nonblocking(true) {
+                        log::warn!("Failed to set the EA connection to non-blocking: {error}");
+                    }
                     self.process_accepted_connection(stream, generation);
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -140,8 +146,12 @@ impl TransportReceiver {
     }
 
     pub(crate) fn handle_routed_connection(&self, stream: TcpStream, generation: u64) {
-        stream.set_nodelay(true).ok();
-        stream.set_nonblocking(true).ok();
+        if let Err(error) = stream.set_nodelay(true) {
+            log::warn!("Failed to enable TCP_NODELAY on the EA connection: {error}");
+        }
+        if let Err(error) = stream.set_nonblocking(true) {
+            log::warn!("Failed to set the EA connection to non-blocking: {error}");
+        }
         self.process_accepted_connection(stream, generation);
     }
 
@@ -190,7 +200,9 @@ impl TransportReceiver {
         {
             return format!("Socket configuration failed: {error}");
         }
-        stream.set_nodelay(true).ok();
+        if let Err(error) = stream.set_nodelay(true) {
+            log::warn!("Failed to enable TCP_NODELAY on the EA connection: {error}");
+        }
         let mut decoder = StreamingDecoder::new_with_raw_capture(
             self.max_payload_length,
             self.debug_resync_limit,

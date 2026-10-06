@@ -5,6 +5,7 @@ use crate::config::BrokerConfig;
 use crate::core::models::PriceMode;
 use crate::core::types::BrokerId;
 use crate::ui::chart::{BottomMetric, ChartXAxisMode};
+use crate::ui::shared::format_pips;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -56,13 +57,7 @@ impl CandlePriceScaleMode {
     pub fn label(&self) -> String {
         match self {
             Self::Auto => "Auto".to_string(),
-            Self::Fixed(pips) => {
-                if (pips.fract()).abs() < 1e-4 {
-                    format!("{pips:.0} pips")
-                } else {
-                    format!("{pips:.1} pips")
-                }
-            }
+            Self::Fixed(pips) => format_pips(*pips, " pips"),
         }
     }
 }

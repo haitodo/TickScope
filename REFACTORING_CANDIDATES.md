@@ -587,18 +587,27 @@ Clipy の suggestion を機械適用する際、`match_same_arms` は**複数 sp
 
 小口だが独立した作業単位:
 
-- **broker 名引き当ての共通関数化（12 箇所）**:
-  `overviews.iter().find(|b| b.broker_id == X).map(|b| b.name.as_str())` が `src/ui` に 8 箇所、
-  `src/tick/engine.rs` に 4 箇所。`fn broker_name(&[BrokerOverview], BrokerId) -> &str` に集約。
-- **`selectable_label(...).clicked() { app.set_* }` の共通化（19 箇所）**:
-  `quick_settings.rs` 11、`charts_view.rs` 4、`broker_overview.rs` 2、`header.rs` 2。
-  `fn choice_row(ui, label, current, options, setter)` 1 つに集約できる。
-- **`format_pips_compact` の共通化（5 箇所 / 4 ファイル）**: 小数部で精度を切り替えるラダーが
-  `settings.rs:60`、`candlestick.rs:468`、`header.rs:242`、`header.rs:275`、`quick_settings.rs:156` に重複。
+- ~~**broker 名引き当ての共通関数化**~~ → **対応済み**。`src/ui/shared.rs` に
+  `broker_name(&[BrokerOverview], BrokerId, fallback) -> &str` と
+  `broker_index(...) -> usize` を追加し、UI の 7 箇所（candlestick / breadth / header /
+  dashboard/mod）を置換。`src/tick/engine.rs` の 4 箇所は `BrokerConfig` を引く別型なので、
+  同ファイル内の private ヘルパー `broker_name(&[BrokerConfig], BrokerId)` に集約した。
+  なお candlestick.rs ではループ変数 `broker_index` が関数名を隠すため完全修飾で呼んでいる。
+- ~~**`selectable_label(...).clicked() { app.set_* }` の共通化（19 箇所）**~~ → **見送り**。
+  実際に読むと 26 箇所の形状が揃っていない：`.on_hover_text()` を鎖す箇所、
+  `b.broker_id != X && ui.selectable_label(..).clicked()` のように複合条件の一部になっている箇所、
+  `let resp = ui.selectable_label(..)` と応答を先に束縛する箇所が混在する。
+  1 つの `choice_row` では最も単純な数箇所しか覆えず、変種を増やすほど間接参照が増えるため、
+  egui の標準的な書き方のままにした。
+- ~~**精度ラダーの共通化**~~ → **対応済み**。`src/ui/shared.rs` に
+  `format_pips(pips, unit) -> String` を追加し、`settings.rs`（`" pips"`）と
+  `header.rs` 2 箇所・`quick_settings.rs`（`"p"`）の計 4 箇所を置換。
+  3 段階のラダーを持つ `candlestick.rs:468` は規則が異なる（0/1/2 桁）ため対象外とした。
 - **`main.rs` と `bin/replay.rs` の共通化**: 引数解析 → `load_startup_config` → deploy → coordinator →
-  eframe 起動という 117 行が両者でほぼ同一。共有ブートストラップ関数 1 つに抽出できる。
-- **ソケット設定の `.ok()` 握り潰し（8 箇所）**: `tcp.rs:108/118/119/143/144/193`、`router.rs:122/153`。
-  `if let Err(e) = … { log::warn!(…) }` に変えると、接続設定の失敗がログに残るようになる。
+  eframe 起動という 117 行が両者でほぼ同一。共有ブートストラップ関数 1 つに抽出できる。**未着手**。
+- ~~**ソケット設定の `.ok()` 握り潰し（8 箇所）**~~ → **対応済み**。
+  `tcp.rs` 6 箇所と `router.rs` 2 箇所を `if let Err(error) = .. { log::warn!("…: {error}"); }` に変更。
+  失敗しても続行する挙動は変えず、記録だけが残るようにした。`src/transport` に `.ok();` は残っていない。
 
 ---
 

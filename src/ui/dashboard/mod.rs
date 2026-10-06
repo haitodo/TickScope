@@ -17,6 +17,7 @@ use crate::ui::settings::{
     WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH,
     MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
 };
+use crate::ui::shared::broker_name;
 use crate::ui::style;
 use eframe::egui;
 use egui::RichText;
@@ -702,16 +703,8 @@ impl DashboardApp {
                 self.last_diagnostics_snapshot_revision = snapshot.snapshot_revision;
             }
         }
-        let name_a = snapshot
-            .broker_overviews
-            .iter()
-            .find(|b| b.broker_id == self.selected_broker_a)
-            .map_or("A", |b| b.name.as_str());
-        let name_b = snapshot
-            .broker_overviews
-            .iter()
-            .find(|b| b.broker_id == self.selected_broker_b)
-            .map_or("B", |b| b.name.as_str());
+        let name_a = broker_name(&snapshot.broker_overviews, self.selected_broker_a, "A");
+        let name_b = broker_name(&snapshot.broker_overviews, self.selected_broker_b, "B");
 
         // 1. Top Panel: Header context controls and HUD
         header::render_top_header(self, ctx, &snapshot, name_a, name_b);

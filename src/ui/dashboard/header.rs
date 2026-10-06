@@ -1,4 +1,5 @@
 use super::DashboardApp;
+use crate::ui::shared::{broker_name, format_pips};
 use crate::core::models::UiSnapshot;
 use crate::core::types::{ConnectionState, FreshnessState};
 use crate::ui::chart::ChartXAxisMode;
@@ -71,11 +72,7 @@ pub fn render_top_header(
             let mut tooltip = "Toggle Broker Overview table [Key: B]".to_string();
             if let Some(comp) = &snapshot.active_pair_comparison {
                 if let Some(m) = &comp.latest_match {
-                    let leader_name = snapshot
-                        .broker_overviews
-                        .iter()
-                        .find(|b| b.broker_id == m.leader)
-                        .map_or("Leader", |b| b.name.as_str());
+                    let leader_name = broker_name(&snapshot.broker_overviews, m.leader, "Leader");
                     let ema_text = comp
                         .ema_lead_lag_ms.map_or_else(|| "N/A".to_string(), |e| format!("{e:+.2} ms"));
                     let _ = write!(tooltip,
@@ -234,11 +231,7 @@ pub fn render_top_header(
                     let scale_label = match app.candle_price_scale {
                         CandlePriceScaleMode::Auto => "Auto".to_string(),
                         CandlePriceScaleMode::Fixed(p) => {
-                            let p_str = if (p.fract()).abs() < 1e-4 {
-                                format!("{p:.0}p")
-                            } else {
-                                format!("{p:.1}p")
-                            };
+                            let p_str = format_pips(p, "p");
                             match app.candle_follow_criteria {
                                 CandleFollowCriteria::Median => format!("{p_str}/Med"),
                                 CandleFollowCriteria::MarginEdge => format!("{p_str}/Edge"),
@@ -267,11 +260,7 @@ pub fn render_top_header(
 
                             for &pips in &VALID_CANDLE_FIXED_PIPS {
                                 let mode = CandlePriceScaleMode::Fixed(pips);
-                                let label = if (pips.fract()).abs() < 1e-4 {
-                                    format!("{pips:.0}p")
-                                } else {
-                                    format!("{pips:.1}p")
-                                };
+                                let label = format_pips(pips, "p");
                                 if ui
                                     .selectable_label(app.candle_price_scale == mode, label)
                                     .clicked()

@@ -38,6 +38,13 @@ pub struct BrokerChannelState {
     pub utc_verified: bool,
 }
 
+/// Broker name for log messages, or `"Unknown"` when the id is not configured.
+fn broker_name(brokers: &[crate::config::BrokerConfig], broker_id: BrokerId) -> &str {
+    brokers
+        .iter()
+        .find(|b| b.id == broker_id)
+        .map_or("Unknown", |b| b.name.as_str())
+}
 pub struct TickEngine {
     pub(crate) config: AppConfig,
     pub channels: HashMap<BrokerId, BrokerChannelState>,
@@ -638,7 +645,7 @@ impl TickEngine {
                                 log::info!(
                                     "Broker {} ({}) NYClose DST calendar transition: {}s -> {}s ({:+}h)",
                                     broker_id,
-                                    self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
+                                    broker_name(&self.config.brokers, broker_id),
                                     ch.active_utc_offset_sec,
                                     expected,
                                     expected / 3600
@@ -660,7 +667,7 @@ impl TickEngine {
                                 log::info!(
                                     "Broker {} ({}) UTC offset auto-detected from ticks: {}s ({:+}h, previous: {}s)",
                                     broker_id,
-                                    self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
+                                    broker_name(&self.config.brokers, broker_id),
                                     detected_offset,
                                     detected_offset / 3600,
                                     ch.active_utc_offset_sec
@@ -929,7 +936,7 @@ impl TickEngine {
                             log::warn!(
                                 "Broker {} ({}) heartbeat offset sample ({}s) diverges from expected NYClose ({}s). Check server settings.",
                                 broker_id,
-                                self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
+                                broker_name(&self.config.brokers, broker_id),
                                 sample,
                                 ch.active_utc_offset_sec
                             );
@@ -948,7 +955,7 @@ impl TickEngine {
                             log::info!(
                                 "Broker {} ({}) UTC offset auto-detected from heartbeat: {}s ({:+}h, previous: {}s)",
                                 broker_id,
-                                self.config.brokers.iter().find(|b| b.id == broker_id).map_or("Unknown", |b| b.name.as_str()),
+                                broker_name(&self.config.brokers, broker_id),
                                 detected_offset,
                                 detected_offset / 3600,
                                 ch.active_utc_offset_sec
