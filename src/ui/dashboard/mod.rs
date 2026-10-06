@@ -163,13 +163,13 @@ impl DashboardApp {
         self.bottom_x_axis_mode = state.bottom_x_axis_mode;
         self.show_broker_overview = state.show_broker_overview;
         self.bottom_metric = state.bottom_metric;
-        self.hidden_brokers = state.hidden_brokers.clone();
-        self.broker_order = state.broker_order.clone();
+        self.hidden_brokers.clone_from(&state.hidden_brokers);
+        self.broker_order.clone_from(&state.broker_order);
         self.window_geometry = state.window.clone();
         self.selected_broker_a = state.active_pair.0;
         self.selected_broker_b = state.active_pair.1;
         self.mt5_minimized = state.mt5_minimized;
-        self.mt5_launch_targets = state.mt5_launch_targets.clone();
+        self.mt5_launch_targets.clone_from(&state.mt5_launch_targets);
         self.mt5_auto_launch = state.mt5_auto_launch;
         self.mt5_auto_close = state.mt5_auto_close;
         self.mt5_non_minimized_broker = state.mt5_non_minimized_broker;
@@ -964,9 +964,11 @@ impl Drop for DashboardApp {
 impl eframe::App for DashboardApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(windows)]
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        #[cfg(windows)]
         if !self.dpi_drag_fix_installed {
             self.dpi_drag_fix_installed = true;
-            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
             if let Ok(handle) = frame.window_handle() {
                 if let RawWindowHandle::Win32(win32) = handle.as_ref() {
                     crate::ui::dpi::install_dpi_drag_fix(win32.hwnd.get());

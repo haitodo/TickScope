@@ -353,6 +353,7 @@ impl Default for HistoryConfig {
     }
 }
 
+#[allow(clippy::unnecessary_wraps)] // serde(default) requires the field type
 fn default_non_minimized_broker() -> Option<String> {
     Some("OANDA".to_string())
 }

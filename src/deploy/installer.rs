@@ -5,6 +5,7 @@ use super::compiler::DeployCompileStatus;
 use super::discovery::DiscoveredTerminal;
 use super::error::DeployError;
 use super::sources::SourceFiles;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -54,10 +55,10 @@ pub fn connection_map_contents(brokers: &[BrokerConfig]) -> String {
     for broker in brokers {
         let server_hint = tsv_safe(&broker.name);
         let symbol = tsv_safe(&broker.symbol);
-        contents.push_str(&format!(
-            "{}\t{}\t{}\t{}\n",
+        let _ = writeln!(contents,
+            "{}\t{}\t{}\t{}",
             broker.id, server_hint, symbol, broker.port
-        ));
+        );
     }
     contents.push_str("END\n");
     contents

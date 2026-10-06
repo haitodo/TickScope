@@ -374,13 +374,13 @@ mod tests {
     #[test]
     fn test_mt5_to_utc_winter_and_summer() {
         // Winter: 2026-01-15 12:00:00 MT5 -> UTC+2 -> subtract 2 hours
-        let winter_mt5 = 1768478400000; // 2026-01-15 12:00:00 UTC+2
+        let winter_mt5 = 1_768_478_400_000; // 2026-01-15 12:00:00 UTC+2
         let winter_utc = mt5_to_utc_ms(winter_mt5);
         assert_eq!(winter_mt5 - winter_utc, 2 * 3600 * 1000);
         assert_eq!(utc_to_mt5_ms(winter_utc), winter_mt5);
 
         // Summer: 2026-08-15 12:00:00 MT5 -> UTC+3 -> subtract 3 hours
-        let summer_mt5 = 1786795200000; // 2026-08-15 12:00:00 UTC+3
+        let summer_mt5 = 1_786_795_200_000; // 2026-08-15 12:00:00 UTC+3
         let summer_utc = mt5_to_utc_ms(summer_mt5);
         assert_eq!(summer_mt5 - summer_utc, 3 * 3600 * 1000);
         assert_eq!(utc_to_mt5_ms(summer_utc), summer_mt5);

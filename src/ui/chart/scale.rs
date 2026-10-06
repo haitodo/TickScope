@@ -3,6 +3,7 @@ use crate::core::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
 use crate::ui::settings::CandleFollowCriteria;
 use egui::{Color32, Pos2, Stroke};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarginEdgeLatchSide {
@@ -214,22 +215,26 @@ pub fn resolve_candle_follow_scale(
                     }
                     None => {
                         // Tie-breaking: choose the side with the more recent reception time
-                        if max_candidate.rx_mono_ns.0 > min_candidate.rx_mono_ns.0 {
-                            current_anchor = max_candidate.bid - deadzone;
-                            *margin_edge_latch = Some(MarginEdgeLatchSide::Top);
-                            active_edge_is_top = true;
-                            active_candidate = max_candidate;
-                        } else if min_candidate.rx_mono_ns.0 > max_candidate.rx_mono_ns.0 {
-                            current_anchor = min_candidate.bid + deadzone;
-                            *margin_edge_latch = Some(MarginEdgeLatchSide::Bottom);
-                            active_edge_is_top = false;
-                            active_candidate = min_candidate;
-                        } else {
-                            // Simultaneous or indeterminate: place anchor at range midpoint
-                            current_anchor = (min_candidate.bid + max_candidate.bid) * 0.5;
-                            *margin_edge_latch = None;
-                            active_edge_is_top = true;
-                            active_candidate = max_candidate;
+                        match max_candidate.rx_mono_ns.0.cmp(&min_candidate.rx_mono_ns.0) {
+                            Ordering::Greater => {
+                                current_anchor = max_candidate.bid - deadzone;
+                                *margin_edge_latch = Some(MarginEdgeLatchSide::Top);
+                                active_edge_is_top = true;
+                                active_candidate = max_candidate;
+                            }
+                            Ordering::Less => {
+                                current_anchor = min_candidate.bid + deadzone;
+                                *margin_edge_latch = Some(MarginEdgeLatchSide::Bottom);
+                                active_edge_is_top = false;
+                                active_candidate = min_candidate;
+                            }
+                            Ordering::Equal => {
+                                // Simultaneous or indeterminate: place anchor at range midpoint
+                                current_anchor = (min_candidate.bid + max_candidate.bid) * 0.5;
+                                *margin_edge_latch = None;
+                                active_edge_is_top = true;
+                                active_candidate = max_candidate;
+                            }
                         }
                     }
                 }

@@ -481,6 +481,29 @@ cargo clippy --fix --all-targets --features replay --allow-dirty `
 | `clippy::use_self` | 91 | **適用済み**（`impl Foo { fn new() -> Foo }` → `-> Self`） |
 | `clippy::str_to_string` | 108 | 見送り（上記理由） |
 
+### 小口 lint 13 種（71 箇所）★対応済み
+
+自動修正できない小さな lint を 1 種類ずつ潰した。**71 箇所 → 0**（32 ファイル / +150 −150 行）。
+
+| lint | 箇所 | 対応 |
+| :--- | ---: | :--- |
+| `clippy::unreadable_literal` | 33 | 数値リテラルに `_` 区切りを追加（値は不変） |
+| `clippy::manual_let_else` | 11 | `let x = if let ... { } else { return }` を let-else に書き換え |
+| `clippy::field_reassign_with_default` | 8 | `Default::default()` + フィールド代入を構造体更新記法に |
+| `clippy::match_same_arms` | 4 | 同一本体の arm を or-pattern に統合 |
+| `clippy::assigning_clones` | 3 | `a = b.clone()` → `a.clone_from(&b)` |
+| `clippy::items_after_statements` | 3 | 関数内の `use` を関数先頭へ移動（`#[cfg(windows)]` は維持） |
+| `clippy::format_push_string` | 2 | `push_str(&format!(..))` → `writeln!`（`write_with_newline` も同時に解消） |
+| `clippy::unnecessary_wraps` | 2 | **serde の `default = "..."` 関数はフィールド型を返す必要がある**ため誤検知。理由コメント付き `#[allow]` |
+| `clippy::comparison_chain` | 1 | `if a > b / else if a < b` を `match a.cmp(&b)` に |
+| `clippy::needless_continue` | 1 | ループ末尾の冗長な `continue` を削除 |
+| `clippy::struct_field_names` | 1 | `SyncArbiter` の private フィールドから `last_observed_` 接頭辞を削除 |
+| `clippy::default_trait_access` | 1 | `Default::default()` → `egui::RawInput::default()` |
+| `clippy::should_panic_without_expect` | 1 | `#[should_panic(expected = "range end index")]` |
+
+Clipy の suggestion を機械適用する際、`match_same_arms` は**複数 span の同時適用が前提**で、
+片方だけ適用すると壊れる（実際に一度壊して手で直した）。それ以外の 12 種は単一 span で安全。
+
 ### ドキュメント補完（33 関数）★対応済み
 
 **対応状況**: 完了。`missing_errors_doc` 30 件・`missing_panics_doc` 5 件（関数としては 33 件。

@@ -147,19 +147,13 @@ impl BrokerParquetSource {
                     for y_res in year_entries.flatten() {
                         let y_name = y_res.file_name().to_string_lossy().to_string();
                         if let Some(year_str) = y_name.strip_prefix("year=") {
-                            let year = match year_str.parse::<i32>() {
-                                Ok(y) => y,
-                                Err(_) => continue,
-                            };
+                            let Ok(year) = year_str.parse::<i32>() else { continue };
 
                             if let Ok(month_entries) = std::fs::read_dir(y_res.path()) {
                                 for m_res in month_entries.flatten() {
                                     let m_name = m_res.file_name().to_string_lossy().to_string();
                                     if let Some(month_str) = m_name.strip_prefix("month=") {
-                                        let month = match month_str.parse::<u32>() {
-                                            Ok(m) => m,
-                                            Err(_) => continue,
-                                        };
+                                        let Ok(month) = month_str.parse::<u32>() else { continue };
 
                                         let parquet_file = m_res.path().join("data.parquet");
                                         if parquet_file.exists() {
@@ -392,8 +386,7 @@ impl BrokerParquetSource {
                 if let Ok(true) = self.ensure_partition_cached(prev_idx) {
                     if let Some(prev_ticks) = self.partition_cache.get(&prev_idx) {
                         let start = match prev_ticks.binary_search_by_key(&from_utc_ms, |t| t.utc_ms) {
-                            Ok(i) => i,
-                            Err(i) => i,
+                            Ok(i) | Err(i) => i,
                         };
                         let end = match prev_ticks.binary_search_by_key(&to_utc_ms, |t| t.utc_ms) {
                             Ok(i) => i.saturating_add(1),
@@ -412,8 +405,7 @@ impl BrokerParquetSource {
         // Current partition ticks
         if !self.current_ticks.is_empty() {
             let start = match self.current_ticks.binary_search_by_key(&from_utc_ms, |t| t.utc_ms) {
-                Ok(i) => i,
-                Err(i) => i,
+                Ok(i) | Err(i) => i,
             };
             let end = match self.current_ticks.binary_search_by_key(&to_utc_ms, |t| t.utc_ms) {
                 Ok(i) => i.saturating_add(1),
@@ -528,8 +520,8 @@ mod tests {
     fn test_replay_tick_structure() {
         let t = ReplayTick {
             broker_id: 1,
-            utc_ms: 1700000000000,
-            mt5_ms: 1700007200000,
+            utc_ms: 1_700_000_000_000,
+            mt5_ms: 1_700_007_200_000,
             bid: 150.123,
             ask: 150.125,
             receive_delay_ms: 0,

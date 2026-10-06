@@ -7,6 +7,7 @@ use crate::ui::settings::{
 };
 use eframe::egui;
 use egui::RichText;
+use std::fmt::Write as _;
 
 pub fn render_top_header(
     app: &mut DashboardApp,
@@ -22,7 +23,6 @@ pub fn render_top_header(
             if app.show_candle_context {
                 let tf_text = match app.selected_timeframe_ms {
                     60000 => "M1",
-                    10000 => "S10",
                     5000 => "S5",
                     1000 => "S1",
                     _ => "S10",
@@ -78,10 +78,10 @@ pub fn render_top_header(
                         .map_or("Leader", |b| b.name.as_str());
                     let ema_text = comp
                         .ema_lead_lag_ms.map_or_else(|| "N/A".to_string(), |e| format!("{e:+.2} ms"));
-                    tooltip.push_str(&format!(
+                    let _ = write!(tooltip,
                         "\n\n⚡ Lead/Lag [{} vs {}]:\nLeader: {}\nRaw Lead: {:.2} ms\nEMA Lead: {}\n(Key: [5] Lead/Lag view)",
                         name_a, name_b, leader_name, m.raw_delta_ms.abs(), ema_text
-                    ));
+                    );
                 }
             }
 

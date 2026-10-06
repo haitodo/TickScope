@@ -116,10 +116,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         })
     });
 
-    let center_price = match latest_mid {
-        Some(m) => m,
-        None => return,
-    };
+    let Some(center_price) = latest_mid else { return };
 
     let pip_size = pip_size.max(f64::EPSILON);
     let half_span = (fixed_follow_span_pips * pip_size / 2.0).max(f64::EPSILON);

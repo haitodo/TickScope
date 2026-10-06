@@ -32,9 +32,9 @@ pub enum ArbiterAction {
 pub const MAX_REPLAY_TRADE_HISTORY: usize = 20;
 
 pub struct SyncArbiter {
-    last_observed_mt5_ms: i64,
-    last_observed_seek_epoch: u64,
-    last_observed_trade_revision: u64,
+    mt5_ms: i64,
+    seek_epoch: u64,
+    trade_revision: u64,
 }
 
 impl Default for SyncArbiter {
@@ -46,17 +46,17 @@ impl Default for SyncArbiter {
 impl SyncArbiter {
     pub const fn new() -> Self {
         Self {
-            last_observed_mt5_ms: 0,
-            last_observed_seek_epoch: 0,
-            last_observed_trade_revision: 0,
+            mt5_ms: 0,
+            seek_epoch: 0,
+            trade_revision: 0,
         }
     }
 
     /// Reset internal tracking (e.g. on new connection).
     pub const fn reset(&mut self) {
-        self.last_observed_mt5_ms = 0;
-        self.last_observed_seek_epoch = 0;
-        self.last_observed_trade_revision = 0;
+        self.mt5_ms = 0;
+        self.seek_epoch = 0;
+        self.trade_revision = 0;
     }
 
     /// Evaluates raw JSON or typed status and returns the appropriate action.
@@ -101,7 +101,7 @@ impl SyncArbiter {
             .or_else(|| val.get("history_revision"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
-        let trade_changed = trade_revision == 0 || trade_revision != self.last_observed_trade_revision;
+        let trade_changed = trade_revision == 0 || trade_revision != self.trade_revision;
 
         if trade_changed {
             let mut store = trade_store.write();
@@ -137,30 +137,30 @@ impl SyncArbiter {
                 data_updated = true;
             }
             if trade_revision > 0 {
-                self.last_observed_trade_revision = trade_revision;
+                self.trade_revision = trade_revision;
             }
         }
 
         // 3. Adaptive SEEK Detection with seek_epoch check & Hysteresis fallback
         let seek_epoch = val.get("seek_epoch").and_then(serde_json::Value::as_u64).unwrap_or(0);
-        let is_seek = if seek_epoch > 0 && self.last_observed_seek_epoch > 0 && seek_epoch != self.last_observed_seek_epoch {
+        let is_seek = if seek_epoch > 0 && self.seek_epoch > 0 && seek_epoch != self.seek_epoch {
             // 明示的 seek_epoch 変更による確定的シーク
             true
-        } else if self.last_observed_mt5_ms == 0 {
+        } else if self.mt5_ms == 0 {
             true
         } else if !is_playing {
-            (virtual_time_msc - self.last_observed_mt5_ms).abs() > 200
+            (virtual_time_msc - self.mt5_ms).abs() > 200
         } else {
-            let time_diff = virtual_time_msc - self.last_observed_mt5_ms;
+            let time_diff = virtual_time_msc - self.mt5_ms;
             let forward_threshold = (multiplier * 2000.0).max(3000.0) as i64;
             // Negative threshold: -250ms deadband absorbs micro-clamps (Graceful Slowdown)
             time_diff < -250 || time_diff > forward_threshold
         };
 
         if seek_epoch > 0 {
-            self.last_observed_seek_epoch = seek_epoch;
+            self.seek_epoch = seek_epoch;
         }
-        self.last_observed_mt5_ms = virtual_time_msc;
+        self.mt5_ms = virtual_time_msc;
 
         let action = if is_seek {
             ArbiterAction::Seek {
@@ -186,8 +186,8 @@ impl SyncArbiter {
     }
 
     /// Read last observed MT5 timestamp.
-    pub const fn last_observed_mt5_ms(&self) -> i64 {
-        self.last_observed_mt5_ms
+    pub const fn mt5_ms(&self) -> i64 {
+        self.mt5_ms
     }
 }
 

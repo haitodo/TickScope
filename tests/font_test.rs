@@ -1,4 +1,4 @@
-﻿use tick_scope::ui::setup_fonts;
+use tick_scope::ui::setup_fonts;
 
 #[test]
 fn test_setup_fonts_and_japanese_shaping() {
@@ -12,7 +12,7 @@ fn test_setup_fonts_and_japanese_shaping() {
         "—",
     ];
 
-    let _ = ctx.run(Default::default(), |ctx| {
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
         for text in &test_strings {
             let prop_galley = ctx.fonts(|f| {
                 f.layout_no_wrap(

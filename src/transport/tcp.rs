@@ -337,7 +337,7 @@ impl TransportReceiver {
                         last_progress = std::time::Instant::now();
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) => {
                     // Socket error or disconnected
                     return format!("Socket read error: {e}");

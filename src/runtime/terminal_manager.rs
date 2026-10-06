@@ -467,8 +467,10 @@ mod tests {
         let exe = dir.path().join("terminal64.exe");
         fs::write(&exe, "").unwrap();
 
-        let mut broker = BrokerConfig::default();
-        broker.terminal_path = Some(exe.to_string_lossy().to_string());
+        let broker = BrokerConfig {
+            terminal_path: Some(exe.to_string_lossy().to_string()),
+            ..BrokerConfig::default()
+        };
 
         let discovered = Vec::new();
         let resolved = TerminalManager::resolve_terminal_path(&broker, &discovered);
@@ -486,8 +488,10 @@ mod tests {
         // Write origin.txt pointing to term_dir
         fs::write(term_dir.join("origin.txt"), term_dir.to_string_lossy().as_bytes()).unwrap();
 
-        let mut broker = BrokerConfig::default();
-        broker.name = "MyBroker".to_string();
+        let broker = BrokerConfig {
+            name: "MyBroker".to_string(),
+            ..BrokerConfig::default()
+        };
 
         let discovered = vec![DiscoveredTerminal {
             friendly_name: "MyBroker MT5 (12345678)".to_string(),

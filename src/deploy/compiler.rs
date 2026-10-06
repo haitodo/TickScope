@@ -41,10 +41,7 @@ pub fn compile_deployed_ea(terminal: &TerminalDeployReport, ea_path: &Path) -> D
         return DeployCompileStatus::UpToDate;
     }
 
-    let metaeditor = match find_metaeditor_for_terminal(&terminal.terminal_dir) {
-        Some(path) => path,
-        None => return DeployCompileStatus::MetaEditorNotFound,
-    };
+    let Some(metaeditor) = find_metaeditor_for_terminal(&terminal.terminal_dir) else { return DeployCompileStatus::MetaEditorNotFound };
     match Command::new(metaeditor)
         .arg(format!("/compile:{}", ea_path.display()))
         .arg("/log")

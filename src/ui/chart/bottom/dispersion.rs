@@ -24,7 +24,7 @@ pub fn draw_mid_dispersion_view_with_visibility(
     theme: &ChartTheme,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
-    let cons = if let Some(c) = consensus { c } else {
+    let Some(cons) = consensus else {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -34,7 +34,7 @@ pub fn draw_mid_dispersion_view_with_visibility(
         );
         return;
     };
-    let median = if let Some(m) = cons.consensus_mid { m } else {
+    let Some(median) = cons.consensus_mid else {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,

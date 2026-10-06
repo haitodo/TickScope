@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 pub use crate::core::types::TickRecord;
 
-pub const MAGIC_TICK: u32 = 0x5449434B; // 'K' 'C' 'I' 'T' in LE bytes: 4B 43 49 54
+pub const MAGIC_TICK: u32 = 0x5449_434B; // 'K' 'C' 'I' 'T' in LE bytes: 4B 43 49 54
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const HEADER_LENGTH: u16 = 40;
 pub const TICK_RECORD_LENGTH: usize = 72;
@@ -136,10 +136,10 @@ pub enum IngressItem {
 impl IngressItem {
     pub const fn broker_id(&self) -> BrokerId {
         match self {
-            Self::Connected { broker_id, .. } => *broker_id,
+            Self::Connected { broker_id, .. }
+            | Self::Progress { broker_id, .. }
+            | Self::End { broker_id, .. } => *broker_id,
             Self::Frame(rf) => rf.frame.header.broker_id,
-            Self::Progress { broker_id, .. } => *broker_id,
-            Self::End { broker_id, .. } => *broker_id,
         }
     }
 }

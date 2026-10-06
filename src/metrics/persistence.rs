@@ -290,10 +290,7 @@ impl RepricingPersistenceTracker {
 
     /// Event-driven hook for subsequent move events from any broker.
     pub fn on_subsequent_event(&mut self, event: &MoveEvent) {
-        let pending = match self.pending_lead.as_ref() {
-            Some(p) => p,
-            None => return,
-        };
+        let Some(pending) = self.pending_lead.as_ref() else { return };
 
         // Check if window expired
         if event.rx_mono_ns.saturating_sub(pending.created_at).0 > self.window_ns {

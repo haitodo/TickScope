@@ -10,10 +10,7 @@ use tick_scope::runtime::coordinator::RuntimeCoordinator;
 #[ignore = "Live MT5 end-to-end connection test (requires running MT5 terminals)"]
 fn test_live_mt5_continuous_connection() {
     let config_path = Path::new("config/default.toml");
-    let config = match load_config_from_file(config_path) {
-        Ok(c) => c,
-        Err(_) => return, // skip if not running locally
-    };
+    let Ok(config) = load_config_from_file(config_path) else { return };
 
     println!("Starting RuntimeCoordinator on ports 39001, 39002...");
     let mut coordinator = match RuntimeCoordinator::new(config) {

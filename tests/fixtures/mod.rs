@@ -36,7 +36,7 @@ pub const GOLDEN_TICK_RECORD_BYTES: [u8; 72] = [
 /// Standard CRC32C test vector:
 /// ASCII "123456789" -> 0xE3069283
 pub const CRC32C_INPUT_BYTES: &[u8] = b"123456789";
-pub const CRC32C_EXPECTED_U32: u32 = 0xE3069283;
+pub const CRC32C_EXPECTED_U32: u32 = 0xE306_9283;
 
 /// Storage File Header Magic: literal bytes "TLOG"
 pub const STORAGE_MAGIC_BYTES: [u8; 4] = [0x54, 0x4C, 0x4F, 0x47];
@@ -49,7 +49,7 @@ mod tests {
     fn test_golden_header_dimensions() {
         assert_eq!(GOLDEN_HEADER_BYTES.len(), 40);
         let magic = u32::from_le_bytes(GOLDEN_HEADER_BYTES[0..4].try_into().unwrap());
-        assert_eq!(magic, 0x5449434B);
+        assert_eq!(magic, 0x5449_434B);
     }
 
     #[test]

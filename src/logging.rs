@@ -222,7 +222,7 @@ pub mod win_console {
     use std::os::windows::io::IntoRawHandle;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    const ATTACH_PARENT_PROCESS: u32 = 0xFFFFFFFF;
+    const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
     const STD_INPUT_HANDLE: u32 = (-10i32) as u32;
     const STD_OUTPUT_HANDLE: u32 = (-11i32) as u32;
     const STD_ERROR_HANDLE: u32 = (-12i32) as u32;

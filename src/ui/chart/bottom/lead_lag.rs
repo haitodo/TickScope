@@ -13,7 +13,7 @@ pub fn draw_lead_lag_view(
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
 
-    let comp = if let Some(c) = comparison { c } else {
+    let Some(comp) = comparison else {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,

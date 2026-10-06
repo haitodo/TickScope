@@ -26,8 +26,8 @@ fn test_tg01_roundtrip_all_record_kinds() {
         broker_id: 1,
         connection_generation: 1,
         frame_index: 10,
-        rx_mono_ns: MonoNs(123456789),
-        rx_unix_ns: Some(1700000000000),
+        rx_mono_ns: MonoNs(123_456_789),
+        rx_unix_ns: Some(1_700_000_000_000),
         config_epoch: 1,
         analysis_segment: 1,
         raw_wire_bytes: Arc::new(vec![0xAA, 0xBB, 0xCC, 0xDD]),
@@ -76,8 +76,8 @@ fn test_tg01_roundtrip_all_record_kinds() {
         ReadResult::Record(LogRecord::RawFrame(r)) => {
             assert_eq!(r.broker_id, 1);
             assert_eq!(r.frame_index, 10);
-            assert_eq!(r.rx_mono_ns, MonoNs(123456789));
-            assert_eq!(r.rx_unix_ns, Some(1700000000000));
+            assert_eq!(r.rx_mono_ns, MonoNs(123_456_789));
+            assert_eq!(r.rx_unix_ns, Some(1_700_000_000_000));
             assert_eq!(*r.raw_wire_bytes, vec![0xAA, 0xBB, 0xCC, 0xDD]);
             assert_eq!(r.dispositions.len(), 2);
         }

@@ -378,10 +378,7 @@ impl TickEngine {
         let mut fast_quote = None;
 
         let is_disconnected = {
-            let ch = match self.channels.get_mut(&broker_id) {
-                Some(c) => c,
-                None => return,
-            };
+            let Some(ch) = self.channels.get_mut(&broker_id) else { return };
 
             match item {
                 IngressItem::Connected { generation, .. } => {

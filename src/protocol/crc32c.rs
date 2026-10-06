@@ -10,7 +10,7 @@ const CRC32C_TABLE: [u32; 256] = {
         let mut j = 0;
         while j < 8 {
             if crc & 1 != 0 {
-                crc = (crc >> 1) ^ 0x82F63B78;
+                crc = (crc >> 1) ^ 0x82F6_3B78;
             } else {
                 crc >>= 1;
             }
@@ -39,6 +39,6 @@ mod tests {
     fn test_crc32c_standard_vector() {
         let input = b"123456789";
         let res = crc32c(input);
-        assert_eq!(res, 0xE3069283, "CRC32C must match standard Castagnoli vector");
+        assert_eq!(res, 0xE306_9283, "CRC32C must match standard Castagnoli vector");
     }
 }

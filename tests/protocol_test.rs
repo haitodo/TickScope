@@ -170,11 +170,11 @@ fn test_tw02_split_reads_and_coalesced_frames() {
 fn test_tw03_malformed_errors() {
     let mut decoder = StreamingDecoder::new(1_048_576, 65_536);
     let mut bad_magic = vec![0u8; 40];
-    bad_magic[0..4].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+    bad_magic[0..4].copy_from_slice(&0xDEAD_BEEF_u32.to_le_bytes());
 
     decoder.push(&bad_magic).unwrap();
     let err = decoder.next_frame().unwrap_err();
-    assert!(matches!(err, ProtocolError::InvalidMagic(0xDEADBEEF)));
+    assert!(matches!(err, ProtocolError::InvalidMagic(0xDEAD_BEEF)));
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn test_tw04_reserved_warn_and_nan_bits() {
             volume: 1,
             volume_real: 1.0,
             flags: 2,
-            reserved: 0xCAFEBABE, // Non-zero reserved
+            reserved: 0xCAFE_BABE, // Non-zero reserved
         }]),
     };
 
@@ -219,7 +219,7 @@ fn test_tw04_reserved_warn_and_nan_bits() {
 
     if let FramePayload::TickBatch(ticks) = decoded.frame.payload {
         assert_eq!(ticks[0].bid.to_bits(), nan_val.to_bits(), "Exact NaN bits must be preserved");
-        assert_eq!(ticks[0].reserved, 0xCAFEBABE);
+        assert_eq!(ticks[0].reserved, 0xCAFE_BABE);
     } else {
         panic!("Expected TickBatch");
     }

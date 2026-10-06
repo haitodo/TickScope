@@ -44,7 +44,7 @@ impl SignificantMidMoveDetector {
             return None;
         }
 
-        let anchor = if let Some(a) = self.anchor_quote.as_ref() { a } else {
+        let Some(anchor) = self.anchor_quote.as_ref() else {
             // First valid quote sets anchor, does not fire
             self.anchor_quote = Some(*quote);
             return None;
@@ -75,7 +75,7 @@ impl SignificantMidMoveDetector {
             };
 
             let quality = if bid_delta != 0.0 && ask_delta != 0.0 {
-                if spread_delta.abs() > 0.0000001 && ((bid_delta > 0.0) != (ask_delta > 0.0)) {
+                if spread_delta.abs() > 0.000_000_1 && ((bid_delta > 0.0) != (ask_delta > 0.0)) {
                     MoveQuality::SpreadDriven
                 } else {
                     MoveQuality::BothSides

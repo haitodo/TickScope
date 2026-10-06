@@ -999,11 +999,13 @@ fn test_quick_settings_small_screen_viewport_constraint() {
         app.set_show_quick_settings(true);
 
         let ctx = egui::Context::default();
-        let mut raw_input = egui::RawInput::default();
-        raw_input.screen_rect = Some(egui::Rect::from_min_size(
-            egui::Pos2::ZERO,
-            egui::vec2(screen_w, screen_h),
-        ));
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(screen_w, screen_h),
+            )),
+            ..egui::RawInput::default()
+        };
 
         let window_id = egui::Id::new("⚙ Quick Settings");
         let input1 = raw_input.clone();

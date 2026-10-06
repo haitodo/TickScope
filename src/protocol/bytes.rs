@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "range end index")]
     fn test_reader_panics_on_short_buffer() {
         let buf = [0u8; 3];
         let _ = le_u32(&buf, 0);

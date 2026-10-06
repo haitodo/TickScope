@@ -58,14 +58,14 @@ fn test_engine_initializes_verified_offsets_at_startup() {
 #[test]
 fn test_ny_close_dst_calendar_seasons() {
     // 2026 Summer (September): +10800s (+3h)
-    let t_summer = 1790779200; // 2026-09-30 12:00:00 UTC
+    let t_summer = 1_790_779_200; // 2026-09-30 12:00:00 UTC
     assert_eq!(TimezoneRule::NyClose.resolve_offset(t_summer, 0), 10800);
 
     // 2026 Winter (December): +7200s (+2h)
-    let t_winter = 1798156800; // 2026-12-25 00:00:00 UTC
+    let t_winter = 1_798_156_800; // 2026-12-25 00:00:00 UTC
     assert_eq!(TimezoneRule::NyClose.resolve_offset(t_winter, 0), 7200);
 
     // 2027 Summer (June): +10800s (+3h)
-    let t_summer_2027 = 1813150800; // 2027-06-15 13:00:00 UTC
+    let t_summer_2027 = 1_813_150_800; // 2027-06-15 13:00:00 UTC
     assert_eq!(TimezoneRule::NyClose.resolve_offset(t_summer_2027, 0), 10800);
 }

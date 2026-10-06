@@ -18,8 +18,8 @@ use tick_scope::replay::parquet_source::{BrokerParquetSource, ReplayTick};
 use tick_scope::tick::engine::TickEngine;
 
 fn make_test_config() -> AppConfig {
-    let mut config = AppConfig::default();
-    config.brokers = vec![
+    let config = AppConfig {
+        brokers: vec![
         BrokerConfig {
             id: 1,
             name: "OANDA".to_string(),
@@ -95,8 +95,10 @@ fn make_test_config() -> AppConfig {
             terminal_path: None,
             receive_delay_ms: None,
         },
-    ];
-    config.active_pair = (1, 2);
+    ],
+        active_pair: (1, 2),
+        ..AppConfig::default()
+    };
     config
 }
 
@@ -468,7 +470,7 @@ async fn test_replay_driver_mock_websocket_sync() {
     // 4. Send initial READY message (paused at 2026-08-20 12:00:00 MT5)
     let initial_msg = serde_json::json!({
         "status": "READY",
-        "virtual_time_msc": 1787238000000i64, // MT5 time (+3h)
+        "virtual_time_msc": 1_787_238_000_000_i64, // MT5 time (+3h)
         "is_playing": false,
         "multiplier": 1.0,
         "speed_mode": "TEMPORAL"
@@ -479,12 +481,12 @@ async fn test_replay_driver_mock_websocket_sync() {
 
     // Verify clock was set and is paused
     assert!(!clock.is_playing());
-    assert_eq!(clock.current_utc_ms(), 1787227200000); // 1787238000000 - 3h = 1787227200000
+    assert_eq!(clock.current_utc_ms(), 1_787_227_200_000); // 1787238000000 - 3h = 1787227200000
 
     // 5. Send PLAY message with 50x speed (high-speed multiplier)
     let play_msg = serde_json::json!({
         "status": "ACTIVE",
-        "virtual_time_msc": 1787238000000i64,
+        "virtual_time_msc": 1_787_238_000_000_i64,
         "is_playing": true,
         "multiplier": 50.0,
         "speed_mode": "TEMPORAL"
@@ -499,7 +501,7 @@ async fn test_replay_driver_mock_websocket_sync() {
     // Adaptive threshold must NOT falsely trigger a seek reset!
     let progress_msg = serde_json::json!({
         "status": "ACTIVE",
-        "virtual_time_msc": 1787240000000i64, // +2000ms
+        "virtual_time_msc": 1_787_240_000_000_i64, // +2000ms
         "is_playing": true,
         "multiplier": 50.0,
         "speed_mode": "TEMPORAL"
@@ -510,7 +512,7 @@ async fn test_replay_driver_mock_websocket_sync() {
     // 7. Send SEEK message (jump forward by 10 minutes)
     let seek_msg = serde_json::json!({
         "status": "ACTIVE",
-        "virtual_time_msc": 1787238600000i64, // seek
+        "virtual_time_msc": 1_787_238_600_000_i64, // seek
         "is_playing": false,
         "multiplier": 1.0,
         "speed_mode": "TEMPORAL"
@@ -519,7 +521,7 @@ async fn test_replay_driver_mock_websocket_sync() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert!(!clock.is_playing());
-    assert_eq!(clock.current_utc_ms(), 1787227800000); // exactly seeked!
+    assert_eq!(clock.current_utc_ms(), 1_787_227_800_000); // exactly seeked!
 
     driver.stop();
 }
@@ -527,13 +529,13 @@ async fn test_replay_driver_mock_websocket_sync() {
 #[test]
 fn test_mt5_to_utc_dst_accuracy() {
     // 2026 Winter: US standard time (UTC+2)
-    let mt5_winter = 1768478400000; // Jan 15 2026
+    let mt5_winter = 1_768_478_400_000; // Jan 15 2026
     let utc_winter = mt5_to_utc_ms(mt5_winter);
     assert_eq!(utc_winter, mt5_winter - 2 * 3600 * 1000);
     assert_eq!(utc_to_mt5_ms(utc_winter), mt5_winter);
 
     // 2026 Summer: US daylight saving time (UTC+3)
-    let mt5_summer = 1786795200000; // Aug 15 2026
+    let mt5_summer = 1_786_795_200_000; // Aug 15 2026
     let utc_summer = mt5_to_utc_ms(mt5_summer);
     assert_eq!(utc_summer, mt5_summer - 3 * 3600 * 1000);
     assert_eq!(utc_to_mt5_ms(utc_summer), mt5_summer);
@@ -913,7 +915,7 @@ fn test_simulate_august_3_live_issue() {
     let tick_wake = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
 
     // Target from live user session: 1785725353921 MT5 ms -> UTC
-    let live_mt5_ms = 1785725353921i64;
+    let live_mt5_ms = 1_785_725_353_921_i64;
     let start_utc_ms = mt5_to_utc_ms(live_mt5_ms);
     println!("\n=== LIVE TEST: Rebuilding state at start_utc_ms: {start_utc_ms} (MT5: {live_mt5_ms}) ===");
     tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(

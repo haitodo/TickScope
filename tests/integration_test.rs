@@ -306,8 +306,8 @@ fn test_ti02_high_frequency_burst_injection() {
 fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
     use tick_scope::tick::engine::TickEngine;
 
-    let mut config = AppConfig::default();
-    config.brokers = vec![
+    let config = AppConfig {
+        brokers: vec![
         BrokerConfig {
             id: 21,
             name: "FastBroker".to_string(),
@@ -338,8 +338,9 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
             terminal_path: None,
             receive_delay_ms: None,
         },
-    ];
-
+    ],
+        ..AppConfig::default()
+    };
     let mut engine = TickEngine::new(config);
 
     // Connect both brokers
@@ -360,7 +361,7 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
     // FastBroker (21) receives a live tick at rx_mono_ns = 50_000_000 (50ms).
     let tick_record = TickRecord {
         sequence: 42,
-        broker_time_msc: 1700000000000,
+        broker_time_msc: 1_700_000_000_000,
         ea_elapsed_us: 1000,
         bid: 150.123,
         ask: 150.125,
@@ -398,7 +399,7 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
 
     // Verify Fast Path: FastBroker quote is immediately visible in projection
     // despite SlowBroker holding the global merge watermark at 0!
-    let proj = engine.make_projection_at(UtcMs(1700000000000), MonoNs(50_000_000));
+    let proj = engine.make_projection_at(UtcMs(1_700_000_000_000), MonoNs(50_000_000));
     let overview_21 = proj.broker_overviews.iter().find(|b| b.broker_id == 21).expect("Broker 21 overview present");
     let q = overview_21.latest_quote.as_ref().expect("Latest quote in overview must be immediately available via Fast Path");
     assert_eq!(q.tick_id.sequence, 42);
@@ -409,8 +410,8 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
 
 #[test]
 fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
-    let mut config = AppConfig::default();
-    config.brokers = vec![BrokerConfig {
+    let config = AppConfig {
+        brokers: vec![BrokerConfig {
         id: 10,
         name: "WarmupBroker".to_string(),
         host: "127.0.0.1".to_string(),
@@ -424,8 +425,9 @@ fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
         timezone_rule: TimezoneRule::Fixed,
         terminal_path: None,
         receive_delay_ms: None,
-    }];
-
+    }],
+        ..AppConfig::default()
+    };
     let mut engine = TickEngine::new(config);
     engine.on_ingress_item(IngressItem::Connected {
         broker_id: 10,
@@ -513,8 +515,8 @@ fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
 
 #[test]
 fn test_multi_broker_warmup_ticks_interleaved_chronologically() {
-    let mut config = AppConfig::default();
-    config.brokers = vec![
+    let config = AppConfig {
+        brokers: vec![
         BrokerConfig {
             id: 1,
             name: "BrokerA".to_string(),
@@ -545,8 +547,9 @@ fn test_multi_broker_warmup_ticks_interleaved_chronologically() {
             terminal_path: None,
             receive_delay_ms: None,
         },
-    ];
-
+    ],
+        ..AppConfig::default()
+    };
     let mut engine = TickEngine::new(config);
     engine.on_ingress_item(IngressItem::Connected {
         broker_id: 1,

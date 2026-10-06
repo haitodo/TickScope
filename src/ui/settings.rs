@@ -149,6 +149,7 @@ const fn default_true() -> bool {
     true
 }
 
+#[allow(clippy::unnecessary_wraps)] // serde(default) requires the field type
 const fn default_non_minimized_broker_id() -> Option<BrokerId> {
     Some(1)
 }

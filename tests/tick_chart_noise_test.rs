@@ -19,8 +19,8 @@ use tick_scope::tick::engine::TickEngine;
 const NAMES: [(u32, &str); 5] = [(1, "OANDA"), (2, "Tradeview"), (3, "Dukascopy"), (4, "Axiory"), (5, "JFX")];
 
 fn make_config() -> AppConfig {
-    let mut config = AppConfig::default();
-    config.brokers = NAMES
+    let config = AppConfig {
+        brokers: NAMES
         .iter()
         .map(|&(id, name)| BrokerConfig {
             id,
@@ -37,8 +37,10 @@ fn make_config() -> AppConfig {
             terminal_path: None,
             receive_delay_ms: None,
         })
-        .collect();
-    config.active_pair = (1, 2);
+        .collect(),
+        active_pair: (1, 2),
+        ..AppConfig::default()
+    };
     config
 }
 
