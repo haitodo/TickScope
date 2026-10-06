@@ -164,24 +164,48 @@ impl ConsensusCalculator {
         let mids: &mut [f64] = if fresh_count <= 32 {
             for (i, q) in fresh_quotes.iter().enumerate() {
                 stack_mids[i] = q.mid;
-                if q.mid < mid_min { mid_min = q.mid; }
-                if q.mid > mid_max { mid_max = q.mid; }
-                if q.bid < bid_min { bid_min = q.bid; }
-                if q.bid > bid_max { bid_max = q.bid; }
-                if q.ask < ask_min { ask_min = q.ask; }
-                if q.ask > ask_max { ask_max = q.ask; }
+                if q.mid < mid_min {
+                    mid_min = q.mid;
+                }
+                if q.mid > mid_max {
+                    mid_max = q.mid;
+                }
+                if q.bid < bid_min {
+                    bid_min = q.bid;
+                }
+                if q.bid > bid_max {
+                    bid_max = q.bid;
+                }
+                if q.ask < ask_min {
+                    ask_min = q.ask;
+                }
+                if q.ask > ask_max {
+                    ask_max = q.ask;
+                }
             }
             &mut stack_mids[..fresh_count]
         } else {
             heap_mids.reserve(fresh_count);
             for q in &fresh_quotes {
                 heap_mids.push(q.mid);
-                if q.mid < mid_min { mid_min = q.mid; }
-                if q.mid > mid_max { mid_max = q.mid; }
-                if q.bid < bid_min { bid_min = q.bid; }
-                if q.bid > bid_max { bid_max = q.bid; }
-                if q.ask < ask_min { ask_min = q.ask; }
-                if q.ask > ask_max { ask_max = q.ask; }
+                if q.mid < mid_min {
+                    mid_min = q.mid;
+                }
+                if q.mid > mid_max {
+                    mid_max = q.mid;
+                }
+                if q.bid < bid_min {
+                    bid_min = q.bid;
+                }
+                if q.bid > bid_max {
+                    bid_max = q.bid;
+                }
+                if q.ask < ask_min {
+                    ask_min = q.ask;
+                }
+                if q.ask > ask_max {
+                    ask_max = q.ask;
+                }
             }
             &mut heap_mids[..]
         };
@@ -444,15 +468,27 @@ mod tests {
         let result = calc.compute_slice(&quotes, now);
         assert_eq!(result.crossed_snapshots.len(), 3);
         // Pair 1: Broker 1 Bid (100.08) > Broker 2 Ask (100.05)
-        let cs1 = result.crossed_snapshots.iter().find(|c| c.broker_a == 1 && c.broker_b == 2).unwrap();
+        let cs1 = result
+            .crossed_snapshots
+            .iter()
+            .find(|c| c.broker_a == 1 && c.broker_b == 2)
+            .unwrap();
         assert!((cs1.diff - 0.03).abs() < 1e-9);
 
         // Pair 2: Broker 1 Bid (100.08) > Broker 3 Ask (100.07)
-        let cs2 = result.crossed_snapshots.iter().find(|c| c.broker_a == 1 && c.broker_b == 3).unwrap();
+        let cs2 = result
+            .crossed_snapshots
+            .iter()
+            .find(|c| c.broker_a == 1 && c.broker_b == 3)
+            .unwrap();
         assert!((cs2.diff - 0.01).abs() < 1e-9);
 
         // Pair 3: Broker 3 Bid (100.06) > Broker 2 Ask (100.05)
-        let cs3 = result.crossed_snapshots.iter().find(|c| c.broker_a == 3 && c.broker_b == 2).unwrap();
+        let cs3 = result
+            .crossed_snapshots
+            .iter()
+            .find(|c| c.broker_a == 3 && c.broker_b == 2)
+            .unwrap();
         assert!((cs3.diff - 0.01).abs() < 1e-9);
     }
 }

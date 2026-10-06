@@ -2,7 +2,7 @@
 
 use crate::core::models::{EngineProjection, UiSnapshot, SCHEMA_REVISION};
 use crate::core::ports::SnapshotExchangePort;
-use crate::core::types::{RunId, UtcMs, MonoNs};
+use crate::core::types::{MonoNs, RunId, UtcMs};
 use arc_swap::ArcSwap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

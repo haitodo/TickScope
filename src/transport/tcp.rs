@@ -2,10 +2,14 @@
 
 use crate::config::BrokerConfig;
 use crate::core::ports::{ClockPort, LogSinkPort, RawIngressSink, SubmitResult};
-use crate::core::types::{LogRecord, LogRawFrame, SessionId};
+use crate::core::types::{LogRawFrame, LogRecord, SessionId};
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::protocol::codec::{encode_frame, StreamingDecoder};
-use crate::protocol::{IngressItem, MSG_TYPE_TICK_BATCH, ReceivedFrame, Frame, Header, MAGIC_TICK, PROTOCOL_VERSION, MSG_TYPE_BATCH_ACK, HEADER_LENGTH, BATCH_ACK_PAYLOAD_LENGTH, FramePayload, BatchAckPayload};
+use crate::protocol::{
+    BatchAckPayload, Frame, FramePayload, Header, IngressItem, ReceivedFrame,
+    BATCH_ACK_PAYLOAD_LENGTH, HEADER_LENGTH, MAGIC_TICK, MSG_TYPE_BATCH_ACK, MSG_TYPE_TICK_BATCH,
+    PROTOCOL_VERSION,
+};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -101,7 +105,9 @@ impl TransportReceiver {
                 Err(error) => {
                     log::warn!(
                         "Failed to bind TCP listener on {} for broker {}: {}. Retrying...",
-                        addr, self.broker_config.id, error
+                        addr,
+                        self.broker_config.id,
+                        error
                     );
                     thread::sleep(Duration::from_millis(250));
                 }
@@ -140,7 +146,11 @@ impl TransportReceiver {
                     thread::sleep(Duration::from_millis(1));
                 }
                 Err(e) => {
-                    log::error!("Listener accept error for broker {}: {}", self.broker_config.id, e);
+                    log::error!(
+                        "Listener accept error for broker {}: {}",
+                        self.broker_config.id,
+                        e
+                    );
                     thread::sleep(Duration::from_millis(50));
                 }
             }
@@ -196,7 +206,8 @@ impl TransportReceiver {
     fn handle_connection(&self, mut stream: TcpStream, generation: u64) -> String {
         // Wait in the socket so arriving data wakes us immediately, rather than
         // waiting for a polling sleep (especially costly on Windows).
-        if let Err(error) = stream.set_nonblocking(false)
+        if let Err(error) = stream
+            .set_nonblocking(false)
             .and_then(|()| stream.set_read_timeout(Some(self.progress_interval)))
             .and_then(|()| stream.set_write_timeout(Some(Duration::from_secs(1))))
         {
@@ -229,7 +240,8 @@ impl TransportReceiver {
                     if let Err(e) = decoder.push(&read_buf[..n]) {
                         log::error!(
                             "Decoder push error for broker {}: {}, terminating connection",
-                            self.broker_config.id, e
+                            self.broker_config.id,
+                            e
                         );
                         return format!("Decoder push error: {e}");
                     }
@@ -240,9 +252,15 @@ impl TransportReceiver {
                         match decoder.next_frame() {
                             Ok(Some(decoded)) => {
                                 frame_index += 1;
-                                let ack = if self.ack_mode != "off" && decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH {
-                                    Some((decoded.frame.header.session_id,
-                                        decoded.frame.header.sequence_start + u64::from(decoded.frame.header.tick_count) - 1))
+                                let ack = if self.ack_mode != "off"
+                                    && decoded.frame.header.message_type == MSG_TYPE_TICK_BATCH
+                                {
+                                    Some((
+                                        decoded.frame.header.session_id,
+                                        decoded.frame.header.sequence_start
+                                            + u64::from(decoded.frame.header.tick_count)
+                                            - 1,
+                                    ))
                                 } else {
                                     None
                                 };
@@ -292,11 +310,9 @@ impl TransportReceiver {
                                 if let Some((session_id, seq_end)) = ack {
                                     let ack_write_start =
                                         self.diagnostics.as_ref().map(|_| Instant::now());
-                                    if let Err(error) = self.send_batch_ack(
-                                        &mut stream,
-                                        session_id,
-                                        seq_end,
-                                    ) {
+                                    if let Err(error) =
+                                        self.send_batch_ack(&mut stream, session_id, seq_end)
+                                    {
                                         return format!("Batch ACK write failed: {error}");
                                     }
                                     if let (Some(diagnostics), Some(start)) =
@@ -323,7 +339,8 @@ impl TransportReceiver {
                             Err(e) => {
                                 log::warn!(
                                     "Malformed frame from broker {}: {}, closing connection",
-                                    self.broker_config.id, e
+                                    self.broker_config.id,
+                                    e
                                 );
                                 read_error = Some(format!("Malformed frame: {e}"));
                                 break;
@@ -335,8 +352,15 @@ impl TransportReceiver {
                         return err_msg;
                     }
                 }
-                Err(ref e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
-                    if !self.activity_timeout.is_zero() && last_activity.elapsed() >= self.activity_timeout {
+                Err(ref e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    if !self.activity_timeout.is_zero()
+                        && last_activity.elapsed() >= self.activity_timeout
+                    {
                         return format!(
                             "Connection activity timeout: no data or heartbeat received for {:.1}s",
                             last_activity.elapsed().as_secs_f32()
@@ -364,7 +388,10 @@ impl TransportReceiver {
 
     fn submit_ingress_item(&self, mut item: IngressItem) -> bool {
         while self.running.load(Ordering::SeqCst) {
-            match self.ingress_sink.submit_timeout(item, Duration::from_millis(20)) {
+            match self
+                .ingress_sink
+                .submit_timeout(item, Duration::from_millis(20))
+            {
                 SubmitResult::Accepted => return true,
                 SubmitResult::Full(returned_item) => {
                     item = returned_item;
@@ -394,7 +421,12 @@ impl TransportReceiver {
         })))
     }
 
-    fn send_batch_ack(&self, stream: &mut TcpStream, session_id: SessionId, seq_end: u64) -> std::io::Result<()> {
+    fn send_batch_ack(
+        &self,
+        stream: &mut TcpStream,
+        session_id: SessionId,
+        seq_end: u64,
+    ) -> std::io::Result<()> {
         let ack_frame = Frame {
             header: Header {
                 magic: MAGIC_TICK,
@@ -413,8 +445,9 @@ impl TransportReceiver {
             }),
         };
 
-        let bytes = encode_frame(&ack_frame)
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string()))?;
+        let bytes = encode_frame(&ack_frame).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+        })?;
         stream.write_all(&bytes)
     }
 }
@@ -422,8 +455,8 @@ impl TransportReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::{ClockReading, MonoNs, RunId};
     use crate::core::ports::AppendResult;
+    use crate::core::types::{ClockReading, MonoNs, RunId};
     use parking_lot::Mutex;
     use std::sync::atomic::AtomicU64;
 
@@ -451,7 +484,7 @@ mod tests {
     impl LogSinkPort for SlowLog {
         fn try_append(&self, _: Arc<LogRecord>) -> AppendResult<Arc<LogRecord>> {
             // Model time spent persisting a frame without wall-clock sleeps.
-            self.0.0.fetch_add(1_000_000, Ordering::SeqCst);
+            self.0 .0.fetch_add(1_000_000, Ordering::SeqCst);
             AppendResult::Accepted
         }
         fn flush(&self) -> Result<(), String> {

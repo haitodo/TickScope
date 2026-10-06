@@ -1,6 +1,8 @@
 //! Analysis, projection, and UI data models.
 
-use super::types::{UtcMs, Sequence, BrokerId, AnalysisSegmentId, MonoNs, Quote, HealthState, Diagnostic, RunId};
+use super::types::{
+    AnalysisSegmentId, BrokerId, Diagnostic, HealthState, MonoNs, Quote, RunId, Sequence, UtcMs,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

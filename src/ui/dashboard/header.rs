@@ -1,11 +1,11 @@
 use super::DashboardApp;
-use crate::ui::shared::{broker_name, format_pips};
 use crate::core::models::UiSnapshot;
 use crate::core::types::{ConnectionState, FreshnessState};
 use crate::ui::chart::ChartXAxisMode;
 use crate::ui::settings::{
     CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, VALID_CANDLE_FIXED_PIPS,
 };
+use crate::ui::shared::{broker_name, format_pips};
 use eframe::egui;
 use egui::RichText;
 use std::fmt::Write as _;

@@ -22,7 +22,6 @@ use crate::ui::style;
 use eframe::egui;
 use egui::RichText;
 
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -172,7 +171,8 @@ impl DashboardApp {
         self.selected_broker_a = state.active_pair.0;
         self.selected_broker_b = state.active_pair.1;
         self.mt5_minimized = state.mt5_minimized;
-        self.mt5_launch_targets.clone_from(&state.mt5_launch_targets);
+        self.mt5_launch_targets
+            .clone_from(&state.mt5_launch_targets);
         self.mt5_auto_launch = state.mt5_auto_launch;
         self.mt5_auto_close = state.mt5_auto_close;
         self.mt5_non_minimized_broker = state.mt5_non_minimized_broker;
@@ -193,7 +193,10 @@ impl DashboardApp {
     }
 
     #[must_use]
-    pub fn with_discovered_terminals(mut self, terminals: Vec<crate::deploy::DiscoveredTerminal>) -> Self {
+    pub fn with_discovered_terminals(
+        mut self,
+        terminals: Vec<crate::deploy::DiscoveredTerminal>,
+    ) -> Self {
         self.discovered_terminals = terminals;
         self
     }
@@ -282,7 +285,6 @@ impl DashboardApp {
     pub fn toggle_always_on_top(&mut self, ctx: &egui::Context) {
         self.set_always_on_top(ctx, !self.always_on_top);
     }
-
 
     pub fn save_state(&mut self) {
         if let Some(path) = &self.ui_state_path {
@@ -411,11 +413,17 @@ impl DashboardApp {
                     .collect();
 
                 if self.selected_broker_a == broker_id {
-                    if let Some(&new_a) = remaining_visible.iter().find(|&&id| id != self.selected_broker_b) {
+                    if let Some(&new_a) = remaining_visible
+                        .iter()
+                        .find(|&&id| id != self.selected_broker_b)
+                    {
                         self.set_broker_a(new_a);
                     }
                 } else if self.selected_broker_b == broker_id {
-                    if let Some(&new_b) = remaining_visible.iter().find(|&&id| id != self.selected_broker_a) {
+                    if let Some(&new_b) = remaining_visible
+                        .iter()
+                        .find(|&&id| id != self.selected_broker_a)
+                    {
                         self.set_broker_b(new_b);
                     }
                 }
@@ -440,7 +448,9 @@ impl DashboardApp {
 
         let mut ordered_ids = Vec::with_capacity(overviews.len());
         for &broker_id in &self.broker_order {
-            if overviews.iter().any(|overview| overview.broker_id == broker_id)
+            if overviews
+                .iter()
+                .any(|overview| overview.broker_id == broker_id)
                 && !ordered_ids.contains(&broker_id)
             {
                 ordered_ids.push(broker_id);
@@ -704,7 +714,6 @@ impl DashboardApp {
             .poll_status(&self.broker_configs, &self.discovered_terminals, false);
 
         if !self.fonts_configured {
-
             setup_fonts(ctx);
             self.fonts_configured = true;
         }
@@ -808,7 +817,8 @@ impl DashboardApp {
                 .map(|&id| {
                     self.broker_configs
                         .iter()
-                        .find(|b| b.id == id).map_or_else(|| format!("Broker {id}"), |b| b.name.clone())
+                        .find(|b| b.id == id)
+                        .map_or_else(|| format!("Broker {id}"), |b| b.name.clone())
                 })
                 .collect();
 
@@ -856,7 +866,6 @@ impl DashboardApp {
         // 7. Track window geometry and auto-persist state
         self.track_window_geometry(ctx);
 
-
         if let (Some(diagnostics), Some(start)) = (&self.diagnostics, ui_render_start) {
             diagnostics.record_duration(DiagnosticStage::UiRenderWork, start.elapsed());
         }
@@ -895,7 +904,9 @@ impl DashboardApp {
                 } else {
                     self.bottom_metric = self.bottom_metric.next();
                 }
-            } else if i.key_pressed(egui::Key::V) || ((i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::P)) {
+            } else if i.key_pressed(egui::Key::V)
+                || ((i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::P))
+            {
                 self.show_trade_overlay = !self.show_trade_overlay;
             } else if i.key_pressed(egui::Key::P) {
                 let broker_ids: Vec<BrokerId> = self.visible_broker_ids(&snapshot.broker_overviews);
@@ -954,7 +965,8 @@ impl DashboardApp {
                 if let Some(rect) = vp.inner_rect {
                     let logical_size = [rect.width(), rect.height()];
                     let physical_size = [rect.width() * current_ppp, rect.height() * current_ppp];
-                    if logical_size[0] >= MIN_WINDOW_WIDTH && logical_size[1] >= MIN_WINDOW_HEIGHT
+                    if logical_size[0] >= MIN_WINDOW_WIDTH
+                        && logical_size[1] >= MIN_WINDOW_HEIGHT
                         && ((self.window_geometry.inner_size[0] - logical_size[0]).abs() > 1.0
                             || (self.window_geometry.inner_size[1] - logical_size[1]).abs() > 1.0)
                     {
@@ -1050,11 +1062,9 @@ mod tests {
     fn test_pair_selection_handler_called() {
         let call_count = Arc::new(AtomicUsize::new(0));
         let count_clone = Arc::clone(&call_count);
-        let mut app = headless_app().with_pair_selection_handler(Arc::new(
-            move |_| {
-                count_clone.fetch_add(1, Ordering::SeqCst);
-            },
-        ));
+        let mut app = headless_app().with_pair_selection_handler(Arc::new(move |_| {
+            count_clone.fetch_add(1, Ordering::SeqCst);
+        }));
 
         app.set_broker_a(3);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);

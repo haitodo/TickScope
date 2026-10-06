@@ -210,12 +210,20 @@ impl fmt::Display for StageLatencySummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Stage Latency Summary:")?;
         writeln!(f, "  Tick -> Engine:          {}", self.tick_to_engine)?;
-        writeln!(f, "  Engine -> Projection:    {}", self.engine_to_projection)?;
-        writeln!(f, "  Projection -> Snapshot:  {}", self.projection_to_snapshot)?;
+        writeln!(
+            f,
+            "  Engine -> Projection:    {}",
+            self.engine_to_projection
+        )?;
+        writeln!(
+            f,
+            "  Projection -> Snapshot:  {}",
+            self.projection_to_snapshot
+        )?;
         writeln!(f, "  Snapshot -> UI:          {}", self.snapshot_to_ui)?;
         writeln!(f, "  Total Pipeline:          {}", self.total_pipeline)?;
         writeln!(f, "  Queue Depth:             {}", self.queue_depth)?;
-        write!(f,   "  Dropped Snapshots:       {}", self.dropped_snapshots)
+        write!(f, "  Dropped Snapshots:       {}", self.dropped_snapshots)
     }
 }
 
@@ -244,8 +252,10 @@ impl LatencyRingBuffer {
     /// happen because the buffer is allocated from that same constant.
     #[must_use]
     pub fn new() -> Self {
-        let buffer: Box<[u64; LATENCY_RING_CAPACITY]> =
-            vec![0u64; LATENCY_RING_CAPACITY].into_boxed_slice().try_into().unwrap();
+        let buffer: Box<[u64; LATENCY_RING_CAPACITY]> = vec![0u64; LATENCY_RING_CAPACITY]
+            .into_boxed_slice()
+            .try_into()
+            .unwrap();
         Self {
             buffer,
             write_idx: 0,
@@ -573,10 +583,26 @@ mod tests {
 
         let stats = ring.compute_percentiles();
         assert_eq!(stats.sample_count, 100);
-        assert!((stats.p50_us - 50.0).abs() < 1e-6, "expected 50.0, got {}", stats.p50_us);
-        assert!((stats.p95_us - 95.0).abs() < 1e-6, "expected 95.0, got {}", stats.p95_us);
-        assert!((stats.p99_us - 99.0).abs() < 1e-6, "expected 99.0, got {}", stats.p99_us);
-        assert!((stats.max_us - 100.0).abs() < 1e-6, "expected 100.0, got {}", stats.max_us);
+        assert!(
+            (stats.p50_us - 50.0).abs() < 1e-6,
+            "expected 50.0, got {}",
+            stats.p50_us
+        );
+        assert!(
+            (stats.p95_us - 95.0).abs() < 1e-6,
+            "expected 95.0, got {}",
+            stats.p95_us
+        );
+        assert!(
+            (stats.p99_us - 99.0).abs() < 1e-6,
+            "expected 99.0, got {}",
+            stats.p99_us
+        );
+        assert!(
+            (stats.max_us - 100.0).abs() < 1e-6,
+            "expected 100.0, got {}",
+            stats.max_us
+        );
     }
 
     #[test]
@@ -604,10 +630,10 @@ mod tests {
     fn test_all_pipeline_stages_and_summary() {
         let mut metrics = LatencyMetrics::new();
 
-        metrics.record_tick_to_engine(MonoNs(1_000), MonoNs(2_000));      // 1.0 µs
+        metrics.record_tick_to_engine(MonoNs(1_000), MonoNs(2_000)); // 1.0 µs
         metrics.record_engine_to_projection(MonoNs(2_000), MonoNs(4_000)); // 2.0 µs
         metrics.record_projection_to_snapshot(MonoNs(4_000), MonoNs(7_000)); // 3.0 µs
-        metrics.record_snapshot_to_ui(MonoNs(7_000), MonoNs(11_000));     // 4.0 µs
+        metrics.record_snapshot_to_ui(MonoNs(7_000), MonoNs(11_000)); // 4.0 µs
         metrics.record_queue_depth(42);
         metrics.increment_dropped_snapshots();
         metrics.increment_dropped_snapshots();
@@ -694,7 +720,8 @@ mod tests {
             max_us: 15.2,
         };
         let serialized = serde_json::to_string(&stats).expect("serialization failed");
-        let deserialized: PercentileStats = serde_json::from_str(&serialized).expect("deserialization failed");
+        let deserialized: PercentileStats =
+            serde_json::from_str(&serialized).expect("deserialization failed");
         assert_eq!(stats, deserialized);
 
         let ts = PipelineTimestamps::new(MonoNs(100))
@@ -703,7 +730,8 @@ mod tests {
             .with_snapshot(MonoNs(400))
             .with_render(MonoNs(500));
         let ts_json = serde_json::to_string(&ts).expect("serialization failed");
-        let ts_back: PipelineTimestamps = serde_json::from_str(&ts_json).expect("deserialization failed");
+        let ts_back: PipelineTimestamps =
+            serde_json::from_str(&ts_json).expect("deserialization failed");
         assert_eq!(ts, ts_back);
     }
 

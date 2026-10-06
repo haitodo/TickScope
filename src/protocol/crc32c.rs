@@ -40,6 +40,9 @@ mod tests {
     fn test_crc32c_standard_vector() {
         let input = b"123456789";
         let res = crc32c(input);
-        assert_eq!(res, 0xE306_9283, "CRC32C must match standard Castagnoli vector");
+        assert_eq!(
+            res, 0xE306_9283,
+            "CRC32C must match standard Castagnoli vector"
+        );
     }
 }

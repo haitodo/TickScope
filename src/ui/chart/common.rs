@@ -1,6 +1,6 @@
+use super::quote_path::ChartXAxisMode;
 use crate::core::models::BrokerOverview;
 use crate::core::types::{ConnectionState, FreshnessState, MonoNs};
-use super::quote_path::ChartXAxisMode;
 use egui::{Pos2, Rect};
 
 pub const CHART_HEADER_HEIGHT: f32 = 40.0;

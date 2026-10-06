@@ -37,4 +37,3 @@ mod tests {
         assert_eq!(icon.rgba.len(), 256 * 256 * 4);
     }
 }
-

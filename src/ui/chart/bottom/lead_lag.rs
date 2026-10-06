@@ -27,7 +27,8 @@ pub fn draw_lead_lag_view(
     let name_of = |bid: BrokerId| -> String {
         broker_overviews
             .iter()
-            .find(|b| b.broker_id == bid).map_or_else(|| format!("Broker #{bid}"), |b| b.name.clone())
+            .find(|b| b.broker_id == bid)
+            .map_or_else(|| format!("Broker #{bid}"), |b| b.name.clone())
     };
 
     let broker_a_name = name_of(comp.broker_a);

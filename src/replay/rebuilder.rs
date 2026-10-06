@@ -81,18 +81,15 @@ impl StateRebuilder {
             }
 
             for (b_id, b_ticks) in broker_groups {
-                let mut seq = eng.channels.get(&b_id).map_or(0, |c| c.ledger.expected_sequence());
+                let mut seq = eng
+                    .channels
+                    .get(&b_id)
+                    .map_or(0, |c| c.ledger.expected_sequence());
                 if b_ticks.len() > 1 {
                     let hist_ticks = &b_ticks[..b_ticks.len() - 1];
                     for chunk in hist_ticks.chunks(4096) {
-                        let hist_item = make_ingress_tick_batch(
-                            b_id,
-                            session_id,
-                            chunk,
-                            seq,
-                            true,
-                            run_id,
-                        );
+                        let hist_item =
+                            make_ingress_tick_batch(b_id, session_id, chunk, seq, true, run_id);
                         seq += chunk.len() as u64;
                         eng.on_ingress_item(hist_item);
                     }

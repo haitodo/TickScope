@@ -102,10 +102,7 @@ fn main() -> eframe::Result<()> {
     let visible_seconds = config.display.visible_seconds;
     let visible_ticks = config.display.visible_ticks;
     let chart_max_quote_age_ms = config.display.chart_max_quote_age_ms;
-    let mut coordinator = match RuntimeCoordinator::new_with_diagnostics(
-        config,
-        cli.diagnostics,
-    ) {
+    let mut coordinator = match RuntimeCoordinator::new_with_diagnostics(config, cli.diagnostics) {
         Ok(coord) => coord,
         Err(e) => {
             log::error!("Fatal error starting RuntimeCoordinator: {e}");
@@ -118,7 +115,8 @@ fn main() -> eframe::Result<()> {
     };
 
     // Discover MT5 terminals for auto-deployment and process lifecycle management
-    let (discovered_terminals, _) = tick_scope::deploy::discover_mt5_terminals(&coordinator.config.mt5);
+    let (discovered_terminals, _) =
+        tick_scope::deploy::discover_mt5_terminals(&coordinator.config.mt5);
 
     // Deploy the connection map only after each listener has reserved its
     // actual OS-selected port. Every terminal then receives usable endpoints.
@@ -130,7 +128,8 @@ fn main() -> eframe::Result<()> {
         tick_scope::deploy::print_deploy_report(&deploy_report);
     }
 
-    let should_auto_launch = ui_state.mt5_auto_launch || coordinator.config.mt5.auto_launch_terminals;
+    let should_auto_launch =
+        ui_state.mt5_auto_launch || coordinator.config.mt5.auto_launch_terminals;
     let should_auto_close = ui_state.mt5_auto_close || coordinator.config.mt5.auto_close_terminals;
 
     if should_auto_launch && !ui_state.mt5_launch_targets.is_empty() {
@@ -226,4 +225,3 @@ fn main() -> eframe::Result<()> {
     cleanup_console();
     result
 }
-

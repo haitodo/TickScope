@@ -36,7 +36,10 @@ pub fn deploy_mt5_files(config: &Mt5DeployConfig) -> DeployReport {
 /// Deploy one common EA and a per-terminal map of broker symbols to the
 /// listener ports reserved by this `TickScope` process.
 #[must_use]
-pub fn deploy_mt5_files_for_brokers(config: &Mt5DeployConfig, brokers: &[BrokerConfig]) -> DeployReport {
+pub fn deploy_mt5_files_for_brokers(
+    config: &Mt5DeployConfig,
+    brokers: &[BrokerConfig],
+) -> DeployReport {
     if !config.auto_deploy {
         return DeployReport {
             enabled: false,
@@ -71,7 +74,10 @@ pub fn deploy_mt5_files_for_brokers(config: &Mt5DeployConfig, brokers: &[BrokerC
                 &connection_map_contents(brokers),
             ));
         }
-        rep.compile_status = Some(compile_deployed_ea(&rep, &term.mql5_dir.join("Experts/TickCollector.mq5")));
+        rep.compile_status = Some(compile_deployed_ea(
+            &rep,
+            &term.mql5_dir.join("Experts/TickCollector.mq5"),
+        ));
         if rep.compile_status == Some(DeployCompileStatus::Compiled) {
             warnings.push(format!(
                 "Updated the common TickCollector EA in '{}'. Remove and re-add any TickCollector already attached to a chart so MT5 loads the new version.",
@@ -157,7 +163,10 @@ mod tests {
         // Deploy common EA and includes
         let report = deploy_to_terminal(&terminal, &sources);
         assert_eq!(report.results.len(), 3);
-        assert!(report.results.iter().all(|r| r.status == DeployFileStatus::Created));
+        assert!(report
+            .results
+            .iter()
+            .all(|r| r.status == DeployFileStatus::Created));
 
         // Deploy connection map
         let map_path = terminal.mql5_dir.join("Files/TickScope/connection.tsv");
@@ -167,7 +176,10 @@ mod tests {
 
         // Second deploy: idempotent
         let report2 = deploy_to_terminal(&terminal, &sources);
-        assert!(report2.results.iter().all(|r| r.status == DeployFileStatus::SkippedIdentical));
+        assert!(report2
+            .results
+            .iter()
+            .all(|r| r.status == DeployFileStatus::SkippedIdentical));
         let map_res2 = deploy_file_idempotent(&map_path, &map_content);
         assert_eq!(map_res2.status, DeployFileStatus::SkippedIdentical);
     }
@@ -176,7 +188,10 @@ mod tests {
     fn reads_utf16_terminal_origin() {
         let dir = tempdir().unwrap();
         let expected = "C:\\Trading\\端末";
-        let bytes: Vec<u8> = std::iter::once(0xfeff).chain(expected.encode_utf16()).flat_map(u16::to_le_bytes).collect();
+        let bytes: Vec<u8> = std::iter::once(0xfeff)
+            .chain(expected.encode_utf16())
+            .flat_map(u16::to_le_bytes)
+            .collect();
         fs::write(dir.path().join("origin.txt"), bytes).unwrap();
         assert_eq!(read_origin(dir.path()).as_deref(), Some(expected));
     }
@@ -187,14 +202,28 @@ mod tests {
         let install_dir = dir.path().join("install");
         fs::create_dir(&install_dir).unwrap();
         fs::write(install_dir.join("MetaEditor64.exe"), "").unwrap();
-        fs::write(dir.path().join("origin.txt"), install_dir.join("terminal64.exe").to_string_lossy().as_bytes()).unwrap();
-        assert_eq!(find_metaeditor_for_terminal(dir.path()), Some(install_dir.join("MetaEditor64.exe")));
+        fs::write(
+            dir.path().join("origin.txt"),
+            install_dir
+                .join("terminal64.exe")
+                .to_string_lossy()
+                .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(
+            find_metaeditor_for_terminal(dir.path()),
+            Some(install_dir.join("MetaEditor64.exe"))
+        );
     }
 
     #[test]
     fn test_deploy_file_idempotent_lifecycle() {
         let dir = tempdir().unwrap();
-        let target = dir.path().join("Include").join("TickScope").join("Test.mqh");
+        let target = dir
+            .path()
+            .join("Include")
+            .join("TickScope")
+            .join("Test.mqh");
 
         // 1. First deploy: Created
         let res1 = deploy_file_idempotent(&target, "content v1");
@@ -232,17 +261,31 @@ mod tests {
 
         let report = deploy_to_terminal(&terminal, &sources);
         assert_eq!(report.results.len(), 3);
-        assert!(report.results.iter().all(|r| r.status == DeployFileStatus::Created));
+        assert!(report
+            .results
+            .iter()
+            .all(|r| r.status == DeployFileStatus::Created));
 
         // Verify EA is in Experts
         assert!(mql5_dir.join("Experts").join("TickCollector.mq5").is_file());
         // Verify Includes are in Include/TickScope
-        assert!(mql5_dir.join("Include").join("TickScope").join("Protocol.mqh").is_file());
-        assert!(mql5_dir.join("Include").join("TickScope").join("SocketClient.mqh").is_file());
+        assert!(mql5_dir
+            .join("Include")
+            .join("TickScope")
+            .join("Protocol.mqh")
+            .is_file());
+        assert!(mql5_dir
+            .join("Include")
+            .join("TickScope")
+            .join("SocketClient.mqh")
+            .is_file());
 
         // Run again -> should all be SkippedIdentical
         let report2 = deploy_to_terminal(&terminal, &sources);
         assert_eq!(report2.results.len(), 3);
-        assert!(report2.results.iter().all(|r| r.status == DeployFileStatus::SkippedIdentical));
+        assert!(report2
+            .results
+            .iter()
+            .all(|r| r.status == DeployFileStatus::SkippedIdentical));
     }
 }

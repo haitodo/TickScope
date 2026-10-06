@@ -1,6 +1,3 @@
-use crate::core::models::{BrokerOverview, CandleView, Ohlc, PriceMode, ReplayTrade, SlotState};
-use crate::core::types::{BrokerId, MonoNs};
-use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
 use super::common::{
     chart_plot_rect, price_decimals_for_pip, CHART_HEADER_HEIGHT, PRICE_AXIS_WIDTH,
 };
@@ -8,8 +5,11 @@ use super::scale::{
     draw_clip_marker, extract_valid_quote_candidates_for_mode, resolve_candle_follow_scale,
     FollowStatusInfo, MarginEdgeLatchSide,
 };
-use crate::ui::shared::broker_name;
 use super::theme::{broker_color_for_name, dim_candle_color, ChartTheme};
+use crate::core::models::{BrokerOverview, CandleView, Ohlc, PriceMode, ReplayTrade, SlotState};
+use crate::core::types::{BrokerId, MonoNs};
+use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+use crate::ui::shared::broker_name;
 use egui::{Color32, Pos2, Rect, Stroke};
 
 pub fn draw_candlestick_chart(
@@ -516,7 +516,11 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                             + broker_index as f32 * (bar_width + candle_gap)
                             + bar_width * 0.5)
                             .round();
-                        let color_index = crate::ui::shared::broker_index(broker_overviews, *broker_id, broker_index);
+                        let color_index = crate::ui::shared::broker_index(
+                            broker_overviews,
+                            *broker_id,
+                            broker_index,
+                        );
                         let broker_name = broker_overviews
                             .iter()
                             .find(|b| b.broker_id == *broker_id)
@@ -551,7 +555,8 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     let mut legend_y = rect.top() + 6.0;
     let mut hidden_legends = 0;
     for (broker_index, broker_id) in broker_ids.iter().enumerate() {
-        let color_index = crate::ui::shared::broker_index(broker_overviews, *broker_id, broker_index);
+        let color_index =
+            crate::ui::shared::broker_index(broker_overviews, *broker_id, broker_index);
         let name = broker_name(broker_overviews, *broker_id, "Broker");
         let color = broker_color_for_name(theme, Some(name), color_index);
         let label = format!("{name} [{broker_id}]");
@@ -695,32 +700,33 @@ fn draw_trade_overlays_impl(
         let entry_y = price_to_y(trade.open_price);
         let entry_pt = Pos2::new(entry_cx, entry_y);
 
-        let exit_data = trade.close_utc_ms.zip(trade.close_price).map(|(close_time, close_p)| {
-            let (x_left, x_right, x_cx) = slot_span_for_time(
-                view,
-                close_time,
-                right_slot_center_x,
-                slot_width,
-                candle_group_width,
-            );
-            let y = price_to_y(close_p);
-            (x_left, x_right, x_cx, y, Pos2::new(x_cx, y))
-        });
+        let exit_data = trade
+            .close_utc_ms
+            .zip(trade.close_price)
+            .map(|(close_time, close_p)| {
+                let (x_left, x_right, x_cx) = slot_span_for_time(
+                    view,
+                    close_time,
+                    right_slot_center_x,
+                    slot_width,
+                    candle_group_width,
+                );
+                let y = price_to_y(close_p);
+                (x_left, x_right, x_cx, y, Pos2::new(x_cx, y))
+            });
 
         let entry_visible = plot_rect.contains(entry_pt)
             || (entry_y >= plot_rect.top()
                 && entry_y <= plot_rect.bottom()
                 && entry_right >= plot_rect.left()
                 && entry_left <= plot_rect.right());
-        let exit_visible = exit_data
-            .as_ref()
-            .is_some_and(|d| {
-                plot_rect.contains(d.4)
-                    || (d.3 >= plot_rect.top()
-                        && d.3 <= plot_rect.bottom()
-                        && d.1 >= plot_rect.left()
-                        && d.0 <= plot_rect.right())
-            });
+        let exit_visible = exit_data.as_ref().is_some_and(|d| {
+            plot_rect.contains(d.4)
+                || (d.3 >= plot_rect.top()
+                    && d.3 <= plot_rect.bottom()
+                    && d.1 >= plot_rect.left()
+                    && d.0 <= plot_rect.right())
+        });
 
         if !entry_visible && !exit_visible {
             continue;
@@ -874,7 +880,10 @@ fn draw_trade_overlays_impl(
         let guide_start_x = bar_right.max(plot_rect.left());
         if plot_rect.right() > guide_start_x {
             clip_painter.line_segment(
-                [Pos2::new(guide_start_x, entry_y), Pos2::new(plot_rect.right(), entry_y)],
+                [
+                    Pos2::new(guide_start_x, entry_y),
+                    Pos2::new(plot_rect.right(), entry_y),
+                ],
                 Stroke::new(
                     if hovered { 1.2_f32 } else { 0.8_f32 },
                     entry_color.gamma_multiply(if hovered { 0.7 } else { 0.28 }),
@@ -886,7 +895,11 @@ fn draw_trade_overlays_impl(
         let cur_price = live_market_price.or(trade.current_price);
         let pips = if pip_size > 0.0 {
             if let Some(cur) = cur_price {
-                let diff = if is_buy { cur - trade.open_price } else { trade.open_price - cur };
+                let diff = if is_buy {
+                    cur - trade.open_price
+                } else {
+                    trade.open_price - cur
+                };
                 diff / pip_size
             } else {
                 0.0
@@ -1001,7 +1014,10 @@ fn draw_price_axis_position_badge(
     }
 
     let badge_h = 16.0;
-    let badge_y = y.clamp(plot_rect.top() + badge_h * 0.5, plot_rect.bottom() - badge_h * 0.5);
+    let badge_y = y.clamp(
+        plot_rect.top() + badge_h * 0.5,
+        plot_rect.bottom() - badge_h * 0.5,
+    );
 
     // 形式B: 建値 (+pips) 例: "150.235 (+1.8p)" (BUY/SELLなし)
     let text = format!("{open_price:.price_decimals$} ({pips:+.1}p)");
@@ -1053,7 +1069,11 @@ fn draw_header_position_hud(
         let cur_price = live_market_price.or(trade.current_price);
         let pips = if pip_size > 0.0 {
             if let Some(cur) = cur_price {
-                let diff = if is_buy { cur - trade.open_price } else { trade.open_price - cur };
+                let diff = if is_buy {
+                    cur - trade.open_price
+                } else {
+                    trade.open_price - cur
+                };
                 diff / pip_size
             } else {
                 0.0

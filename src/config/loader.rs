@@ -17,7 +17,10 @@ pub fn load_startup_config(
     if let Some(path) = explicit {
         return load_config_from_file(path);
     }
-    for path in [exe_dir.join("config/default.toml"), cwd.join("config/default.toml")] {
+    for path in [
+        exe_dir.join("config/default.toml"),
+        cwd.join("config/default.toml"),
+    ] {
         let exists = path.try_exists().map_err(|e| ConfigError::PathCheck {
             path: path.clone(),
             source: e,
@@ -69,14 +72,19 @@ mod tests {
             load_startup_config(None, &exe_dir, &cwd).unwrap(),
             load_config_from_str(include_str!("../../config/default.toml")).unwrap()
         );
-        assert!(load_startup_config(Some(&dir.path().join("missing.toml")), &exe_dir, &cwd).is_err());
+        assert!(
+            load_startup_config(Some(&dir.path().join("missing.toml")), &exe_dir, &cwd).is_err()
+        );
         fs::create_dir_all(cwd.join("config")).unwrap();
         fs::write(
             cwd.join("config/default.toml"),
             toml::to_string(&AppConfig::default()).unwrap(),
         )
         .unwrap();
-        assert_eq!(load_startup_config(None, &exe_dir, &cwd).unwrap(), AppConfig::default());
+        assert_eq!(
+            load_startup_config(None, &exe_dir, &cwd).unwrap(),
+            AppConfig::default()
+        );
         fs::create_dir_all(exe_dir.join("config")).unwrap();
         fs::write(exe_dir.join("config/default.toml"), "invalid config").unwrap();
         // A broken user config must not silently fall back to embedded settings.

@@ -25,7 +25,11 @@ fn test_ts02_ui_headless_render() {
                 name: "OANDA".to_string(),
                 symbol: "USDJPY".to_string(),
                 latest_quote: Some(Quote {
-                    tick_id: TickId { broker_id: 1, session_id: 1, sequence: 1 },
+                    tick_id: TickId {
+                        broker_id: 1,
+                        session_id: 1,
+                        sequence: 1,
+                    },
                     bid: 155.000,
                     ask: 155.003,
                     mid: 155.0015,
@@ -47,7 +51,11 @@ fn test_ts02_ui_headless_render() {
                 name: "Axiory".to_string(),
                 symbol: "USDJPY.pro".to_string(),
                 latest_quote: Some(Quote {
-                    tick_id: TickId { broker_id: 2, session_id: 1, sequence: 1 },
+                    tick_id: TickId {
+                        broker_id: 2,
+                        session_id: 1,
+                        sequence: 1,
+                    },
                     bid: 154.998,
                     ask: 155.001,
                     mid: 154.9995,
@@ -166,30 +174,32 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
         processed_watermark_ns: MonoNs(100_000_000),
         display_now_utc: UtcMs(1000),
         active_pair: (1, 2),
-        broker_overviews: vec![
-            BrokerOverview {
-                broker_id: 1,
-                name: "OANDA".to_string(),
-                symbol: "USDJPY".to_string(),
-                latest_quote: Some(Quote {
-                    tick_id: TickId { broker_id: 1, session_id: 1, sequence: 1 },
-                    bid: 155.200,
-                    ask: 155.203,
-                    mid: 155.2015,
-                    spread: 0.003,
-                    rx_mono_ns: MonoNs(100_000_000),
-                    utc_ms: Some(UtcMs(1000)),
-                    is_warmup: false,
-                    is_valid: true,
-                }),
-                min_spread: Some(0.002),
-                max_spread: Some(0.005),
-                health: HealthState::default(),
-                tick_rate_1s: 10.0,
-                active_utc_offset_sec: 10800,
-                is_auto_offset: true,
-            },
-        ],
+        broker_overviews: vec![BrokerOverview {
+            broker_id: 1,
+            name: "OANDA".to_string(),
+            symbol: "USDJPY".to_string(),
+            latest_quote: Some(Quote {
+                tick_id: TickId {
+                    broker_id: 1,
+                    session_id: 1,
+                    sequence: 1,
+                },
+                bid: 155.200,
+                ask: 155.203,
+                mid: 155.2015,
+                spread: 0.003,
+                rx_mono_ns: MonoNs(100_000_000),
+                utc_ms: Some(UtcMs(1000)),
+                is_warmup: false,
+                is_valid: true,
+            }),
+            min_spread: Some(0.002),
+            max_spread: Some(0.005),
+            health: HealthState::default(),
+            tick_rate_1s: 10.0,
+            active_utc_offset_sec: 10800,
+            is_auto_offset: true,
+        }],
         active_pair_comparison: None,
         active_candles: None,
         candle_views,
@@ -258,7 +268,8 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
             let theme = ChartTheme::default();
 
             // Test render on narrow rect (800x400) with 5px bar (Auto scale)
-            let rect_narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 400.0));
+            let rect_narrow =
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 400.0));
             let painter_narrow = ui.painter_at(rect_narrow);
             let mut anchor = None;
             let mut latch_narrow = None;
@@ -280,7 +291,8 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
             );
 
             // Test render on wide rect (1600x400) with 8px bar (Fixed scale 10 pips)
-            let rect_wide = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1600.0, 400.0));
+            let rect_wide =
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1600.0, 400.0));
             let painter_wide = ui.painter_at(rect_wide);
             let mut fixed_anchor = None;
             let mut latch_wide = None;
@@ -300,7 +312,10 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
                 MonoNs(0),
                 &theme,
             );
-            assert!(fixed_anchor.is_some(), "Fixed scale should set chart anchor");
+            assert!(
+                fixed_anchor.is_some(),
+                "Fixed scale should set chart anchor"
+            );
         });
     });
 }
@@ -314,29 +329,71 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     assert_eq!(BottomMetric::BidAskDiff.next(), BottomMetric::SpreadDiff);
     assert_eq!(BottomMetric::SpreadDiff.next(), BottomMetric::LeadLag);
     assert_eq!(BottomMetric::LeadLag.next(), BottomMetric::MidDispersion);
-    assert_eq!(BottomMetric::MidDispersion.next(), BottomMetric::MoveBreadthView);
-    assert_eq!(BottomMetric::MoveBreadthView.next(), BottomMetric::QuotePersistence);
-    assert_eq!(BottomMetric::QuotePersistence.next(), BottomMetric::QuotePath);
+    assert_eq!(
+        BottomMetric::MidDispersion.next(),
+        BottomMetric::MoveBreadthView
+    );
+    assert_eq!(
+        BottomMetric::MoveBreadthView.next(),
+        BottomMetric::QuotePersistence
+    );
+    assert_eq!(
+        BottomMetric::QuotePersistence.next(),
+        BottomMetric::QuotePath
+    );
     assert_eq!(BottomMetric::QuotePath.next(), BottomMetric::MidDiff);
 
     assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::QuotePath);
-    assert_eq!(BottomMetric::QuotePath.prev(), BottomMetric::QuotePersistence);
-    assert_eq!(BottomMetric::QuotePersistence.prev(), BottomMetric::MoveBreadthView);
-    assert_eq!(BottomMetric::MoveBreadthView.prev(), BottomMetric::MidDispersion);
+    assert_eq!(
+        BottomMetric::QuotePath.prev(),
+        BottomMetric::QuotePersistence
+    );
+    assert_eq!(
+        BottomMetric::QuotePersistence.prev(),
+        BottomMetric::MoveBreadthView
+    );
+    assert_eq!(
+        BottomMetric::MoveBreadthView.prev(),
+        BottomMetric::MidDispersion
+    );
     assert_eq!(BottomMetric::MidDispersion.prev(), BottomMetric::LeadLag);
     assert_eq!(BottomMetric::LeadLag.prev(), BottomMetric::SpreadDiff);
     assert_eq!(BottomMetric::SpreadDiff.prev(), BottomMetric::BidAskDiff);
     assert_eq!(BottomMetric::BidAskDiff.prev(), BottomMetric::MidDiff);
 
     // 2. Key mapping tests
-    assert_eq!(BottomMetric::from_key_number(2), Some(BottomMetric::MidDiff));
-    assert_eq!(BottomMetric::from_key_number(3), Some(BottomMetric::BidAskDiff));
-    assert_eq!(BottomMetric::from_key_number(4), Some(BottomMetric::SpreadDiff));
-    assert_eq!(BottomMetric::from_key_number(5), Some(BottomMetric::LeadLag));
-    assert_eq!(BottomMetric::from_key_number(6), Some(BottomMetric::MidDispersion));
-    assert_eq!(BottomMetric::from_key_number(7), Some(BottomMetric::MoveBreadthView));
-    assert_eq!(BottomMetric::from_key_number(8), Some(BottomMetric::QuotePersistence));
-    assert_eq!(BottomMetric::from_key_number(1), Some(BottomMetric::QuotePath));
+    assert_eq!(
+        BottomMetric::from_key_number(2),
+        Some(BottomMetric::MidDiff)
+    );
+    assert_eq!(
+        BottomMetric::from_key_number(3),
+        Some(BottomMetric::BidAskDiff)
+    );
+    assert_eq!(
+        BottomMetric::from_key_number(4),
+        Some(BottomMetric::SpreadDiff)
+    );
+    assert_eq!(
+        BottomMetric::from_key_number(5),
+        Some(BottomMetric::LeadLag)
+    );
+    assert_eq!(
+        BottomMetric::from_key_number(6),
+        Some(BottomMetric::MidDispersion)
+    );
+    assert_eq!(
+        BottomMetric::from_key_number(7),
+        Some(BottomMetric::MoveBreadthView)
+    );
+    assert_eq!(
+        BottomMetric::from_key_number(8),
+        Some(BottomMetric::QuotePersistence)
+    );
+    assert_eq!(
+        BottomMetric::from_key_number(1),
+        Some(BottomMetric::QuotePath)
+    );
 
     // 3. UI Key input event simulation
     let run_id = RunId([3u8; 16]);
@@ -594,8 +651,8 @@ fn test_ui_settings_persistence_lifecycle() {
 
     // 1. First session: change settings and drop
     {
-        let mut app = DashboardApp::new(exchange.clone(), (1, 2))
-            .with_ui_state_path(state_file.clone());
+        let mut app =
+            DashboardApp::new(exchange.clone(), (1, 2)).with_ui_state_path(state_file.clone());
 
         app.set_selected_pair(2, 3);
         app.set_bottom_metric(BottomMetric::SpreadDiff);
@@ -637,9 +694,21 @@ fn test_ui_settings_persistence_lifecycle() {
 
     // 3. Second session: reconcile with brokers and restore into new app instance
     let brokers = vec![
-        BrokerConfig { id: 1, name: "A".to_string(), ..Default::default() },
-        BrokerConfig { id: 2, name: "B".to_string(), ..Default::default() },
-        BrokerConfig { id: 3, name: "C".to_string(), ..Default::default() },
+        BrokerConfig {
+            id: 1,
+            name: "A".to_string(),
+            ..Default::default()
+        },
+        BrokerConfig {
+            id: 2,
+            name: "B".to_string(),
+            ..Default::default()
+        },
+        BrokerConfig {
+            id: 3,
+            name: "C".to_string(),
+            ..Default::default()
+        },
     ];
     loaded.reconcile_with_brokers(&brokers, (1, 2));
 
@@ -657,8 +726,16 @@ fn test_ui_settings_persistence_lifecycle() {
 
     // 4. Test broker disappearance fallback
     let brokers_missing_c = vec![
-        BrokerConfig { id: 1, name: "A".to_string(), ..Default::default() },
-        BrokerConfig { id: 2, name: "B".to_string(), ..Default::default() },
+        BrokerConfig {
+            id: 1,
+            name: "A".to_string(),
+            ..Default::default()
+        },
+        BrokerConfig {
+            id: 2,
+            name: "B".to_string(),
+            ..Default::default()
+        },
     ];
     loaded.reconcile_with_brokers(&brokers_missing_c, (1, 2));
     assert_eq!(loaded.active_pair, (1, 2));
@@ -673,8 +750,8 @@ fn test_independent_top_and_bottom_x_axis_mode() {
     let state_file = dir.path().join("ui_state.json");
     let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
 
-    let mut app = DashboardApp::new(exchange.clone(), (1, 2))
-        .with_ui_state_path(state_file.clone());
+    let mut app =
+        DashboardApp::new(exchange.clone(), (1, 2)).with_ui_state_path(state_file.clone());
 
     // Initial defaults
     assert_eq!(app.top_x_axis_mode(), ChartXAxisMode::ReceiveTime);
@@ -709,9 +786,21 @@ fn test_broker_visibility_toggle_and_minimum_guard() {
     let mut app = DashboardApp::new(exchange, (1, 2));
 
     let overviews = vec![
-        BrokerOverview { broker_id: 1, name: "Broker 1".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 2, name: "Broker 2".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 3, name: "Broker 3".to_string(), ..Default::default() },
+        BrokerOverview {
+            broker_id: 1,
+            name: "Broker 1".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 2,
+            name: "Broker 2".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 3,
+            name: "Broker 3".to_string(),
+            ..Default::default()
+        },
     ];
 
     // Initial state: all visible
@@ -729,7 +818,10 @@ fn test_broker_visibility_toggle_and_minimum_guard() {
 
     // Guard test: Trying to hide broker 2 leaves only 1 visible broker, which should be rejected
     app.set_broker_visible(2, false, &overviews);
-    assert!(app.is_broker_visible(2), "Should remain visible due to minimum 2 broker guard");
+    assert!(
+        app.is_broker_visible(2),
+        "Should remain visible due to minimum 2 broker guard"
+    );
     assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2]);
 
     // Test active pair auto-switching when a selected broker is hidden:
@@ -755,9 +847,21 @@ fn test_broker_order_reordering_visibility_and_new_brokers() {
     let exchange = Arc::new(SnapshotExchange::new(Arc::new(UiSnapshot::default())));
     let mut app = DashboardApp::new(exchange.clone(), (1, 2));
     let overviews = vec![
-        BrokerOverview { broker_id: 1, name: "Broker 1".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 2, name: "Broker 2".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 3, name: "Broker 3".to_string(), ..Default::default() },
+        BrokerOverview {
+            broker_id: 1,
+            name: "Broker 1".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 2,
+            name: "Broker 2".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 3,
+            name: "Broker 3".to_string(),
+            ..Default::default()
+        },
     ];
 
     assert_eq!(app.visible_broker_ids(&overviews), vec![1, 2, 3]);
@@ -773,7 +877,11 @@ fn test_broker_order_reordering_visibility_and_new_brokers() {
     assert_eq!(restored.current_ui_state().broker_order, vec![1, 3, 2]);
 
     let overviews_with_new_broker = vec![
-        BrokerOverview { broker_id: 4, name: "Broker 4".to_string(), ..Default::default() },
+        BrokerOverview {
+            broker_id: 4,
+            name: "Broker 4".to_string(),
+            ..Default::default()
+        },
         overviews[1].clone(),
         overviews[0].clone(),
         overviews[2].clone(),
@@ -785,7 +893,10 @@ fn test_broker_order_reordering_visibility_and_new_brokers() {
     );
 
     app.reset_broker_order(&overviews_with_new_broker);
-    assert_eq!(app.broker_ids_in_order(&overviews_with_new_broker), vec![4, 2, 1, 3]);
+    assert_eq!(
+        app.broker_ids_in_order(&overviews_with_new_broker),
+        vec![4, 2, 1, 3]
+    );
 }
 
 #[test]
@@ -829,16 +940,29 @@ fn test_candlestick_chart_hides_broker_without_wasted_gap() {
     };
 
     let overviews = vec![
-        BrokerOverview { broker_id: 1, name: "Broker 1".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 2, name: "Broker 2".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 3, name: "Broker 3".to_string(), ..Default::default() },
+        BrokerOverview {
+            broker_id: 1,
+            name: "Broker 1".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 2,
+            name: "Broker 2".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 3,
+            name: "Broker 3".to_string(),
+            ..Default::default()
+        },
     ];
 
     let ctx = egui::Context::default();
     let _ = ctx.run(egui::RawInput::default(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
             let theme = ChartTheme::default();
-            let rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
+            let rect =
+                egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
             let painter = ui.painter_at(rect);
             let mut anchor = None;
             let mut latch = None;
@@ -986,10 +1110,10 @@ fn test_quick_settings_small_screen_viewport_constraint() {
 
     // Test matrix across various window dimensions, especially small and constrained viewports
     let test_viewports = [
-        (600.0, 380.0), // Very small compact screen
-        (800.0, 500.0), // TickScope standard minimum window size
-        (1024.0, 600.0), // Netbook / low-res display
-        (1100.0, 750.0), // Default window size
+        (600.0, 380.0),   // Very small compact screen
+        (800.0, 500.0),   // TickScope standard minimum window size
+        (1024.0, 600.0),  // Netbook / low-res display
+        (1100.0, 750.0),  // Default window size
         (1920.0, 1080.0), // Full HD monitor
     ];
 
@@ -1022,24 +1146,34 @@ fn test_quick_settings_small_screen_viewport_constraint() {
         assert!(
             rect.max.y <= screen_h,
             "Viewport {}x{}: Dialog bottom ({}) exceeded screen height ({})",
-            screen_w, screen_h, rect.max.y, screen_h
+            screen_w,
+            screen_h,
+            rect.max.y,
+            screen_h
         );
         assert!(
             rect.max.x <= screen_w,
             "Viewport {}x{}: Dialog right ({}) exceeded screen width ({})",
-            screen_w, screen_h, rect.max.x, screen_w
+            screen_w,
+            screen_h,
+            rect.max.x,
+            screen_w
         );
         assert!(
             rect.min.x >= 0.0,
             "Viewport {}x{}: Dialog left ({}) fell off left edge",
-            screen_w, screen_h, rect.min.x
+            screen_w,
+            screen_h,
+            rect.min.x
         );
         if screen_h >= 450.0 {
             // For standard and larger windows, dialog starts cleanly below header
             assert!(
                 rect.min.y >= 30.0,
                 "Viewport {}x{}: Dialog top ({}) should be below header (~32.0)",
-                screen_w, screen_h, rect.min.y
+                screen_w,
+                screen_h,
+                rect.min.y
             );
         }
     }
@@ -1075,7 +1209,10 @@ fn test_always_on_top_persistence_and_backward_compatibility() {
         "hidden_brokers": []
     }"#;
     let legacy_state: UiState = serde_json::from_str(legacy_json).expect("deserialize legacy json");
-    assert!(!legacy_state.always_on_top, "legacy json must default always_on_top to false");
+    assert!(
+        !legacy_state.always_on_top,
+        "legacy json must default always_on_top to false"
+    );
 }
 
 #[test]
@@ -1110,7 +1247,10 @@ fn test_always_on_top_toggle_and_hotkey() {
     let _ = ctx.run(input_t, |ctx| {
         app.render_ui(ctx);
     });
-    assert!(app.always_on_top(), "Pressing T should enable always_on_top");
+    assert!(
+        app.always_on_top(),
+        "Pressing T should enable always_on_top"
+    );
 
     // Press T again to turn off
     let mut input_t2 = egui::RawInput::default();
@@ -1124,7 +1264,10 @@ fn test_always_on_top_toggle_and_hotkey() {
     let _ = ctx.run(input_t2, |ctx| {
         app.render_ui(ctx);
     });
-    assert!(!app.always_on_top(), "Pressing T again should disable always_on_top");
+    assert!(
+        !app.always_on_top(),
+        "Pressing T again should disable always_on_top"
+    );
 }
 
 #[test]
@@ -1168,18 +1311,39 @@ fn test_candlestick_5_brokers_hiding_broker_4_tradeview_remains() {
     };
 
     let overviews = vec![
-        BrokerOverview { broker_id: 1, name: "OANDA".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 2, name: "Axiory".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 3, name: "JFX".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 4, name: "Dukascopy".to_string(), ..Default::default() },
-        BrokerOverview { broker_id: 5, name: "Tradeview".to_string(), ..Default::default() },
+        BrokerOverview {
+            broker_id: 1,
+            name: "OANDA".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 2,
+            name: "Axiory".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 3,
+            name: "JFX".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 4,
+            name: "Dukascopy".to_string(),
+            ..Default::default()
+        },
+        BrokerOverview {
+            broker_id: 5,
+            name: "Tradeview".to_string(),
+            ..Default::default()
+        },
     ];
 
     let ctx = egui::Context::default();
     let output = ctx.run(egui::RawInput::default(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
             let theme = ChartTheme::default();
-            let rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
+            let rect =
+                egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
             let painter = ui.painter_at(rect);
             let mut anchor = None;
             let mut latch = None;

@@ -9,7 +9,11 @@ use crate::core::types::BrokerId;
 
 /// Name of the broker with `id` in `overviews`, or `fallback` when it is not listed.
 #[must_use]
-pub fn broker_name<'a>(overviews: &'a [BrokerOverview], id: BrokerId, fallback: &'a str) -> &'a str {
+pub fn broker_name<'a>(
+    overviews: &'a [BrokerOverview],
+    id: BrokerId,
+    fallback: &'a str,
+) -> &'a str {
     overviews
         .iter()
         .find(|b| b.broker_id == id)

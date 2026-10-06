@@ -1,10 +1,8 @@
-use crate::core::models::{DiffPoint, PairComparison};
-use crate::core::types::MonoNs;
-use super::common::{
-    chart_plot_rect, draw_x_axis_caption, format_price_delta, x_axis_coordinate,
-};
+use super::common::{chart_plot_rect, draw_x_axis_caption, format_price_delta, x_axis_coordinate};
 use super::quote_path::ChartXAxisMode;
 use super::theme::ChartTheme;
+use crate::core::models::{DiffPoint, PairComparison};
+use crate::core::types::MonoNs;
 use egui::{Color32, Pos2, Rect, Stroke};
 
 pub fn draw_difference_chart(

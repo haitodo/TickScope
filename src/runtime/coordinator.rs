@@ -1,8 +1,10 @@
 use crate::config::{AppConfig, BrokerConfig};
-use crate::core::ports::{AppendResult, ClockPort, LogSinkPort, RawIngressSink, SnapshotExchangePort, SubmitResult};
-use crate::core::types::{RunId, ClockReading, MonoNs, LogRecord, LogMetadata, UtcMs, BrokerId};
-use crate::protocol::IngressItem;
+use crate::core::ports::{
+    AppendResult, ClockPort, LogSinkPort, RawIngressSink, SnapshotExchangePort, SubmitResult,
+};
+use crate::core::types::{BrokerId, ClockReading, LogMetadata, LogRecord, MonoNs, RunId, UtcMs};
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle, DiagnosticsRuntime};
+use crate::protocol::IngressItem;
 
 use crate::state::snapshot::{SnapshotBuilder, SnapshotExchange};
 use crate::storage::tlog_writer::AsyncLogger;
@@ -148,7 +150,10 @@ impl RuntimeCoordinator {
                 config.logger.max_queue_bytes,
                 config.logger.flush_interval_ms,
             )?;
-            log::info!("Binary tick logger enabled (dir: {})", config.logger.log_dir);
+            log::info!(
+                "Binary tick logger enabled (dir: {})",
+                config.logger.log_dir
+            );
             Some(Arc::new(l))
         } else {
             log::info!("Binary tick logger disabled in configuration");
@@ -156,8 +161,9 @@ impl RuntimeCoordinator {
         };
 
         if let Some(logger) = &logger {
-            let config_text = toml::to_string(&config)
-                .map_err(|error| format!("Failed to serialize startup configuration for logging: {error}"))?;
+            let config_text = toml::to_string(&config).map_err(|error| {
+                format!("Failed to serialize startup configuration for logging: {error}")
+            })?;
             let metadata = Arc::new(LogRecord::Metadata(LogMetadata {
                 config_epoch: 1,
                 observed_mono_ns: clock.sample().mono_ns,
@@ -166,7 +172,9 @@ impl RuntimeCoordinator {
             match logger.try_append(metadata) {
                 AppendResult::Accepted => {}
                 AppendResult::Full(_) => {
-                    return Err("Logger queue is full while recording startup configuration".to_string());
+                    return Err(
+                        "Logger queue is full while recording startup configuration".to_string()
+                    );
                 }
                 AppendResult::Fault(_, reason) => {
                     return Err(format!("Logger rejected startup configuration: {reason}"));
@@ -174,9 +182,8 @@ impl RuntimeCoordinator {
             }
         }
 
-        let log_sink_port: Option<Arc<dyn LogSinkPort>> = logger
-            .as_ref()
-            .map(|l| l.clone() as Arc<dyn LogSinkPort>);
+        let log_sink_port: Option<Arc<dyn LogSinkPort>> =
+            logger.as_ref().map(|l| l.clone() as Arc<dyn LogSinkPort>);
 
         let mut tick_engine = TickEngine::new(config.clone());
         if let Some(diagnostics) = &diagnostics_handle {
@@ -186,7 +193,8 @@ impl RuntimeCoordinator {
         let exchange = Arc::new(SnapshotExchange::new_empty(run_id));
 
         // Ingress channel
-        let (ingress_tx, ingress_rx) = bounded::<IngressItem>(config.ingress.max_frames_per_broker * config.brokers.len());
+        let (ingress_tx, ingress_rx) =
+            bounded::<IngressItem>(config.ingress.max_frames_per_broker * config.brokers.len());
         let ingress_sink = Arc::new(ChannelIngressSink { sender: ingress_tx });
 
         let mut receivers = Vec::new();
@@ -207,7 +215,8 @@ impl RuntimeCoordinator {
                 clock.clone(),
                 ingress_sink.clone(),
             );
-            let activity_timeout = Duration::from_millis(config.health.heartbeat_timeout_ms.max(3000));
+            let activity_timeout =
+                Duration::from_millis(config.health.heartbeat_timeout_ms.max(3000));
             let receiver = receiver.with_activity_timeout(activity_timeout);
             let receiver = if let Some(diagnostics) = &diagnostics_handle {
                 receiver.with_diagnostics(diagnostics.clone())
@@ -232,7 +241,10 @@ impl RuntimeCoordinator {
                 routed_receivers,
                 config.ingress.progress_interval_ms,
             )?);
-            log::info!("MT5 shared router listening on 127.0.0.1:{}", router.local_port());
+            log::info!(
+                "MT5 shared router listening on 127.0.0.1:{}",
+                router.local_port()
+            );
             for broker in &mut deployment_brokers {
                 broker.host = "127.0.0.1".to_string();
                 broker.port = router.local_port();
@@ -289,22 +301,14 @@ impl RuntimeCoordinator {
                     let eng = eng_pub.lock();
                     eng.make_projection_at(now_utc, clk_sample.mono_ns)
                 };
-                if let (Some(diagnostics), Some(start)) =
-                    (&diagnostics_pub, projection_start)
-                {
-                    diagnostics.record_duration(
-                        DiagnosticStage::ProjectionBuild,
-                        start.elapsed(),
-                    );
+                if let (Some(diagnostics), Some(start)) = (&diagnostics_pub, projection_start) {
+                    diagnostics.record_duration(DiagnosticStage::ProjectionBuild, start.elapsed());
                 }
 
                 let snapshot_start = diagnostics_pub.as_ref().map(|_| Instant::now());
                 let snap = builder.build_owned(proj, now_utc, clk_sample.mono_ns, timeframe_ms);
                 if let (Some(diagnostics), Some(start)) = (&diagnostics_pub, snapshot_start) {
-                    diagnostics.record_duration(
-                        DiagnosticStage::SnapshotBuild,
-                        start.elapsed(),
-                    );
+                    diagnostics.record_duration(DiagnosticStage::SnapshotBuild, start.elapsed());
                 }
                 ex_pub.publish(snap);
 
@@ -401,9 +405,7 @@ impl RuntimeCoordinator {
     }
 
     pub fn diagnostics_handle(&self) -> Option<DiagnosticsHandle> {
-        self.diagnostics
-            .as_ref()
-            .map(DiagnosticsRuntime::handle)
+        self.diagnostics.as_ref().map(DiagnosticsRuntime::handle)
     }
 
     #[must_use]

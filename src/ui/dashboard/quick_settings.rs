@@ -1,19 +1,15 @@
 use super::DashboardApp;
-use crate::ui::shared::format_pips;
 use crate::core::models::UiSnapshot;
 use crate::ui::chart::ChartXAxisMode;
 use crate::ui::settings::{
     CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, VALID_CANDLE_BAR_WIDTHS,
     VALID_CANDLE_FIXED_PIPS,
 };
+use crate::ui::shared::format_pips;
 use eframe::egui;
 use egui::RichText;
 
-pub fn render_quick_settings(
-    app: &mut DashboardApp,
-    ctx: &egui::Context,
-    snapshot: &UiSnapshot,
-) {
+pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapshot: &UiSnapshot) {
     if !app.show_quick_settings {
         return;
     }

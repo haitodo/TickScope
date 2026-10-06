@@ -91,7 +91,6 @@ const fn default_timeframe_ms() -> i64 {
     10000
 }
 
-
 const fn default_candle_bar_width() -> f32 {
     DEFAULT_CANDLE_BAR_WIDTH
 }
@@ -132,7 +131,11 @@ impl WindowGeometryState {
             self.inner_size[1] = DEFAULT_WINDOW_HEIGHT;
         }
         if let Some(phys) = self.physical_inner_size {
-            if !phys[0].is_finite() || !phys[1].is_finite() || phys[0] < MIN_WINDOW_WIDTH || phys[1] < MIN_WINDOW_HEIGHT {
+            if !phys[0].is_finite()
+                || !phys[1].is_finite()
+                || phys[0] < MIN_WINDOW_WIDTH
+                || phys[1] < MIN_WINDOW_HEIGHT
+            {
                 self.physical_inner_size = None;
             }
         }
@@ -224,7 +227,6 @@ impl Default for UiState {
     }
 }
 
-
 impl UiState {
     #[must_use]
     pub fn is_broker_visible(&self, broker_id: BrokerId) -> bool {
@@ -260,19 +262,24 @@ impl UiState {
         }
     }
 
-
     pub fn sanitize(&mut self) {
         self.window.sanitize();
         if !VALID_TIMEFRAMES_MS.contains(&self.selected_timeframe_ms) {
             self.selected_timeframe_ms = default_timeframe_ms();
         }
-        if !VALID_CANDLE_BAR_WIDTHS.iter().any(|&w| (w - self.candle_bar_width).abs() < 1e-4) {
+        if !VALID_CANDLE_BAR_WIDTHS
+            .iter()
+            .any(|&w| (w - self.candle_bar_width).abs() < 1e-4)
+        {
             self.candle_bar_width = default_candle_bar_width();
         }
         match self.candle_price_scale {
             CandlePriceScaleMode::Auto => {}
             CandlePriceScaleMode::Fixed(pips) => {
-                if !VALID_CANDLE_FIXED_PIPS.iter().any(|&p| (p - pips).abs() < 1e-4) {
+                if !VALID_CANDLE_FIXED_PIPS
+                    .iter()
+                    .any(|&p| (p - pips).abs() < 1e-4)
+                {
                     self.candle_price_scale = CandlePriceScaleMode::Auto;
                 }
             }
@@ -307,18 +314,26 @@ impl UiState {
         self.sanitize();
 
         // 1. Remove non-existent broker IDs from hidden_brokers
-        self.hidden_brokers.retain(|&id| brokers.iter().any(|bk| bk.id == id));
+        self.hidden_brokers
+            .retain(|&id| brokers.iter().any(|bk| bk.id == id));
 
         // 2. Ensure at least two brokers remain visible if at least two exist
-        let visible_count = brokers.iter().filter(|bk| !self.hidden_brokers.contains(&bk.id)).count();
+        let visible_count = brokers
+            .iter()
+            .filter(|bk| !self.hidden_brokers.contains(&bk.id))
+            .count();
         if visible_count < 2 && brokers.len() >= 2 {
             self.hidden_brokers.clear();
         }
 
         // 3. Reconcile active pair
         let (mut a, mut b) = self.active_pair;
-        let has_a = brokers.iter().any(|bk| bk.id == a && !self.hidden_brokers.contains(&bk.id));
-        let has_b = brokers.iter().any(|bk| bk.id == b && !self.hidden_brokers.contains(&bk.id));
+        let has_a = brokers
+            .iter()
+            .any(|bk| bk.id == a && !self.hidden_brokers.contains(&bk.id));
+        let has_b = brokers
+            .iter()
+            .any(|bk| bk.id == b && !self.hidden_brokers.contains(&bk.id));
 
         if !has_a || !has_b || a == b {
             // Find first two visible brokers as fallback
@@ -347,7 +362,8 @@ impl UiState {
             self.mt5_launch_targets = brokers.iter().map(|bk| bk.id).collect();
             self.mt5_launch_targets.sort_unstable();
         } else {
-            self.mt5_launch_targets.retain(|&id| brokers.iter().any(|bk| bk.id == id));
+            self.mt5_launch_targets
+                .retain(|&id| brokers.iter().any(|bk| bk.id == id));
         }
 
         // 5. Reconcile MT5 normal (non-minimized) window broker
@@ -357,7 +373,13 @@ impl UiState {
                 let mut resolved = None;
                 if let Some(name) = default_normal_broker_name {
                     if !name.is_empty() && !name.eq_ignore_ascii_case("none") {
-                        resolved = brokers.iter().find(|bk| bk.name.eq_ignore_ascii_case(name) || bk.name.to_lowercase().contains(&name.to_lowercase())).map(|bk| bk.id);
+                        resolved = brokers
+                            .iter()
+                            .find(|bk| {
+                                bk.name.eq_ignore_ascii_case(name)
+                                    || bk.name.to_lowercase().contains(&name.to_lowercase())
+                            })
+                            .map(|bk| bk.id);
                     }
                 }
                 self.mt5_non_minimized_broker = resolved;
@@ -365,7 +387,6 @@ impl UiState {
         }
     }
 }
-
 
 /// Resolves the file path for persistent UI state.
 #[must_use]
@@ -549,7 +570,8 @@ mod tests {
             "bottom_metric": "MidDiff"
         }"#;
 
-        let state: UiState = serde_json::from_str(json).expect("should deserialize json with defaults");
+        let state: UiState =
+            serde_json::from_str(json).expect("should deserialize json with defaults");
         assert_eq!(state.top_x_axis_mode, ChartXAxisMode::TickCount);
         assert_eq!(state.bottom_x_axis_mode, ChartXAxisMode::ReceiveTime);
         assert_eq!(state.bottom_metric, BottomMetric::MidDiff);
@@ -593,8 +615,16 @@ mod tests {
             ..Default::default()
         };
         let brokers = vec![
-            BrokerConfig { id: 10, name: "OANDA".to_string(), ..Default::default() },
-            BrokerConfig { id: 20, name: "Axiory".to_string(), ..Default::default() },
+            BrokerConfig {
+                id: 10,
+                name: "OANDA".to_string(),
+                ..Default::default()
+            },
+            BrokerConfig {
+                id: 20,
+                name: "Axiory".to_string(),
+                ..Default::default()
+            },
         ];
         state.reconcile_with_brokers_and_config(&brokers, (10, 20), Some("OANDA"));
         assert_eq!(state.mt5_non_minimized_broker, Some(10));
@@ -663,13 +693,28 @@ mod tests {
         // candle_price_scale should sanitize to Auto
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);
         // window size should sanitize to min/defaults
-        assert_eq!(state.window.inner_size, [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]);
+        assert_eq!(
+            state.window.inner_size,
+            [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT]
+        );
 
         // Reconcile with hidden brokers
         let brokers3 = vec![
-            BrokerConfig { id: 1, name: "A".to_string(), ..Default::default() },
-            BrokerConfig { id: 2, name: "B".to_string(), ..Default::default() },
-            BrokerConfig { id: 3, name: "C".to_string(), ..Default::default() },
+            BrokerConfig {
+                id: 1,
+                name: "A".to_string(),
+                ..Default::default()
+            },
+            BrokerConfig {
+                id: 2,
+                name: "B".to_string(),
+                ..Default::default()
+            },
+            BrokerConfig {
+                id: 3,
+                name: "C".to_string(),
+                ..Default::default()
+            },
         ];
         state.hidden_brokers = vec![2, 99]; // 99 doesn't exist, 2 is hidden
         state.active_pair = (1, 2); // 2 is hidden, should switch to visible (1, 3)

@@ -9,7 +9,10 @@ use super::pump::PlaybackPump;
 use super::rebuilder::StateRebuilder;
 use super::sync_client::WsSyncClient;
 use crate::core::types::{BrokerId, MonoNs, RunId, SessionId, UtcMs};
-use crate::protocol::{IngressItem, TickRecord, HEADER_FLAG_WARMUP, Frame, Header, MAGIC_TICK, PROTOCOL_VERSION, MSG_TYPE_TICK_BATCH, HEADER_LENGTH, TICK_RECORD_LENGTH, FramePayload, ReceivedFrame};
+use crate::protocol::{
+    Frame, FramePayload, Header, IngressItem, ReceivedFrame, TickRecord, HEADER_FLAG_WARMUP,
+    HEADER_LENGTH, MAGIC_TICK, MSG_TYPE_TICK_BATCH, PROTOCOL_VERSION, TICK_RECORD_LENGTH,
+};
 use crate::tick::engine::TickEngine;
 use parking_lot::{Condvar, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -86,20 +89,23 @@ pub fn is_us_dst(year: i32, month: u32, day: u32) -> bool {
 
     if month == 3 {
         // Second Sunday of March
-        let march1_day = chrono::NaiveDate::from_ymd_opt(year, 3, 1)
-            .map_or(0, |d| {
-                use chrono::Datelike;
-                d.weekday().num_days_from_sunday()
+        let march1_day = chrono::NaiveDate::from_ymd_opt(year, 3, 1).map_or(0, |d| {
+            use chrono::Datelike;
+            d.weekday().num_days_from_sunday()
+        });
+        let second_sunday = 1
+            + (if march1_day == 0 {
+                7
+            } else {
+                7 - march1_day + 7
             });
-        let second_sunday = 1 + (if march1_day == 0 { 7 } else { 7 - march1_day + 7 });
         day >= second_sunday
     } else if month == 11 {
         // First Sunday of November
-        let nov1_day = chrono::NaiveDate::from_ymd_opt(year, 11, 1)
-            .map_or(0, |d| {
-                use chrono::Datelike;
-                d.weekday().num_days_from_sunday()
-            });
+        let nov1_day = chrono::NaiveDate::from_ymd_opt(year, 11, 1).map_or(0, |d| {
+            use chrono::Datelike;
+            d.weekday().num_days_from_sunday()
+        });
         let first_sunday = 1 + (if nov1_day == 0 { 0 } else { 7 - nov1_day });
         day < first_sunday
     } else {
@@ -227,7 +233,11 @@ impl ReplayDriver {
                 .iter()
                 .find(|b| b.name.eq_ignore_ascii_case("JFX"))
                 .map_or(5, |b| b.id);
-            let has_jfx_in_parquet = merge_stream.read().sources.iter().any(|s| s.broker_id == jfx_id);
+            let has_jfx_in_parquet = merge_stream
+                .read()
+                .sources
+                .iter()
+                .any(|s| s.broker_id == jfx_id);
             if !has_jfx_in_parquet {
                 let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
                 eng.update_direct_quote(
@@ -298,13 +308,7 @@ pub fn make_ingress_tick_batch(
     run_id: RunId,
 ) -> IngressItem {
     make_ingress_tick_batch_with_mono(
-        broker_id,
-        session_id,
-        ticks,
-        start_seq,
-        is_warmup,
-        run_id,
-        None,
+        broker_id, session_id, ticks, start_seq, is_warmup, run_id, None,
     )
 }
 
@@ -358,7 +362,8 @@ pub fn make_ingress_tick_batch_with_mono(
         payload: FramePayload::TickBatch(raw_ticks),
     };
 
-    let rx_mono_ns = rx_mono_override.unwrap_or_else(|| MonoNs((max_eff_utc.max(0) as u64).saturating_mul(1_000_000)));
+    let rx_mono_ns = rx_mono_override
+        .unwrap_or_else(|| MonoNs((max_eff_utc.max(0) as u64).saturating_mul(1_000_000)));
     let rx_unix_ns = Some(max_eff_utc.saturating_mul(1_000_000));
 
     IngressItem::Frame(ReceivedFrame {

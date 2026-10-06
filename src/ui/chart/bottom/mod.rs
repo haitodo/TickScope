@@ -149,11 +149,7 @@ pub enum BottomMetricCategory {
 }
 
 impl BottomMetricCategory {
-    pub const ALL: [Self; 3] = [
-        Self::RawQuotes,
-        Self::PairDiff,
-        Self::MarketConsensus,
-    ];
+    pub const ALL: [Self; 3] = [Self::RawQuotes, Self::PairDiff, Self::MarketConsensus];
 
     #[must_use]
     pub const fn title(&self) -> &'static str {

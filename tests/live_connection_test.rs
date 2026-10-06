@@ -10,7 +10,9 @@ use tick_scope::runtime::coordinator::RuntimeCoordinator;
 #[ignore = "Live MT5 end-to-end connection test (requires running MT5 terminals)"]
 fn test_live_mt5_continuous_connection() {
     let config_path = Path::new("config/default.toml");
-    let Ok(config) = load_config_from_file(config_path) else { return };
+    let Ok(config) = load_config_from_file(config_path) else {
+        return;
+    };
 
     println!("Starting RuntimeCoordinator on ports 39001, 39002...");
     let mut coordinator = match RuntimeCoordinator::new(config) {
@@ -37,8 +39,10 @@ fn test_live_mt5_continuous_connection() {
             } else {
                 "No Quote".to_string()
             };
-            println!("Broker #{}: {} ({}) | State: {} | Rate: {:.1} t/s | {}",
-                b.broker_id, b.name, b.symbol, conn, b.tick_rate_1s, quote);
+            println!(
+                "Broker #{}: {} ({}) | State: {} | Rate: {:.1} t/s | {}",
+                b.broker_id, b.name, b.symbol, conn, b.tick_rate_1s, quote
+            );
         }
     }
 

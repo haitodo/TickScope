@@ -50,7 +50,12 @@ impl QuoteGeometry {
 /// - Bid +3, Ask -1 -> `MixedQuote` (§35)
 /// - Bid -3, Ask +1 -> `OppositeSideMove`
 #[must_use]
-pub fn classify_quote_geometry(old_bid: f64, old_ask: f64, new_bid: f64, new_ask: f64) -> QuoteGeometry {
+pub fn classify_quote_geometry(
+    old_bid: f64,
+    old_ask: f64,
+    new_bid: f64,
+    new_ask: f64,
+) -> QuoteGeometry {
     let db = new_bid - old_bid;
     let da = new_ask - old_ask;
     let eps = 1e-9;
@@ -234,8 +239,13 @@ impl MultiBrokerBurstDetector {
             return None;
         }
 
-        self.detect_cluster_at(direction, total_brokers, fresh_count,
-            self.recent_events.back()?.rx_mono_ns, &[])
+        self.detect_cluster_at(
+            direction,
+            total_brokers,
+            fresh_count,
+            self.recent_events.back()?.rx_mono_ns,
+            &[],
+        )
     }
 
     /// Evaluate the current observation window, excluding unavailable feeds.
@@ -257,8 +267,11 @@ impl MultiBrokerBurstDetector {
         let mut end_mono = None;
 
         for ev in &self.recent_events {
-            if ev.rx_mono_ns.0 >= cutoff && ev.rx_mono_ns <= now
-                && ev.direction == direction && !stale_brokers.contains(&ev.broker_id) {
+            if ev.rx_mono_ns.0 >= cutoff
+                && ev.rx_mono_ns <= now
+                && ev.direction == direction
+                && !stale_brokers.contains(&ev.broker_id)
+            {
                 if !participating_brokers.contains(&ev.broker_id) {
                     participating_brokers.push(ev.broker_id);
                 }
@@ -373,11 +386,25 @@ mod tests {
     #[test]
     fn current_clusters_expire_and_exclude_stale_feeds() {
         let mut detector = MultiBrokerBurstDetector::new(100, 2);
-        detector.on_event(make_move_event(1, MoveDirection::Up, MonoNs(1_000_000)), 2, 2);
-        detector.on_event(make_move_event(2, MoveDirection::Up, MonoNs(2_000_000)), 2, 2);
-        assert!(detector.detect_cluster_at(MoveDirection::Up, 2, 2, MonoNs(3_000_000), &[]).is_some());
-        assert!(detector.detect_cluster_at(MoveDirection::Up, 2, 1, MonoNs(3_000_000), &[2]).is_none());
-        assert!(detector.detect_cluster_at(MoveDirection::Up, 2, 2, MonoNs(200_000_000), &[]).is_none());
+        detector.on_event(
+            make_move_event(1, MoveDirection::Up, MonoNs(1_000_000)),
+            2,
+            2,
+        );
+        detector.on_event(
+            make_move_event(2, MoveDirection::Up, MonoNs(2_000_000)),
+            2,
+            2,
+        );
+        assert!(detector
+            .detect_cluster_at(MoveDirection::Up, 2, 2, MonoNs(3_000_000), &[])
+            .is_some());
+        assert!(detector
+            .detect_cluster_at(MoveDirection::Up, 2, 1, MonoNs(3_000_000), &[2])
+            .is_none());
+        assert!(detector
+            .detect_cluster_at(MoveDirection::Up, 2, 2, MonoNs(200_000_000), &[])
+            .is_none());
     }
 
     fn make_move_event(
@@ -392,7 +419,11 @@ mod tests {
             rx_mono_ns,
             direction,
             anchor_mid: 100.0,
-            current_mid: if direction == MoveDirection::Up { 100.05 } else { 99.95 },
+            current_mid: if direction == MoveDirection::Up {
+                100.05
+            } else {
+                99.95
+            },
             mid_delta_points: 5.0,
             bid_delta: 0.05,
             ask_delta: 0.05,
@@ -466,13 +497,22 @@ mod tests {
         let mut detector = MultiBrokerBurstDetector::new(100, 4);
 
         let t0 = MonoNs(0);
-        let t1 = MonoNs(4_000_000);  // 4ms
-        let t2 = MonoNs(7_000_000);  // 7ms
+        let t1 = MonoNs(4_000_000); // 4ms
+        let t2 = MonoNs(7_000_000); // 7ms
         let t3 = MonoNs(10_000_000); // 10ms
 
-        assert_eq!(detector.on_event(make_move_event(1, MoveDirection::Up, t0), 4, 4), None);
-        assert_eq!(detector.on_event(make_move_event(2, MoveDirection::Up, t1), 4, 4), None);
-        assert_eq!(detector.on_event(make_move_event(3, MoveDirection::Up, t2), 4, 4), None);
+        assert_eq!(
+            detector.on_event(make_move_event(1, MoveDirection::Up, t0), 4, 4),
+            None
+        );
+        assert_eq!(
+            detector.on_event(make_move_event(2, MoveDirection::Up, t1), 4, 4),
+            None
+        );
+        assert_eq!(
+            detector.on_event(make_move_event(3, MoveDirection::Up, t2), 4, 4),
+            None
+        );
 
         let cluster = detector.on_event(make_move_event(4, MoveDirection::Up, t3), 4, 4);
         assert!(cluster.is_some());
@@ -501,9 +541,21 @@ mod tests {
 
         let t0 = MonoNs(1_000_000_000);
         detector.on_event(make_move_event(1, MoveDirection::Up, t0), 4, 4);
-        detector.on_event(make_move_event(2, MoveDirection::Up, MonoNs(t0.0 + 5_000_000)), 4, 4);
-        detector.on_event(make_move_event(3, MoveDirection::Up, MonoNs(t0.0 + 10_000_000)), 4, 4);
-        detector.on_event(make_move_event(4, MoveDirection::Up, MonoNs(t0.0 + 15_000_000)), 4, 4);
+        detector.on_event(
+            make_move_event(2, MoveDirection::Up, MonoNs(t0.0 + 5_000_000)),
+            4,
+            4,
+        );
+        detector.on_event(
+            make_move_event(3, MoveDirection::Up, MonoNs(t0.0 + 10_000_000)),
+            4,
+            4,
+        );
+        detector.on_event(
+            make_move_event(4, MoveDirection::Up, MonoNs(t0.0 + 15_000_000)),
+            4,
+            4,
+        );
 
         // 1. All 4 brokers UP
         let breadth = detector.compute_breadth(4, 0, MonoNs(t0.0 + 20_000_000));
@@ -514,7 +566,8 @@ mod tests {
         assert_eq!(breadth.up_ratio_str(), "4/4");
 
         // 2. With 1 stale broker (broker 4)
-        let breadth_stale = detector.compute_breadth_with_stale_brokers(4, &[4], MonoNs(t0.0 + 20_000_000));
+        let breadth_stale =
+            detector.compute_breadth_with_stale_brokers(4, &[4], MonoNs(t0.0 + 20_000_000));
         assert_eq!(breadth_stale.up_count, 3);
         assert_eq!(breadth_stale.down_count, 0);
         assert_eq!(breadth_stale.stale_count, 1);
@@ -522,7 +575,11 @@ mod tests {
         assert_eq!(breadth_stale.up_ratio_str(), "3/4");
 
         // 3. Mixed UP and DOWN
-        detector.on_event(make_move_event(2, MoveDirection::Down, MonoNs(t0.0 + 30_000_000)), 4, 4);
+        detector.on_event(
+            make_move_event(2, MoveDirection::Down, MonoNs(t0.0 + 30_000_000)),
+            4,
+            4,
+        );
         let breadth_mixed = detector.compute_breadth(4, 0, MonoNs(t0.0 + 35_000_000));
         // Broker 1 UP, Broker 2 DOWN, Broker 3 UP, Broker 4 UP
         assert_eq!(breadth_mixed.up_count, 3);

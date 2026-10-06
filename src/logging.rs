@@ -12,7 +12,9 @@ use std::time::SystemTime;
 
 /// Splits a `SystemTime` into `(days since epoch, seconds within the day, milliseconds)`.
 fn utc_split(time: SystemTime) -> (i64, u32, u32) {
-    let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let duration = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
     let total_secs = duration.as_secs() as i64;
     (
         total_secs.div_euclid(86_400),
@@ -66,9 +68,7 @@ pub fn format_log_line(
         }
     };
 
-    let clean_target = target
-        .strip_prefix("tick_scope::")
-        .unwrap_or(target);
+    let clean_target = target.strip_prefix("tick_scope::").unwrap_or(target);
 
     format!("{timestamp} [{level_str}] [{clean_target}] {message}\n")
 }
@@ -165,9 +165,9 @@ pub fn init_logging(
     // Determine log level: CLI option > RUST_LOG environment > default (Info)
     let level = explicit_level
         .or_else(|| {
-            std::env::var("RUST_LOG").ok().and_then(|v| {
-                crate::cli::parse_level_filter(&v).ok()
-            })
+            std::env::var("RUST_LOG")
+                .ok()
+                .and_then(|v| crate::cli::parse_level_filter(&v).ok())
         })
         .unwrap_or(LevelFilter::Info);
 
@@ -416,10 +416,22 @@ mod tests {
     #[test]
     fn test_console_logger_enabled() {
         let logger = ConsoleLogger::new(LevelFilter::Warn, false);
-        assert!(log::Log::enabled(&logger, &Metadata::builder().level(Level::Error).build()));
-        assert!(log::Log::enabled(&logger, &Metadata::builder().level(Level::Warn).build()));
-        assert!(!log::Log::enabled(&logger, &Metadata::builder().level(Level::Info).build()));
-        assert!(!log::Log::enabled(&logger, &Metadata::builder().level(Level::Debug).build()));
+        assert!(log::Log::enabled(
+            &logger,
+            &Metadata::builder().level(Level::Error).build()
+        ));
+        assert!(log::Log::enabled(
+            &logger,
+            &Metadata::builder().level(Level::Warn).build()
+        ));
+        assert!(!log::Log::enabled(
+            &logger,
+            &Metadata::builder().level(Level::Info).build()
+        ));
+        assert!(!log::Log::enabled(
+            &logger,
+            &Metadata::builder().level(Level::Debug).build()
+        ));
     }
 
     #[test]

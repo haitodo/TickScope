@@ -1,8 +1,8 @@
 //! Fake clock implementation for deterministic testing.
 
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use tick_scope::core::ports::ClockPort;
 use tick_scope::core::types::{ClockReading, MonoNs, RunId};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 #[allow(dead_code)]
 pub struct FakeClock {

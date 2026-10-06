@@ -121,7 +121,9 @@ pub fn resolve_candle_follow_scale(
 
     if candidates.is_empty() {
         *margin_edge_latch = None;
-        let anchor = if let Some(a) = *chart_anchor { a } else {
+        let anchor = if let Some(a) = *chart_anchor {
+            a
+        } else {
             let p = fallback_price.unwrap_or(0.0);
             *chart_anchor = Some(p);
             p
@@ -296,7 +298,11 @@ pub fn draw_clip_marker(painter: &egui::Painter, cx: f32, cy: f32, is_top: bool,
             Pos2::new(cx + half_w, cy - 3.0),
         )
     };
-    painter.add(egui::Shape::convex_polygon(vec![p1, p2, p3], color, Stroke::NONE));
+    painter.add(egui::Shape::convex_polygon(
+        vec![p1, p2, p3],
+        color,
+        Stroke::NONE,
+    ));
 }
 
 #[cfg(test)]
@@ -314,7 +320,11 @@ mod tests {
                 name: "Axiory".to_string(),
                 symbol: "USDJPY".to_string(),
                 latest_quote: Some(Quote {
-                    tick_id: TickId { broker_id: 1, session_id: 1, sequence: 1 },
+                    tick_id: TickId {
+                        broker_id: 1,
+                        session_id: 1,
+                        sequence: 1,
+                    },
                     bid: 150.10,
                     ask: 150.12,
                     mid: 150.11,
@@ -342,7 +352,11 @@ mod tests {
                 name: "OANDA".to_string(),
                 symbol: "USDJPY".to_string(),
                 latest_quote: Some(Quote {
-                    tick_id: TickId { broker_id: 2, session_id: 1, sequence: 2 },
+                    tick_id: TickId {
+                        broker_id: 2,
+                        session_id: 1,
+                        sequence: 2,
+                    },
                     bid: 150.15,
                     ask: 150.17,
                     mid: 150.16,
@@ -370,7 +384,11 @@ mod tests {
                 name: "JFX".to_string(),
                 symbol: "USDJPY".to_string(),
                 latest_quote: Some(Quote {
-                    tick_id: TickId { broker_id: 3, session_id: 1, sequence: 3 },
+                    tick_id: TickId {
+                        broker_id: 3,
+                        session_id: 1,
+                        sequence: 3,
+                    },
                     bid: 150.11,
                     ask: 150.13,
                     mid: 150.12,
@@ -398,7 +416,11 @@ mod tests {
                 name: "XM".to_string(),
                 symbol: "USDJPY".to_string(),
                 latest_quote: Some(Quote {
-                    tick_id: TickId { broker_id: 4, session_id: 1, sequence: 4 },
+                    tick_id: TickId {
+                        broker_id: 4,
+                        session_id: 1,
+                        sequence: 4,
+                    },
                     bid: 150.12,
                     ask: 150.14,
                     mid: 150.13,
@@ -600,7 +622,12 @@ mod tests {
         // Anchor moves to 150.06 - 0.04 = 150.02. Latch set to Top.
         assert!((chart_anchor.unwrap() - 150.02).abs() < 1e-6);
         assert_eq!(latch, Some(MarginEdgeLatchSide::Top));
-        if let FollowStatusInfo::MarginEdge { edge_broker_name, is_top, .. } = status1 {
+        if let FollowStatusInfo::MarginEdge {
+            edge_broker_name,
+            is_top,
+            ..
+        } = status1
+        {
             assert_eq!(edge_broker_name, "FastBroker");
             assert!(is_top);
         } else {

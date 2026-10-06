@@ -1,7 +1,5 @@
 use tick_scope::config::{AppConfig, Mt5DeployConfig};
-use tick_scope::deploy::{
-    deploy_mt5_files_for_brokers, discover_mt5_terminals, DeployFileStatus,
-};
+use tick_scope::deploy::{deploy_mt5_files_for_brokers, discover_mt5_terminals, DeployFileStatus};
 
 #[test]
 #[ignore = "Writes to installed MT5 terminals and runs MetaEditor; opt in explicitly"]
@@ -12,13 +10,20 @@ fn test_live_mt5_discovery_and_deployment_idempotency() {
     let (terminals, _warnings) = discover_mt5_terminals(&config);
     println!("Discovered {} terminals", terminals.len());
     for t in &terminals {
-        println!("Terminal: {} -> {}", t.friendly_name, t.terminal_dir.display());
+        println!(
+            "Terminal: {} -> {}",
+            t.friendly_name,
+            t.terminal_dir.display()
+        );
     }
 
     // 1. First run: should create or match existing
     let report1 = deploy_mt5_files_for_brokers(&config, &app_config.brokers);
     assert!(report1.enabled);
-    assert!(!report1.terminals.is_empty(), "Expected at least 1 MT5 terminal on this machine");
+    assert!(
+        !report1.terminals.is_empty(),
+        "Expected at least 1 MT5 terminal on this machine"
+    );
 
     for term in &report1.terminals {
         for res in &term.results {
@@ -60,17 +65,29 @@ fn test_live_mt5_terminal_path_resolution() {
         return; // Skip on machines without MT5 installed
     }
 
-    println!("Testing live MT5 path resolution for {} brokers...", app_config.brokers.len());
+    println!(
+        "Testing live MT5 path resolution for {} brokers...",
+        app_config.brokers.len()
+    );
     let mut resolved_count = 0;
     for broker in &app_config.brokers {
         let path = tick_scope::runtime::TerminalManager::resolve_terminal_path(broker, &terminals);
         println!("Broker '{}' -> {:?}", broker.name, path);
         if let Some(p) = path {
-            assert!(p.is_file(), "Resolved path must be an existing executable: {p:?}");
+            assert!(
+                p.is_file(),
+                "Resolved path must be an existing executable: {p:?}"
+            );
             resolved_count += 1;
         }
     }
-    println!("Successfully resolved {}/{} broker terminal executables.", resolved_count, app_config.brokers.len());
-    assert!(resolved_count > 0, "At least one broker terminal should be resolved on this system");
+    println!(
+        "Successfully resolved {}/{} broker terminal executables.",
+        resolved_count,
+        app_config.brokers.len()
+    );
+    assert!(
+        resolved_count > 0,
+        "At least one broker terminal should be resolved on this system"
+    );
 }
-

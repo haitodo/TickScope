@@ -1,6 +1,8 @@
 //! Parquet tick data reader for FX broker Hive-partitioned datasets.
 //! Schema: `broker={broker}/symbol={symbol}/year={YYYY}/month={MM}/data.parquet`
 
+use crate::core::types::BrokerId;
+use crate::replay::driver::{mt5_to_utc_ms, utc_to_mt5_ms};
 use arrow::array::{Float64Array, Int64Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ProjectionMask;
@@ -8,8 +10,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use crate::core::types::BrokerId;
-use crate::replay::driver::{mt5_to_utc_ms, utc_to_mt5_ms};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ReplayTick {
@@ -65,7 +65,11 @@ impl BrokerParquetSource {
         root_dir: &Path,
     ) -> Result<Self, String> {
         let sym_clean = symbol.to_lowercase();
-        let sym_base = sym_clean.split(['.', '_', '/']).next().unwrap_or(&sym_clean).to_string();
+        let sym_base = sym_clean
+            .split(['.', '_', '/'])
+            .next()
+            .unwrap_or(&sym_clean)
+            .to_string();
 
         let mut dir_candidates = Vec::new();
         let name_lower = broker_name.to_lowercase();
@@ -111,10 +115,12 @@ impl BrokerParquetSource {
                 if let Ok(ft) = entry.file_type() {
                     if ft.is_dir() {
                         let dir_name = entry.file_name().to_string_lossy().to_lowercase();
-                        if dir_name.starts_with("broker=") && dir_name.contains(&name_lower)
-                            && !dir_candidates.contains(&dir_name) {
-                                dir_candidates.push(dir_name);
-                            }
+                        if dir_name.starts_with("broker=")
+                            && dir_name.contains(&name_lower)
+                            && !dir_candidates.contains(&dir_name)
+                        {
+                            dir_candidates.push(dir_name);
+                        }
                     }
                 }
             }
@@ -148,13 +154,17 @@ impl BrokerParquetSource {
                     for y_res in year_entries.flatten() {
                         let y_name = y_res.file_name().to_string_lossy().to_string();
                         if let Some(year_str) = y_name.strip_prefix("year=") {
-                            let Ok(year) = year_str.parse::<i32>() else { continue };
+                            let Ok(year) = year_str.parse::<i32>() else {
+                                continue;
+                            };
 
                             if let Ok(month_entries) = std::fs::read_dir(y_res.path()) {
                                 for m_res in month_entries.flatten() {
                                     let m_name = m_res.file_name().to_string_lossy().to_string();
                                     if let Some(month_str) = m_name.strip_prefix("month=") {
-                                        let Ok(month) = month_str.parse::<u32>() else { continue };
+                                        let Ok(month) = month_str.parse::<u32>() else {
+                                            continue;
+                                        };
 
                                         let parquet_file = m_res.path().join("data.parquet");
                                         if parquet_file.exists() {
@@ -231,7 +241,10 @@ impl BrokerParquetSource {
     ///
     /// Propagates the error from [`Self::load_partition_by_idx`].
     pub fn load_partition(&mut self, year: i32, month: u32) -> Result<bool, String> {
-        let idx = self.partitions.iter().position(|p| p.year == year && p.month == month);
+        let idx = self
+            .partitions
+            .iter()
+            .position(|p| p.year == year && p.month == month);
         let Some(idx) = idx else {
             return Ok(false);
         };
@@ -317,8 +330,7 @@ impl BrokerParquetSource {
     ///
     /// Propagates the error from [`Self::load_partition`] when the covering partition cannot be read.
     pub fn load_for_utc_ms(&mut self, utc_ms: i64) -> Result<bool, String> {
-        let dt = chrono::DateTime::from_timestamp(utc_ms / 1000, 0)
-            .map(|d| d.naive_utc());
+        let dt = chrono::DateTime::from_timestamp(utc_ms / 1000, 0).map(|d| d.naive_utc());
         let (year, month) = match dt {
             Some(d) => {
                 use chrono::Datelike;
@@ -337,7 +349,10 @@ impl BrokerParquetSource {
             return;
         }
 
-        let idx = match self.current_ticks.binary_search_by_key(&target_utc_ms, |t| t.utc_ms) {
+        let idx = match self
+            .current_ticks
+            .binary_search_by_key(&target_utc_ms, |t| t.utc_ms)
+        {
             Ok(exact) => exact,
             Err(insert_idx) => insert_idx,
         };
@@ -389,9 +404,10 @@ impl BrokerParquetSource {
                 let prev_idx = curr_idx - 1;
                 if let Ok(true) = self.ensure_partition_cached(prev_idx) {
                     if let Some(prev_ticks) = self.partition_cache.get(&prev_idx) {
-                        let start = match prev_ticks.binary_search_by_key(&from_utc_ms, |t| t.utc_ms) {
-                            Ok(i) | Err(i) => i,
-                        };
+                        let start =
+                            match prev_ticks.binary_search_by_key(&from_utc_ms, |t| t.utc_ms) {
+                                Ok(i) | Err(i) => i,
+                            };
                         let end = match prev_ticks.binary_search_by_key(&to_utc_ms, |t| t.utc_ms) {
                             Ok(i) => i.saturating_add(1),
                             Err(i) => i,
@@ -408,10 +424,16 @@ impl BrokerParquetSource {
 
         // Current partition ticks
         if !self.current_ticks.is_empty() {
-            let start = match self.current_ticks.binary_search_by_key(&from_utc_ms, |t| t.utc_ms) {
+            let start = match self
+                .current_ticks
+                .binary_search_by_key(&from_utc_ms, |t| t.utc_ms)
+            {
                 Ok(i) | Err(i) => i,
             };
-            let end = match self.current_ticks.binary_search_by_key(&to_utc_ms, |t| t.utc_ms) {
+            let end = match self
+                .current_ticks
+                .binary_search_by_key(&to_utc_ms, |t| t.utc_ms)
+            {
                 Ok(i) => i.saturating_add(1),
                 Err(i) => i,
             };
@@ -435,8 +457,13 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
     let file = File::open(path)
         .map_err(|e| format!("Failed to open parquet file '{}': {}", path.display(), e))?;
 
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file)
-        .map_err(|e| format!("ParquetRecordBatchReaderBuilder failed '{}': {}", path.display(), e))?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file).map_err(|e| {
+        format!(
+            "ParquetRecordBatchReaderBuilder failed '{}': {}",
+            path.display(),
+            e
+        )
+    })?;
 
     let file_schema = builder.schema();
     let wanted = ["utc_ms", "mt5_ms", "bid", "ask"];

@@ -73,7 +73,10 @@ fn test_tl02_mid_move_detector_anchor_and_cooldown() {
     // Quote 4 at t=30ms (within 20ms cooldown from t=25ms -> cooldown until 45ms):
     // Even though Mid moves 150.010, it must be suppressed by cooldown!
     let q4 = make_quote(1, 4, 30_000_000, 150.009, 150.011);
-    assert!(detector.on_quote(&q4).is_none(), "Suppressed during cooldown");
+    assert!(
+        detector.on_quote(&q4).is_none(),
+        "Suppressed during cooldown"
+    );
 
     // Quote 5 at t=46ms (after cooldown): Mid=150.008 (anchor was re-anchored at 150.004, diff=0.004 >= 0.002) -> Fires!
     let q5 = make_quote(1, 5, 46_000_000, 150.007, 150.009);
@@ -134,7 +137,9 @@ fn test_tl03_tl04_one_to_one_matcher() {
 
     assert!(matcher.on_event(ev_a0).is_none());
     assert!(matcher.on_event(ev_a8).is_none());
-    let m = matcher.on_event(ev_b10).expect("Must match ev_a8 with ev_b10");
+    let m = matcher
+        .on_event(ev_b10)
+        .expect("Must match ev_a8 with ev_b10");
 
     assert_eq!(m.leader, 1, "Broker 1 leads");
     assert_eq!(m.follower, 2, "Broker 2 follows");

@@ -1,10 +1,10 @@
 //! File deployment and idempotency checks.
 
-use crate::config::BrokerConfig;
 use super::compiler::DeployCompileStatus;
 use super::discovery::DiscoveredTerminal;
 use super::error::DeployError;
 use super::sources::SourceFiles;
+use crate::config::BrokerConfig;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -57,7 +57,8 @@ pub fn connection_map_contents(brokers: &[BrokerConfig]) -> String {
     for broker in brokers {
         let server_hint = tsv_safe(&broker.name);
         let symbol = tsv_safe(&broker.symbol);
-        let _ = writeln!(contents,
+        let _ = writeln!(
+            contents,
             "{}\t{}\t{}\t{}",
             broker.id, server_hint, symbol, broker.port
         );
@@ -69,7 +70,8 @@ pub fn connection_map_contents(brokers: &[BrokerConfig]) -> String {
 #[must_use]
 pub fn deploy_file_idempotent(target_path: &Path, content: &str) -> FileDeployResult {
     let rel_name = target_path
-        .file_name().map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
+        .file_name()
+        .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
 
     if target_path.exists() {
         match fs::read(target_path) {
@@ -145,7 +147,10 @@ pub fn deploy_file_idempotent(target_path: &Path, content: &str) -> FileDeployRe
 }
 
 #[must_use]
-pub fn deploy_to_terminal(terminal: &DiscoveredTerminal, sources: &SourceFiles) -> TerminalDeployReport {
+pub fn deploy_to_terminal(
+    terminal: &DiscoveredTerminal,
+    sources: &SourceFiles,
+) -> TerminalDeployReport {
     let mut results = Vec::new();
 
     let ea_path = terminal.mql5_dir.join("Experts").join("TickCollector.mq5");
@@ -163,7 +168,10 @@ pub fn deploy_to_terminal(terminal: &DiscoveredTerminal, sources: &SourceFiles) 
         .join("Include")
         .join("TickScope")
         .join("SocketClient.mqh");
-    results.push(deploy_file_idempotent(&socket_path, &sources.socket_client_mqh));
+    results.push(deploy_file_idempotent(
+        &socket_path,
+        &sources.socket_client_mqh,
+    ));
 
     TerminalDeployReport {
         terminal_name: terminal.friendly_name.clone(),

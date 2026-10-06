@@ -1,10 +1,16 @@
 //! Binary log verification reader.
 
-use crate::core::types::{LogRecord, RunId, BrokerId, MonoNs, SequenceDisposition, LogRawFrame, LogMetadata, DiagnosticSeverity, Diagnostic};
+use crate::core::types::{
+    BrokerId, Diagnostic, DiagnosticSeverity, LogMetadata, LogRawFrame, LogRecord, MonoNs, RunId,
+    SequenceDisposition,
+};
 use crate::protocol::bytes::{le_i64, le_u16, le_u32, le_u64};
 use crate::protocol::crc32c::crc32c;
 use crate::storage::error::StorageError;
-use crate::storage::tlog_writer::{FILE_HEADER_LEN, STORAGE_MAGIC, STORAGE_VERSION, RECORD_ENVELOPE_LEN, RECORD_KIND_RAW_FRAME, RECORD_KIND_METADATA, RECORD_KIND_DIAGNOSTIC};
+use crate::storage::tlog_writer::{
+    FILE_HEADER_LEN, RECORD_ENVELOPE_LEN, RECORD_KIND_DIAGNOSTIC, RECORD_KIND_METADATA,
+    RECORD_KIND_RAW_FRAME, STORAGE_MAGIC, STORAGE_VERSION,
+};
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Arc;
 
@@ -143,7 +149,11 @@ impl<R: Read + Seek> LogFileReader<R> {
                 let frame_index = le_u64(&payload, 12);
                 let rx_mono_ns = MonoNs(le_u64(&payload, 20));
                 let rx_unix = le_i64(&payload, 28);
-                let rx_unix_ns = if (flags & 1) != 0 { Some(rx_unix) } else { None };
+                let rx_unix_ns = if (flags & 1) != 0 {
+                    Some(rx_unix)
+                } else {
+                    None
+                };
                 let config_epoch = le_u64(&payload, 36);
                 let analysis_segment = le_u64(&payload, 44);
                 let wire_length = le_u32(&payload, 52) as usize;
@@ -212,14 +222,26 @@ impl<R: Read + Seek> LogFileReader<R> {
                 let severity_num = le_u16(&payload, 12);
                 let d_flags = le_u16(&payload, 14);
                 let session_raw = le_u64(&payload, 16);
-                let session_id = if (d_flags & (1 << 0)) != 0 { Some(session_raw) } else { None };
+                let session_id = if (d_flags & (1 << 0)) != 0 {
+                    Some(session_raw)
+                } else {
+                    None
+                };
 
                 let first = le_u64(&payload, 24);
                 let last = le_u64(&payload, 32);
-                let sequence_range = if (d_flags & (1 << 1)) != 0 { Some((first, last)) } else { None };
+                let sequence_range = if (d_flags & (1 << 1)) != 0 {
+                    Some((first, last))
+                } else {
+                    None
+                };
 
                 let count_raw = le_u64(&payload, 40);
-                let known_count = if (d_flags & (1 << 2)) != 0 { Some(count_raw) } else { None };
+                let known_count = if (d_flags & (1 << 2)) != 0 {
+                    Some(count_raw)
+                } else {
+                    None
+                };
                 let detail_value = le_i64(&payload, 48);
                 let code_len = le_u32(&payload, 56) as usize;
                 let msg_len = le_u32(&payload, 60) as usize;
@@ -229,7 +251,9 @@ impl<R: Read + Seek> LogFileReader<R> {
                 }
 
                 let code = String::from_utf8_lossy(&payload[64..64 + code_len]).to_string();
-                let message = String::from_utf8_lossy(&payload[64 + code_len..64 + code_len + msg_len]).to_string();
+                let message =
+                    String::from_utf8_lossy(&payload[64 + code_len..64 + code_len + msg_len])
+                        .to_string();
 
                 let severity = match severity_num {
                     1 => DiagnosticSeverity::Error,

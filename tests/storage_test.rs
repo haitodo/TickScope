@@ -9,10 +9,18 @@ fn oversized_durable_record_fails_instead_of_retrying_forever() {
     let dir = tempfile::tempdir().unwrap();
     let logger = AsyncLogger::new(dir.path(), RunId([7; 16]), 4, 64, 100).unwrap();
     let record = Arc::new(LogRecord::Metadata(LogMetadata {
-        config_epoch: 1, observed_mono_ns: MonoNs(0), toml_text: "too large".into(),
+        config_epoch: 1,
+        observed_mono_ns: MonoNs(0),
+        toml_text: "too large".into(),
     }));
-    assert!(matches!(logger.try_append(record.clone()), AppendResult::Fault(_, _)));
-    assert!(logger.append_durable(record).unwrap_err().contains("exceeding"));
+    assert!(matches!(
+        logger.try_append(record.clone()),
+        AppendResult::Fault(_, _)
+    ));
+    assert!(logger
+        .append_durable(record)
+        .unwrap_err()
+        .contains("exceeding"));
     logger.finish();
 }
 use tick_scope::core::types::*;
@@ -31,7 +39,10 @@ fn test_tg01_roundtrip_all_record_kinds() {
         config_epoch: 1,
         analysis_segment: 1,
         raw_wire_bytes: Arc::new(vec![0xAA, 0xBB, 0xCC, 0xDD]),
-        dispositions: vec![SequenceDisposition::New, SequenceDisposition::DuplicateExact],
+        dispositions: vec![
+            SequenceDisposition::New,
+            SequenceDisposition::DuplicateExact,
+        ],
     });
 
     let meta = LogRecord::Metadata(LogMetadata {

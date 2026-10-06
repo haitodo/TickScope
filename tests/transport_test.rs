@@ -35,7 +35,6 @@ fn test_transport_receiver_lifecycle_and_ack() {
         receive_delay_ms: None,
     };
 
-
     let receiver = Arc::new(TransportReceiver::new(
         config,
         "forced".to_string(),
@@ -86,7 +85,9 @@ fn test_transport_receiver_lifecycle_and_ack() {
 
     // Read ACK
     let mut ack_buf = [0u8; 48];
-    client.read_exact(&mut ack_buf).expect("Must receive 48-byte ACK");
+    client
+        .read_exact(&mut ack_buf)
+        .expect("Must receive 48-byte ACK");
     let magic = u32::from_le_bytes(ack_buf[0..4].try_into().unwrap());
     assert_eq!(magic, MAGIC_TICK);
     let msg_type = u16::from_le_bytes(ack_buf[6..8].try_into().unwrap());
@@ -101,9 +102,13 @@ fn test_transport_receiver_lifecycle_and_ack() {
     let _ = thread_handle.join();
 
     let items = ingress.collected_items();
-    let has_connected = items.iter().any(|it| matches!(it, IngressItem::Connected { broker_id: 1, .. }));
+    let has_connected = items
+        .iter()
+        .any(|it| matches!(it, IngressItem::Connected { broker_id: 1, .. }));
     let has_frame = items.iter().any(|it| matches!(it, IngressItem::Frame(_)));
-    let has_end = items.iter().any(|it| matches!(it, IngressItem::End { broker_id: 1, .. }));
+    let has_end = items
+        .iter()
+        .any(|it| matches!(it, IngressItem::End { broker_id: 1, .. }));
 
     assert!(has_connected, "Must contain Connected item");
     assert!(has_frame, "Must contain Frame item");
@@ -146,7 +151,9 @@ fn test_transport_receiver_ack_mode_off() {
 
     let mut client = TcpStream::connect("127.0.0.1:39102").expect("Must connect to receiver");
     client.set_nodelay(true).unwrap();
-    client.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
 
     let frame = Frame {
         header: Header {
@@ -211,7 +218,6 @@ fn test_transport_receiver_multiple_reconnects_lifecycle() {
         terminal_path: None,
         receive_delay_ms: None,
     };
-
 
     let receiver = Arc::new(TransportReceiver::new(
         config,
@@ -309,9 +315,18 @@ fn test_transport_receiver_multiple_reconnects_lifecycle() {
     let _ = thread_handle.join();
 
     let items = ingress.collected_items();
-    let connected_count = items.iter().filter(|it| matches!(it, IngressItem::Connected { broker_id: 3, .. })).count();
-    let end_count = items.iter().filter(|it| matches!(it, IngressItem::End { broker_id: 3, .. })).count();
-    let frame_count = items.iter().filter(|it| matches!(it, IngressItem::Frame(_))).count();
+    let connected_count = items
+        .iter()
+        .filter(|it| matches!(it, IngressItem::Connected { broker_id: 3, .. }))
+        .count();
+    let end_count = items
+        .iter()
+        .filter(|it| matches!(it, IngressItem::End { broker_id: 3, .. }))
+        .count();
+    let frame_count = items
+        .iter()
+        .filter(|it| matches!(it, IngressItem::Frame(_)))
+        .count();
 
     assert_eq!(connected_count, 2, "Must accept both connections");
     assert_eq!(end_count, 2, "Must record clean End for both connections");
@@ -371,7 +386,10 @@ fn test_transport_receiver_activity_timeout() {
     let end_item = items
         .iter()
         .find(|it| matches!(it, IngressItem::End { broker_id: 4, .. }));
-    assert!(end_item.is_some(), "Must record End item on activity timeout");
+    assert!(
+        end_item.is_some(),
+        "Must record End item on activity timeout"
+    );
     if let Some(IngressItem::End { reason, .. }) = end_item {
         assert!(
             reason.contains("activity timeout"),
@@ -424,7 +442,8 @@ fn test_transport_router_connection_takeover() {
     thread::sleep(Duration::from_millis(50));
 
     // Client 1 connects and sends route handshake for broker 5
-    let mut client1 = TcpStream::connect(("127.0.0.1", router_port)).expect("Client 1 must connect");
+    let mut client1 =
+        TcpStream::connect(("127.0.0.1", router_port)).expect("Client 1 must connect");
     client1.set_nodelay(true).unwrap();
     let mut hello = [0u8; 8];
     hello[0..4].copy_from_slice(b"TSCP");
@@ -467,7 +486,8 @@ fn test_transport_router_connection_takeover() {
     thread::sleep(Duration::from_millis(50));
 
     // Client 2 connects for the same broker 5 (CONNECTION TAKEOVER)
-    let mut client2 = TcpStream::connect(("127.0.0.1", router_port)).expect("Client 2 must connect");
+    let mut client2 =
+        TcpStream::connect(("127.0.0.1", router_port)).expect("Client 2 must connect");
     client2.set_nodelay(true).unwrap();
     client2.write_all(&hello).unwrap();
     client2.flush().unwrap();
@@ -522,11 +542,19 @@ fn test_transport_router_connection_takeover() {
     let connections: Vec<_> = items
         .iter()
         .filter_map(|it| match it {
-            IngressItem::Connected { broker_id, generation, .. } if *broker_id == 5 => Some(*generation),
+            IngressItem::Connected {
+                broker_id,
+                generation,
+                ..
+            } if *broker_id == 5 => Some(*generation),
             _ => None,
         })
         .collect();
-    assert_eq!(connections, vec![1, 2], "Must record both generation 1 and generation 2");
+    assert_eq!(
+        connections,
+        vec![1, 2],
+        "Must record both generation 1 and generation 2"
+    );
 
     let frame_count = items
         .iter()
@@ -534,6 +562,3 @@ fn test_transport_router_connection_takeover() {
         .count();
     assert_eq!(frame_count, 2, "Must receive frames from both connections");
 }
-
-
-

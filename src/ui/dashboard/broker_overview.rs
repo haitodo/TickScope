@@ -643,20 +643,21 @@ mod layout_tests {
                     }
                 }
                 egui::Shape::Text(text_shape)
-                    if ["A", "B", "↑", "↓"].contains(&text_shape.galley.job.text.as_str()) => {
-                        assert!(
-                            text_shape.pos.x >= shape.clip_rect.left(),
-                            "Text left clipped: {} at {:?}",
-                            text_shape.galley.job.text,
-                            text_shape.pos
-                        );
-                        assert!(
-                            text_shape.pos.x + text_shape.galley.size().x <= shape.clip_rect.right(),
-                            "Text right clipped: {} at {:?}",
-                            text_shape.galley.job.text,
-                            text_shape.pos
-                        );
-                    }
+                    if ["A", "B", "↑", "↓"].contains(&text_shape.galley.job.text.as_str()) =>
+                {
+                    assert!(
+                        text_shape.pos.x >= shape.clip_rect.left(),
+                        "Text left clipped: {} at {:?}",
+                        text_shape.galley.job.text,
+                        text_shape.pos
+                    );
+                    assert!(
+                        text_shape.pos.x + text_shape.galley.size().x <= shape.clip_rect.right(),
+                        "Text right clipped: {} at {:?}",
+                        text_shape.galley.job.text,
+                        text_shape.pos
+                    );
+                }
                 _ => {}
             }
         }

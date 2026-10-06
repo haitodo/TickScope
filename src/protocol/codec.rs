@@ -1,6 +1,14 @@
 use super::bytes::le_u32;
-use super::packet::{ProtocolError, decode_header, decode_tick_record, decode_heartbeat, decode_batch_ack, decode_status, encode_header, encode_tick_record, encode_heartbeat, encode_batch_ack, encode_status};
-use super::wire::{Frame, HEADER_LENGTH, MSG_TYPE_TICK_BATCH, TICK_RECORD_LENGTH, FramePayload, MSG_TYPE_HEARTBEAT, MSG_TYPE_BATCH_ACK, MSG_TYPE_STATUS, MAGIC_TICK, HEARTBEAT_PAYLOAD_LENGTH, BATCH_ACK_PAYLOAD_LENGTH, STATUS_PAYLOAD_LENGTH};
+use super::packet::{
+    decode_batch_ack, decode_header, decode_heartbeat, decode_status, decode_tick_record,
+    encode_batch_ack, encode_header, encode_heartbeat, encode_status, encode_tick_record,
+    ProtocolError,
+};
+use super::wire::{
+    Frame, FramePayload, BATCH_ACK_PAYLOAD_LENGTH, HEADER_LENGTH, HEARTBEAT_PAYLOAD_LENGTH,
+    MAGIC_TICK, MSG_TYPE_BATCH_ACK, MSG_TYPE_HEARTBEAT, MSG_TYPE_STATUS, MSG_TYPE_TICK_BATCH,
+    STATUS_PAYLOAD_LENGTH, TICK_RECORD_LENGTH,
+};
 use std::sync::{Arc, OnceLock};
 
 static EMPTY_RAW_WIRE_BYTES: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
@@ -60,10 +68,13 @@ impl StreamingDecoder {
         let max_total = (HEADER_LENGTH as usize)
             .checked_add(self.max_payload_length)
             .ok_or(ProtocolError::ArithmeticOverflow)?;
-        
-        let pending = self.buffer_len().checked_add(data.len())
+
+        let pending = self
+            .buffer_len()
+            .checked_add(data.len())
             .ok_or(ProtocolError::ArithmeticOverflow)?;
-        let max_buffer = max_total.checked_mul(2)
+        let max_buffer = max_total
+            .checked_mul(2)
             .ok_or(ProtocolError::ArithmeticOverflow)?;
         if pending > max_buffer {
             return Err(ProtocolError::PayloadLengthExceedsMax(
@@ -96,14 +107,18 @@ impl StreamingDecoder {
             return Ok(None);
         }
 
-        let header = match decode_header(&self.buffer[self.consumed..self.consumed + HEADER_LENGTH as usize]) {
+        let header = match decode_header(
+            &self.buffer[self.consumed..self.consumed + HEADER_LENGTH as usize],
+        ) {
             Ok(hdr) => hdr,
             Err(ProtocolError::NeedMore { .. }) => return Ok(None),
             Err(e) => return Err(e),
         };
 
         if header.payload_length as usize > self.max_payload_length {
-            return Err(ProtocolError::PayloadLengthExceedsMax(header.payload_length));
+            return Err(ProtocolError::PayloadLengthExceedsMax(
+                header.payload_length,
+            ));
         }
 
         let total_frame_len = (HEADER_LENGTH as usize)
@@ -164,10 +179,7 @@ impl StreamingDecoder {
         }
 
         Ok(Some(DecodedFrame {
-            frame: Frame {
-                header,
-                payload,
-            },
+            frame: Frame { header, payload },
             raw_wire_bytes,
             warnings,
         }))

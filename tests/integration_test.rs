@@ -11,7 +11,14 @@ use tick_scope::protocol::*;
 use tick_scope::runtime::coordinator::RuntimeCoordinator;
 use tick_scope::tick::engine::TickEngine;
 
-fn send_test_tick(stream: &mut TcpStream, broker_id: BrokerId, seq: Sequence, time_msc: i64, bid: f64, ask: f64) {
+fn send_test_tick(
+    stream: &mut TcpStream,
+    broker_id: BrokerId,
+    seq: Sequence,
+    time_msc: i64,
+    bid: f64,
+    ask: f64,
+) {
     let frame = Frame {
         header: Header {
             magic: MAGIC_TICK,
@@ -98,7 +105,6 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
             terminal_path: None,
             receive_delay_ms: None,
         },
-
     ];
     config.active_pair = (1, 2);
 
@@ -127,20 +133,35 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
     let snap = coordinator.exchange.load_latest();
     assert_eq!(snap.broker_overviews.len(), 3, "All 3 brokers in overview");
 
-    let b1 = snap.broker_overviews.iter().find(|b| b.broker_id == 1).unwrap();
+    let b1 = snap
+        .broker_overviews
+        .iter()
+        .find(|b| b.broker_id == 1)
+        .unwrap();
     assert!(b1.latest_quote.is_some(), "Broker 1 has quote");
     assert_eq!(b1.latest_quote.as_ref().unwrap().bid, 155.000);
 
-    let b2 = snap.broker_overviews.iter().find(|b| b.broker_id == 2).unwrap();
+    let b2 = snap
+        .broker_overviews
+        .iter()
+        .find(|b| b.broker_id == 2)
+        .unwrap();
     assert!(b2.latest_quote.is_some(), "Broker 2 has quote");
     assert_eq!(b2.latest_quote.as_ref().unwrap().bid, 154.998);
 
-    let b3 = snap.broker_overviews.iter().find(|b| b.broker_id == 3).unwrap();
+    let b3 = snap
+        .broker_overviews
+        .iter()
+        .find(|b| b.broker_id == 3)
+        .unwrap();
     assert!(b3.latest_quote.is_some(), "Broker 3 has quote");
     assert_eq!(b3.latest_quote.as_ref().unwrap().bid, 155.003);
 
     // Verify Active Pair (1 vs 2) diff
-    let pair_comp = snap.active_pair_comparison.as_ref().expect("Pair comparison exists");
+    let pair_comp = snap
+        .active_pair_comparison
+        .as_ref()
+        .expect("Pair comparison exists");
     assert_eq!(pair_comp.broker_a, 1);
     assert_eq!(pair_comp.broker_b, 2);
     let bid_diff = pair_comp.bid_diff.expect("Bid diff computed");
@@ -155,7 +176,10 @@ fn test_ti01_multi_broker_end_to_end_pipeline() {
 
     let snap2 = coordinator.exchange.load_latest();
     assert_eq!(snap2.active_pair, (1, 3));
-    let pair_comp2 = snap2.active_pair_comparison.as_ref().expect("Pair comparison 1 vs 3");
+    let pair_comp2 = snap2
+        .active_pair_comparison
+        .as_ref()
+        .expect("Pair comparison 1 vs 3");
     assert_eq!(pair_comp2.broker_a, 1);
     assert_eq!(pair_comp2.broker_b, 3);
     let bid_diff2 = pair_comp2.bid_diff.expect("Bid diff for 1 vs 3");
@@ -224,7 +248,6 @@ fn test_ti02_high_frequency_burst_injection() {
             terminal_path: None,
             receive_delay_ms: None,
         },
-
     ];
     config.active_pair = (11, 12);
 
@@ -269,7 +292,9 @@ fn test_ti02_high_frequency_burst_injection() {
                 .find(|b| b.broker_id == bid)
                 .is_some_and(|b| {
                     b.health.total_ticks_received == burst_count as u64
-                        && b.latest_quote.as_ref().is_some_and(|q| q.tick_id.sequence == (burst_count - 1) as u64)
+                        && b.latest_quote
+                            .as_ref()
+                            .is_some_and(|q| q.tick_id.sequence == (burst_count - 1) as u64)
                 })
         });
         if all_caught_up || std::time::Instant::now() > deadline {
@@ -292,8 +317,7 @@ fn test_ti02_high_frequency_burst_injection() {
             "Broker {bid} must have caught up to the final burst sequence without dropped ticks"
         );
         assert_eq!(
-            b.health.total_ticks_received,
-            burst_count as u64,
+            b.health.total_ticks_received, burst_count as u64,
             "Broker {bid} must have processed exactly all burst ticks"
         );
     }
@@ -308,37 +332,37 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
 
     let config = AppConfig {
         brokers: vec![
-        BrokerConfig {
-            id: 21,
-            name: "FastBroker".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 39301,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            utc_offset_sec: 0,
-            timezone_rule: TimezoneRule::Utc,
-            utc_verified: true,
-            auto_utc_offset: true,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-        BrokerConfig {
-            id: 22,
-            name: "SlowBroker".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 39302,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            utc_offset_sec: 0,
-            timezone_rule: TimezoneRule::Utc,
-            utc_verified: true,
-            auto_utc_offset: true,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-    ],
+            BrokerConfig {
+                id: 21,
+                name: "FastBroker".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 39301,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                utc_offset_sec: 0,
+                timezone_rule: TimezoneRule::Utc,
+                utc_verified: true,
+                auto_utc_offset: true,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+            BrokerConfig {
+                id: 22,
+                name: "SlowBroker".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 39302,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                utc_offset_sec: 0,
+                timezone_rule: TimezoneRule::Utc,
+                utc_verified: true,
+                auto_utc_offset: true,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+        ],
         ..AppConfig::default()
     };
     let mut engine = TickEngine::new(config);
@@ -400,8 +424,15 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
     // Verify Fast Path: FastBroker quote is immediately visible in projection
     // despite SlowBroker holding the global merge watermark at 0!
     let proj = engine.make_projection_at(UtcMs(1_700_000_000_000), MonoNs(50_000_000));
-    let overview_21 = proj.broker_overviews.iter().find(|b| b.broker_id == 21).expect("Broker 21 overview present");
-    let q = overview_21.latest_quote.as_ref().expect("Latest quote in overview must be immediately available via Fast Path");
+    let overview_21 = proj
+        .broker_overviews
+        .iter()
+        .find(|b| b.broker_id == 21)
+        .expect("Broker 21 overview present");
+    let q = overview_21
+        .latest_quote
+        .as_ref()
+        .expect("Latest quote in overview must be immediately available via Fast Path");
     assert_eq!(q.tick_id.sequence, 42);
     assert_eq!(q.bid, 150.123);
     assert_eq!(q.ask, 150.125);
@@ -412,20 +443,20 @@ fn test_fast_path_quote_immediate_exposure_without_merge_wait() {
 fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
     let config = AppConfig {
         brokers: vec![BrokerConfig {
-        id: 10,
-        name: "WarmupBroker".to_string(),
-        host: "127.0.0.1".to_string(),
-        port: 19110,
-        symbol: "USDJPY".to_string(),
-        point_size: 0.001,
-        pip_size: 0.01,
-        utc_offset_sec: 0,
-        utc_verified: true,
-        auto_utc_offset: false,
-        timezone_rule: TimezoneRule::Fixed,
-        terminal_path: None,
-        receive_delay_ms: None,
-    }],
+            id: 10,
+            name: "WarmupBroker".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 19110,
+            symbol: "USDJPY".to_string(),
+            point_size: 0.001,
+            pip_size: 0.01,
+            utc_offset_sec: 0,
+            utc_verified: true,
+            auto_utc_offset: false,
+            timezone_rule: TimezoneRule::Fixed,
+            terminal_path: None,
+            receive_delay_ms: None,
+        }],
         ..AppConfig::default()
     };
     let mut engine = TickEngine::new(config);
@@ -505,7 +536,11 @@ fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
     assert!(last.broker_mids.contains_key(&10));
 
     // 4. Verify broker health freshness was NOT falsely marked Live by warmup ticks
-    let overview = proj.broker_overviews.iter().find(|b| b.broker_id == 10).unwrap();
+    let overview = proj
+        .broker_overviews
+        .iter()
+        .find(|b| b.broker_id == 10)
+        .unwrap();
     assert_ne!(
         overview.health.data_freshness,
         FreshnessState::Live,
@@ -517,37 +552,37 @@ fn test_warmup_ticks_populate_realtime_quote_history_across_past_window() {
 fn test_multi_broker_warmup_ticks_interleaved_chronologically() {
     let config = AppConfig {
         brokers: vec![
-        BrokerConfig {
-            id: 1,
-            name: "BrokerA".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 19101,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            utc_offset_sec: 0,
-            utc_verified: true,
-            auto_utc_offset: false,
-            timezone_rule: TimezoneRule::Fixed,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-        BrokerConfig {
-            id: 2,
-            name: "BrokerB".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 19102,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            utc_offset_sec: 0,
-            utc_verified: true,
-            auto_utc_offset: false,
-            timezone_rule: TimezoneRule::Fixed,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-    ],
+            BrokerConfig {
+                id: 1,
+                name: "BrokerA".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 19101,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                utc_offset_sec: 0,
+                utc_verified: true,
+                auto_utc_offset: false,
+                timezone_rule: TimezoneRule::Fixed,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+            BrokerConfig {
+                id: 2,
+                name: "BrokerB".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 19102,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                utc_offset_sec: 0,
+                utc_verified: true,
+                auto_utc_offset: false,
+                timezone_rule: TimezoneRule::Fixed,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+        ],
         ..AppConfig::default()
     };
     let mut engine = TickEngine::new(config);
@@ -645,7 +680,10 @@ fn test_multi_broker_warmup_ticks_interleaved_chronologically() {
         frame_index: 1,
     }));
 
-    let proj = engine.make_projection_at(UtcMs(1_700_000_031_000), MonoNs(current_mono_ns.0 + 1_000_000_000));
+    let proj = engine.make_projection_at(
+        UtcMs(1_700_000_031_000),
+        MonoNs(current_mono_ns.0 + 1_000_000_000),
+    );
 
     // Verify all points remain strictly sorted by mono_ns
     for window in proj.realtime_quote_points.windows(2) {
@@ -668,7 +706,3 @@ fn test_multi_broker_warmup_ticks_interleaved_chronologically() {
         "Overlapping warmup window must contain mid prices for both Broker 1 and Broker 2"
     );
 }
-
-
-
-

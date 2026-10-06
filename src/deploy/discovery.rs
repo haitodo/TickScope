@@ -42,7 +42,8 @@ pub fn discover_mt5_terminals(config: &Mt5DeployConfig) -> (Vec<DiscoveredTermin
                         // Read origin.txt if available for friendly name
                         let friendly_name = resolve_terminal_friendly_name(&path, &folder_name);
 
-                        let canonical = mql5_dir.canonicalize().unwrap_or_else(|_| mql5_dir.clone());
+                        let canonical =
+                            mql5_dir.canonicalize().unwrap_or_else(|_| mql5_dir.clone());
                         if seen_canonical.insert(canonical) {
                             terminals.push(DiscoveredTerminal {
                                 friendly_name,
@@ -60,13 +61,17 @@ pub fn discover_mt5_terminals(config: &Mt5DeployConfig) -> (Vec<DiscoveredTermin
     for custom_dir in &config.custom_data_dirs {
         let p = PathBuf::from(custom_dir);
         if !p.exists() {
-            warnings.push(format!("Configured custom MT5 data directory does not exist: {custom_dir}"));
+            warnings.push(format!(
+                "Configured custom MT5 data directory does not exist: {custom_dir}"
+            ));
             continue;
         }
 
         let (terminal_dir, mql5_dir) = if p.join("MQL5").is_dir() {
             (p.clone(), p.join("MQL5"))
-        } else if p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("MQL5"))
+        } else if p
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("MQL5"))
             || p.join("Experts").is_dir()
         {
             let term = p.parent().unwrap_or(&p).to_path_buf();
@@ -80,7 +85,9 @@ pub fn discover_mt5_terminals(config: &Mt5DeployConfig) -> (Vec<DiscoveredTermin
 
         let canonical = mql5_dir.canonicalize().unwrap_or_else(|_| mql5_dir.clone());
         if seen_canonical.insert(canonical) {
-            let folder_name = terminal_dir.file_name().map_or_else(|| "Custom".to_string(), |n| n.to_string_lossy().to_string());
+            let folder_name = terminal_dir
+                .file_name()
+                .map_or_else(|| "Custom".to_string(), |n| n.to_string_lossy().to_string());
             let friendly_name = resolve_terminal_friendly_name(&terminal_dir, &folder_name);
             terminals.push(DiscoveredTerminal {
                 friendly_name,
@@ -105,7 +112,11 @@ pub fn read_origin(terminal_dir: &Path) -> Option<String> {
     } else {
         String::from_utf8(bytes).ok()?
     };
-    Some(content.trim_matches(|c: char| c.is_whitespace() || c == '\0' || c == '\u{feff}').to_string())
+    Some(
+        content
+            .trim_matches(|c: char| c.is_whitespace() || c == '\0' || c == '\u{feff}')
+            .to_string(),
+    )
 }
 
 #[must_use]
@@ -114,7 +125,8 @@ pub fn resolve_terminal_friendly_name(terminal_dir: &Path, folder_name: &str) ->
         let origin = origin_content.trim();
         if !origin.is_empty() {
             let app_name = Path::new(origin)
-                .file_name().map_or_else(|| origin.to_string(), |n| n.to_string_lossy().to_string());
+                .file_name()
+                .map_or_else(|| origin.to_string(), |n| n.to_string_lossy().to_string());
             let hash_short: String = folder_name.chars().take(8).collect();
             return format!("{app_name} ({hash_short})");
         }

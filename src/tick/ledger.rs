@@ -37,7 +37,10 @@ impl SequenceLedger {
 
     /// Observe a sequence number and return its disposition and an optional gap range `(first, last)`.
     #[inline]
-    pub fn observe(&mut self, sequence: Sequence) -> (SequenceDisposition, Option<(Sequence, Sequence)>) {
+    pub fn observe(
+        &mut self,
+        sequence: Sequence,
+    ) -> (SequenceDisposition, Option<(Sequence, Sequence)>) {
         if self.seen_sequences.contains(&sequence) {
             (SequenceDisposition::DuplicateExact, None)
         } else if sequence < self.expected_sequence {

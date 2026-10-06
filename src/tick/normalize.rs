@@ -1,6 +1,6 @@
 //! UTC Normalizer for Observed Ticks.
 
-use crate::core::types::{ObservedTick, NormalizedTick, UtcMs};
+use crate::core::types::{NormalizedTick, ObservedTick, UtcMs};
 
 /// Move a broker-stamped tick onto the UTC timeline.
 ///

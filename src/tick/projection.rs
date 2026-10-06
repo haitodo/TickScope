@@ -2,8 +2,10 @@
 //! Builds immutable `EngineProjection` snapshots for the UI exchange.
 
 use crate::config::TimezoneRule;
-use crate::core::models::{EngineProjection, BrokerOverview, PairComparison, MoveDirection};
-use crate::core::types::{UtcMs, MonoNs, ConnectionState, FreshnessState, HeartbeatState, BrokerId};
+use crate::core::models::{BrokerOverview, EngineProjection, MoveDirection, PairComparison};
+use crate::core::types::{
+    BrokerId, ConnectionState, FreshnessState, HeartbeatState, MonoNs, UtcMs,
+};
 use crate::tick::engine::TickEngine;
 use std::collections::HashMap;
 
@@ -18,26 +20,44 @@ impl TickEngine {
 
         for b in &self.config.brokers {
             let st = self.spread_trackers.get(&b.id);
-            let latest_q = self.fast_quotes.get(&b.id).or_else(|| self.latest_quotes.get(&b.id)).copied();
+            let latest_q = self
+                .fast_quotes
+                .get(&b.id)
+                .or_else(|| self.latest_quotes.get(&b.id))
+                .copied();
             let mut health = self.health_states.get(&b.id).copied().unwrap_or_default();
             if health.connection == ConnectionState::Connected {
                 health.data_freshness = match health.last_live_tick_rx_mono {
-                    Some(last) if now_mono.0.saturating_sub(last.0)
-                        <= self.config.health.stale_after_ms.saturating_mul(1_000_000) => FreshnessState::Live,
+                    Some(last)
+                        if now_mono.0.saturating_sub(last.0)
+                            <= self.config.health.stale_after_ms.saturating_mul(1_000_000) =>
+                    {
+                        FreshnessState::Live
+                    }
                     Some(_) => FreshnessState::Stale,
                     None => FreshnessState::Unknown,
                 };
                 health.heartbeat = match health.last_heartbeat_rx_mono {
-                    Some(last) if now_mono.0.saturating_sub(last.0)
-                        <= self.config.health.heartbeat_timeout_ms.saturating_mul(1_000_000) => HeartbeatState::Ok,
+                    Some(last)
+                        if now_mono.0.saturating_sub(last.0)
+                            <= self
+                                .config
+                                .health
+                                .heartbeat_timeout_ms
+                                .saturating_mul(1_000_000) =>
+                    {
+                        HeartbeatState::Ok
+                    }
                     Some(_) => HeartbeatState::Timeout,
                     None => HeartbeatState::Unknown,
                 };
             }
             let ch = self.channels.get(&b.id);
             let active_utc_offset_sec = ch.map_or(b.utc_offset_sec, |c| c.active_utc_offset_sec);
-            let is_auto_offset = ch
-                .map_or(b.timezone_rule == TimezoneRule::NyClose || b.auto_utc_offset, |c| c.timezone_rule == TimezoneRule::NyClose || c.auto_utc_offset);
+            let is_auto_offset = ch.map_or(
+                b.timezone_rule == TimezoneRule::NyClose || b.auto_utc_offset,
+                |c| c.timezone_rule == TimezoneRule::NyClose || c.auto_utc_offset,
+            );
 
             broker_overviews.push(BrokerOverview {
                 broker_id: b.id,
@@ -56,8 +76,12 @@ impl TickEngine {
         let (a, b) = self.active_pair;
         let fresh_quote = |broker_id: BrokerId| {
             self.latest_quotes.get(&broker_id).filter(|q| {
-                self.channels.get(&broker_id).is_some_and(|ch| ch.is_connected)
-                    && q.is_valid && !q.is_warmup && q.mid.is_finite()
+                self.channels
+                    .get(&broker_id)
+                    .is_some_and(|ch| ch.is_connected)
+                    && q.is_valid
+                    && !q.is_warmup
+                    && q.mid.is_finite()
                     && now_mono.0.saturating_sub(q.rx_mono_ns.0)
                         <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
             })
@@ -66,7 +90,11 @@ impl TickEngine {
         let q_b = fresh_quote(b);
         let synchronized_pair = q_a.zip(q_b).filter(|(qa, qb)| {
             qa.rx_mono_ns.0.abs_diff(qb.rx_mono_ns.0)
-                <= self.config.matcher.max_quote_skew_ms.saturating_mul(1_000_000)
+                <= self
+                    .config
+                    .matcher
+                    .max_quote_skew_ms
+                    .saturating_mul(1_000_000)
         });
 
         let active_pair_comparison = Some(PairComparison {
@@ -94,10 +122,15 @@ impl TickEngine {
                 None
             },
             recent_diff_series: self.pair_tracker.series(),
-            latest_match: self.latest_pair_match.as_ref().filter(|m| {
-                q_a.is_some() && q_b.is_some()
-                    && now_mono.0.saturating_sub(m.t_follower.0) <= 5_000_000_000
-            }).copied(),
+            latest_match: self
+                .latest_pair_match
+                .as_ref()
+                .filter(|m| {
+                    q_a.is_some()
+                        && q_b.is_some()
+                        && now_mono.0.saturating_sub(m.t_follower.0) <= 5_000_000_000
+                })
+                .copied(),
             ema_lead_lag_ms: self.matcher.current_ema_ms,
         });
 
@@ -123,29 +156,53 @@ impl TickEngine {
         }
 
         // 1. Observed Broker Consensus & Dispersion
-        let stale_brokers: Vec<BrokerId> = self.config.brokers.iter().filter(|b| {
-            !self.channels.get(&b.id).is_some_and(|ch| ch.is_connected)
-                || !self.latest_quotes.get(&b.id).is_some_and(|q| {
-                    q.is_valid && !q.is_warmup && q.mid.is_finite()
-                        && now_mono.0.saturating_sub(q.rx_mono_ns.0)
-                            <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
-                })
-        }).map(|b| b.id).collect();
+        let stale_brokers: Vec<BrokerId> = self
+            .config
+            .brokers
+            .iter()
+            .filter(|b| {
+                !self.channels.get(&b.id).is_some_and(|ch| ch.is_connected)
+                    || !self.latest_quotes.get(&b.id).is_some_and(|q| {
+                        q.is_valid
+                            && !q.is_warmup
+                            && q.mid.is_finite()
+                            && now_mono.0.saturating_sub(q.rx_mono_ns.0)
+                                <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
+                    })
+            })
+            .map(|b| b.id)
+            .collect();
         let mut consensus = self.consensus_calc.compute(
-            self.latest_quotes.values().filter(|q| !stale_brokers.contains(&q.tick_id.broker_id)),
+            self.latest_quotes
+                .values()
+                .filter(|q| !stale_brokers.contains(&q.tick_id.broker_id)),
             now_mono,
         );
         consensus.total_count = self.config.brokers.len();
 
         // 2. Breadth & Active Burst Clusters
         let current_breadth = Some(self.burst_detector.compute_breadth_with_stale_brokers(
-            self.config.brokers.len(), &stale_brokers, now_mono,
+            self.config.brokers.len(),
+            &stale_brokers,
+            now_mono,
         ));
         let mut active_clusters = Vec::new();
-        if let Some(c_up) = self.burst_detector.detect_cluster_at(MoveDirection::Up, self.config.brokers.len(), consensus.fresh_count, now_mono, &stale_brokers) {
+        if let Some(c_up) = self.burst_detector.detect_cluster_at(
+            MoveDirection::Up,
+            self.config.brokers.len(),
+            consensus.fresh_count,
+            now_mono,
+            &stale_brokers,
+        ) {
             active_clusters.push(c_up);
         }
-        if let Some(c_down) = self.burst_detector.detect_cluster_at(MoveDirection::Down, self.config.brokers.len(), consensus.fresh_count, now_mono, &stale_brokers) {
+        if let Some(c_down) = self.burst_detector.detect_cluster_at(
+            MoveDirection::Down,
+            self.config.brokers.len(),
+            consensus.fresh_count,
+            now_mono,
+            &stale_brokers,
+        ) {
             active_clusters.push(c_down);
         }
 

@@ -82,7 +82,7 @@ impl Default for ChartTheme {
             candle_down_a: dim_candle_color(COLOR_OANDA),
             candle_up_b: COLOR_TRADEVIEW,
             candle_down_b: dim_candle_color(COLOR_TRADEVIEW),
-            diff_line: crate::ui::style::WARNING,        // Gold for mid diff
+            diff_line: crate::ui::style::WARNING, // Gold for mid diff
             bid_diff_line: Color32::from_rgb(0, 191, 255), // Deep Sky Blue for bid diff
             ask_diff_line: Color32::from_rgb(255, 105, 180), // Hot Pink for ask diff
             spread_diff_line: Color32::from_rgb(175, 125, 255), // Light Purple for spread diff
@@ -90,11 +90,11 @@ impl Default for ChartTheme {
             // Default broker colors corresponding to default.toml brokers
             // (0: OANDA, 1: Tradeview, 2: Dukascopy, 3: Axiory, 4: JFX)
             broker_colors: [
-                COLOR_OANDA,     // #00D37E OANDA
-                COLOR_TRADEVIEW, // #E53935 Tradeview
-                COLOR_DUKASCOPY, // #3B82F6 Dukascopy
-                COLOR_AXIORY,    // #8A29D5 Axiory
-                COLOR_JFX,       // #A8C92B JFX
+                COLOR_OANDA,                      // #00D37E OANDA
+                COLOR_TRADEVIEW,                  // #E53935 Tradeview
+                COLOR_DUKASCOPY,                  // #3B82F6 Dukascopy
+                COLOR_AXIORY,                     // #8A29D5 Axiory
+                COLOR_JFX,                        // #A8C92B JFX
                 Color32::from_rgb(255, 130, 170), // Pink
                 Color32::from_rgb(255, 220, 80),  // Gold
                 Color32::from_rgb(200, 200, 200), // Silver
@@ -164,7 +164,13 @@ mod tests {
 
         let theme = ChartTheme::default();
         assert_eq!(broker_color_for_name(&theme, Some("OANDA"), 0), COLOR_OANDA);
-        assert_eq!(broker_color_for_name(&theme, Some("Axiory"), 0), COLOR_AXIORY);
-        assert_eq!(broker_color_for_name(&theme, Some("Unknown"), 1), COLOR_TRADEVIEW);
+        assert_eq!(
+            broker_color_for_name(&theme, Some("Axiory"), 0),
+            COLOR_AXIORY
+        );
+        assert_eq!(
+            broker_color_for_name(&theme, Some("Unknown"), 1),
+            COLOR_TRADEVIEW
+        );
     }
 }

@@ -34,8 +34,16 @@ pub const fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
 /// the Unix epoch (1970-01-01).
 #[must_use]
 pub fn ymd_to_days(year: i32, month: u32, day: u32) -> i64 {
-    let y = if month <= 2 { i64::from(year) - 1 } else { i64::from(year) };
-    let m = if month <= 2 { i64::from(month) + 9 } else { i64::from(month) - 3 };
+    let y = if month <= 2 {
+        i64::from(year) - 1
+    } else {
+        i64::from(year)
+    };
+    let m = if month <= 2 {
+        i64::from(month) + 9
+    } else {
+        i64::from(month) - 3
+    };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = (y - era * 400) as u32;
     let doy = (153 * m + 2) / 5 + i64::from(day) - 1;
@@ -103,7 +111,7 @@ mod tests {
         assert_eq!(civil_from_days(20_147), (2025, 2, 28)); // was (2025, 3, 0)
         assert_eq!(civil_from_days(20_512), (2026, 2, 28)); // was (2026, 3, 0)
         assert_eq!(civil_from_days(20_877), (2027, 2, 28)); // was (2027, 3, 0)
-        // Negative days exercise the `z - 146_096` era branch.
+                                                            // Negative days exercise the `z - 146_096` era branch.
         assert_eq!(civil_from_days(-1), (1969, 12, 31));
         assert_eq!(civil_from_days(-25_567), (1900, 1, 1));
     }
@@ -163,7 +171,11 @@ mod tests {
         assert_eq!(previous, (1900, 1, 1));
         for days in -25_566_i64..=84_005 {
             let current = civil_from_days(days);
-            assert_eq!(current, next_day(previous), "days={days} is not consecutive");
+            assert_eq!(
+                current,
+                next_day(previous),
+                "days={days} is not consecutive"
+            );
             previous = current;
         }
     }

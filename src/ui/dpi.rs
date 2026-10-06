@@ -25,10 +25,12 @@ pub mod windows {
             if !hmonitor.is_null() {
                 let mut dpi_x = 0;
                 let mut dpi_y = 0;
-                if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y) == 0
-                    && dpi_x > 0 {
-                        return dpi_x as f32 / 96.0;
-                    }
+                if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y)
+                    == 0
+                    && dpi_x > 0
+                {
+                    return dpi_x as f32 / 96.0;
+                }
             }
         }
         1.0
@@ -106,7 +108,8 @@ pub(crate) fn install_dpi_drag_fix(hwnd: isize) {
     }
 
     let hwnd = hwnd as HWND;
-    let old = unsafe { SetWindowLongPtrW(hwnd, GWL_WNDPROC, dpi_fix_wndproc as *const () as isize) };
+    let old =
+        unsafe { SetWindowLongPtrW(hwnd, GWL_WNDPROC, dpi_fix_wndproc as *const () as isize) };
     if old != 0 {
         ORIGINAL_WNDPROC.store(old, Ordering::Release);
         log::info!("[DPI Fix] Installed cross-monitor drag fix (subclass wndproc)");

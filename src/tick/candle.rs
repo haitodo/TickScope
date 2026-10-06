@@ -1,8 +1,8 @@
 //! Candle aggregation and `CandleBook` for fixed time slots.
 
 use crate::config::SlotRetention;
-use crate::core::models::{CandleSlot, PriceMode, SlotState, SlotCoverage, Ohlc, CandleView};
-use crate::core::types::{UtcMs, BrokerId, NormalizedTick};
+use crate::core::models::{CandleSlot, CandleView, Ohlc, PriceMode, SlotCoverage, SlotState};
+use crate::core::types::{BrokerId, NormalizedTick, UtcMs};
 use std::collections::{BTreeMap, HashMap};
 
 #[must_use]
@@ -23,11 +23,14 @@ pub struct CandleBook {
 impl CandleBook {
     #[must_use]
     pub fn new(supported_periods: Vec<i64>) -> Self {
-        let retentions = supported_periods.iter().map(|&period_ms| SlotRetention {
-            period_ms,
-            // Preserve a useful bounded default even for direct test/tool use.
-            slots: 1_024,
-        }).collect::<Vec<_>>();
+        let retentions = supported_periods
+            .iter()
+            .map(|&period_ms| SlotRetention {
+                period_ms,
+                // Preserve a useful bounded default even for direct test/tool use.
+                slots: 1_024,
+            })
+            .collect::<Vec<_>>();
         Self::with_retentions(&retentions)
     }
 
@@ -37,7 +40,9 @@ impl CandleBook {
         let mut retention_slots = HashMap::new();
         for retention in retentions {
             if retention.period_ms > 0 && retention.slots > 0 {
-                books.entry(retention.period_ms).or_insert_with(HashMap::new);
+                books
+                    .entry(retention.period_ms)
+                    .or_insert_with(HashMap::new);
                 if !supported_periods.contains(&retention.period_ms) {
                     supported_periods.push(retention.period_ms);
                 }
@@ -89,7 +94,12 @@ impl CandleBook {
 
         for &period in &self.supported_periods {
             let slot_start = calculate_slot_start(tick.utc_ms, period);
-            let broker_map = self.books.get_mut(&period).unwrap().entry(broker_id).or_default();
+            let broker_map = self
+                .books
+                .get_mut(&period)
+                .unwrap()
+                .entry(broker_id)
+                .or_default();
 
             let slot = broker_map.entry(slot_start).or_insert_with(|| CandleSlot {
                 broker_id,
@@ -140,7 +150,8 @@ impl CandleBook {
             }
 
             let current_slot = calculate_slot_start(current_utc_now, period);
-            let latest_slot = self.latest_slot_by_broker
+            let latest_slot = self
+                .latest_slot_by_broker
                 .entry((period, broker_id))
                 .or_insert(slot_start);
 
@@ -153,16 +164,21 @@ impl CandleBook {
                 *latest_slot = current_slot;
             }
 
-            let slots = self.retention_slots.get(&period).copied().unwrap_or(1).max(1);
+            let slots = self
+                .retention_slots
+                .get(&period)
+                .copied()
+                .unwrap_or(1)
+                .max(1);
             let keep_slots = slots.saturating_add(5);
             // Retain window: ensure cutoff never exceeds current_utc_now window,
             // preventing premature pruning of active candles.
-            let cutoff_from_latest = latest_slot.0.saturating_sub(
-                period.saturating_mul((keep_slots.saturating_sub(1)) as i64),
-            );
-            let cutoff_from_now = current_slot.0.saturating_sub(
-                period.saturating_mul((keep_slots.saturating_sub(1)) as i64),
-            );
+            let cutoff_from_latest = latest_slot
+                .0
+                .saturating_sub(period.saturating_mul((keep_slots.saturating_sub(1)) as i64));
+            let cutoff_from_now = current_slot
+                .0
+                .saturating_sub(period.saturating_mul((keep_slots.saturating_sub(1)) as i64));
             let cutoff = UtcMs(cutoff_from_latest.min(cutoff_from_now));
             broker_map.retain(|start, _| *start >= cutoff);
         }
@@ -174,14 +190,17 @@ impl CandleBook {
         for broker_map in self.books.values_mut() {
             broker_map.remove(&broker_id);
         }
-        self.latest_slot_by_broker.retain(|(_, bid), _| *bid != broker_id);
+        self.latest_slot_by_broker
+            .retain(|(_, bid), _| *bid != broker_id);
     }
 
     pub fn advance_utc(&mut self, current_utc_now: UtcMs) {
         for (&period, broker_map) in &mut self.books {
             for slot_map in broker_map.values_mut() {
                 for slot in slot_map.values_mut() {
-                    if slot.state == SlotState::Active && slot.start_utc_ms.0 + period <= current_utc_now.0 {
+                    if slot.state == SlotState::Active
+                        && slot.start_utc_ms.0 + period <= current_utc_now.0
+                    {
                         slot.state = SlotState::Closed;
                     }
                 }
@@ -215,7 +234,9 @@ impl CandleBook {
             for &start in &slot_starts {
                 if let Some(slot) = b_slots.and_then(|m| m.get(&start)) {
                     let mut s = *slot;
-                    if s.state == SlotState::Active && s.start_utc_ms.0 + period_ms <= current_utc_now.0 {
+                    if s.state == SlotState::Active
+                        && s.start_utc_ms.0 + period_ms <= current_utc_now.0
+                    {
                         s.state = SlotState::Closed;
                     }
                     broker_slots.push(s);

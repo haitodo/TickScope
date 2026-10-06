@@ -12,7 +12,14 @@ pub fn draw_mid_dispersion_view(
     broker_overviews: &[BrokerOverview],
     theme: &ChartTheme,
 ) {
-    draw_mid_dispersion_view_with_visibility(painter, rect, consensus, broker_overviews, None, theme);
+    draw_mid_dispersion_view_with_visibility(
+        painter,
+        rect,
+        consensus,
+        broker_overviews,
+        None,
+        theme,
+    );
 }
 
 pub fn draw_mid_dispersion_view_with_visibility(

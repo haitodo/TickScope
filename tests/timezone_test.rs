@@ -19,8 +19,7 @@ fn test_default_config_all_brokers_use_ny_close() {
         assert!(
             !broker.auto_utc_offset,
             "Broker {} ({}) should disable per-tick auto_utc_offset",
-            broker.id,
-            broker.name
+            broker.id, broker.name
         );
     }
 }
@@ -46,11 +45,9 @@ fn test_engine_initializes_verified_offsets_at_startup() {
         );
         // Summer time (today): offset must be +10800 (+3h)
         assert_eq!(
-            b.active_utc_offset_sec,
-            10800,
+            b.active_utc_offset_sec, 10800,
             "Broker {} ({}) must resolve to +10800s (GMT+3) in summer",
-            b.broker_id,
-            b.name
+            b.broker_id, b.name
         );
     }
 }
@@ -67,5 +64,8 @@ fn test_ny_close_dst_calendar_seasons() {
 
     // 2027 Summer (June): +10800s (+3h)
     let t_summer_2027 = 1_813_150_800; // 2027-06-15 13:00:00 UTC
-    assert_eq!(TimezoneRule::NyClose.resolve_offset(t_summer_2027, 0), 10800);
+    assert_eq!(
+        TimezoneRule::NyClose.resolve_offset(t_summer_2027, 0),
+        10800
+    );
 }

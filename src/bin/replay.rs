@@ -24,11 +24,7 @@ fn resolve_tick_dir(cli_path: Option<PathBuf>) -> PathBuf {
     if let Ok(p) = env::var("DRENHIS_TICK_DIR") {
         return PathBuf::from(p);
     }
-    let candidates = [
-        r"D:\Drehis\tick",
-        r"D:\Drenhis\tick",
-        r"data\tick",
-    ];
+    let candidates = [r"D:\Drehis\tick", r"D:\Drenhis\tick", r"data\tick"];
     for c in &candidates {
         let p = Path::new(c);
         if p.exists() {
@@ -86,7 +82,10 @@ fn main() -> eframe::Result<()> {
     }
 
     let _ = init_logging(cli.console, cli.log_level);
-    log::info!("TickScope Replay v{} initializing...", env!("CARGO_PKG_VERSION"));
+    log::info!(
+        "TickScope Replay v{} initializing...",
+        env!("CARGO_PKG_VERSION")
+    );
 
     let exe = env::current_exe().expect("Cannot locate executable");
     let cwd = env::current_dir().expect("Cannot locate working directory");

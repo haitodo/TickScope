@@ -2,13 +2,13 @@
 
 use super::error::StorageError;
 use crate::core::ports::{AppendResult, LogSinkPort};
-use crate::core::types::{LogRecord, RunId, BrokerId};
+use crate::core::types::{BrokerId, LogRecord, RunId};
 use crate::protocol::crc32c::crc32c;
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -30,10 +30,7 @@ pub const RECORD_KIND_DIAGNOSTIC: u16 = 3;
 /// # Errors
 ///
 /// Never fails today; the `Result` keeps a future encoding failure from changing every call site.
-pub fn encode_record(
-    record: &LogRecord,
-    record_index: u64,
-) -> Result<Vec<u8>, StorageError> {
+pub fn encode_record(record: &LogRecord, record_index: u64) -> Result<Vec<u8>, StorageError> {
     let mut payload = Vec::new();
     let (kind, flags) = match record {
         LogRecord::RawFrame(raw) => {
@@ -115,7 +112,11 @@ pub fn encode_record(
 }
 
 #[must_use]
-pub fn create_file_header(run_id: RunId, file_id: u64, broker_id: BrokerId) -> [u8; FILE_HEADER_LEN] {
+pub fn create_file_header(
+    run_id: RunId,
+    file_id: u64,
+    broker_id: BrokerId,
+) -> [u8; FILE_HEADER_LEN] {
     let mut hdr = [0u8; FILE_HEADER_LEN];
     hdr[0..4].copy_from_slice(&STORAGE_MAGIC);
     hdr[4..6].copy_from_slice(&STORAGE_VERSION.to_le_bytes());
@@ -184,10 +185,7 @@ fn open_log_writer(
     create_dir_all(&directory)
         .map_err(|error| format!("failed to create '{}': {error}", directory.display()))?;
 
-    let file_path = directory.join(format!(
-        "run_{}_{file_id:04}.tlog",
-        hex::encode(&run_id.0),
-    ));
+    let file_path = directory.join(format!("run_{}_{file_id:04}.tlog", hex::encode(&run_id.0),));
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -195,17 +193,31 @@ fn open_log_writer(
         .map_err(|error| format!("failed to create '{}': {error}", file_path.display()))?;
 
     let mut writer = BufWriter::with_capacity(65_536, file);
-    writer.write_all(&create_file_header(run_id, file_id, broker_id))
-        .map_err(|error| format!("failed to write header for '{}': {error}", file_path.display()))?;
-    writer.flush()
-        .map_err(|error| format!("failed to flush header for '{}': {error}", file_path.display()))?;
+    writer
+        .write_all(&create_file_header(run_id, file_id, broker_id))
+        .map_err(|error| {
+            format!(
+                "failed to write header for '{}': {error}",
+                file_path.display()
+            )
+        })?;
+    writer.flush().map_err(|error| {
+        format!(
+            "failed to flush header for '{}': {error}",
+            file_path.display()
+        )
+    })?;
     Ok(writer)
 }
 
 fn flush_writer(writer: &mut BufWriter<std::fs::File>, durable: bool) -> Result<(), String> {
-    writer.flush().map_err(|error| format!("failed to flush log writer: {error}"))?;
+    writer
+        .flush()
+        .map_err(|error| format!("failed to flush log writer: {error}"))?;
     if durable {
-        writer.get_ref().sync_data()
+        writer
+            .get_ref()
+            .sync_data()
             .map_err(|error| format!("failed to sync log writer: {error}"))?;
     }
     Ok(())
@@ -215,11 +227,15 @@ fn flush_writer(writer: &mut BufWriter<std::fs::File>, durable: bool) -> Result<
 /// budget before a record is admitted to the logger worker.
 fn queued_record_bytes(record: &LogRecord) -> usize {
     match record {
-        LogRecord::RawFrame(raw) => raw.raw_wire_bytes.len()
+        LogRecord::RawFrame(raw) => raw
+            .raw_wire_bytes
+            .len()
             .saturating_add(raw.dispositions.len())
             .saturating_add(128),
         LogRecord::Metadata(metadata) => metadata.toml_text.len().saturating_add(64),
-        LogRecord::Diagnostic(diagnostic) => diagnostic.code.len()
+        LogRecord::Diagnostic(diagnostic) => diagnostic
+            .code
+            .len()
             .saturating_add(diagnostic.message.len())
             .saturating_add(128),
     }
@@ -245,10 +261,14 @@ impl AsyncLogger {
         flush_interval_ms: u64,
     ) -> Result<Self, StorageError> {
         if capacity == 0 {
-            return Err(StorageError::InvalidCapacity("logger record capacity must be positive".to_string()));
+            return Err(StorageError::InvalidCapacity(
+                "logger record capacity must be positive".to_string(),
+            ));
         }
         if max_queue_bytes == 0 {
-            return Err(StorageError::InvalidCapacity("logger byte capacity must be positive".to_string()));
+            return Err(StorageError::InvalidCapacity(
+                "logger byte capacity must be positive".to_string(),
+            ));
         }
         create_dir_all(&log_dir)?;
 
@@ -305,26 +325,36 @@ impl AsyncLogger {
                     let broker_id = log_broker_id(&command.record);
                     let utc_date = utc_date_now();
                     let write_result = (|| -> Result<(), String> {
-                        let needs_new_writer = writers.get(&broker_id)
+                        let needs_new_writer = writers
+                            .get(&broker_id)
                             .is_none_or(|active| active.utc_date != utc_date);
                         if needs_new_writer {
                             if let Some(mut previous) = writers.remove(&broker_id) {
                                 flush_writer(&mut previous.writer, true)?;
                             }
-                            let writer = open_log_writer(&log_dir, run_id, next_file_id, broker_id, &utc_date)?;
-                            writers.insert(broker_id, ActiveLog {
-                                utc_date,
-                                writer,
-                                next_record_index: 0,
-                            });
+                            let writer = open_log_writer(
+                                &log_dir,
+                                run_id,
+                                next_file_id,
+                                broker_id,
+                                &utc_date,
+                            )?;
+                            writers.insert(
+                                broker_id,
+                                ActiveLog {
+                                    utc_date,
+                                    writer,
+                                    next_record_index: 0,
+                                },
+                            );
                             next_file_id = next_file_id.saturating_add(1);
                         }
 
-                        let active = writers.get_mut(&broker_id)
-                            .expect("writer was just opened");
+                        let active = writers.get_mut(&broker_id).expect("writer was just opened");
                         let bytes = encode_record(&command.record, active.next_record_index)?;
-                        active.writer.write_all(&bytes)
-                            .map_err(|error| format!("failed to write broker {broker_id} log record: {error}"))?;
+                        active.writer.write_all(&bytes).map_err(|error| {
+                            format!("failed to write broker {broker_id} log record: {error}")
+                        })?;
                         active.next_record_index = active.next_record_index.saturating_add(1);
                         if command.durable_reply.is_some() {
                             // The reliable receiver only ACKs a source batch after its
@@ -351,7 +381,8 @@ impl AsyncLogger {
                     }
                 }
                 Ok(LogCommand::Flush(reply)) => {
-                    let result = writers.values_mut()
+                    let result = writers
+                        .values_mut()
                         .try_for_each(|active| flush_writer(&mut active.writer, true));
                     if let Err(error) = &result {
                         *fault.lock() = Some(error.clone());
@@ -367,7 +398,8 @@ impl AsyncLogger {
             }
 
             if last_flush.elapsed() >= flush_interval {
-                let flush_result = writers.values_mut()
+                let flush_result = writers
+                    .values_mut()
                     .try_for_each(|active| flush_writer(&mut active.writer, false));
                 if let Err(error) = flush_result {
                     *fault.lock() = Some(error);
@@ -401,7 +433,11 @@ impl AsyncLogger {
             if next > self.max_queue_bytes {
                 return false;
             }
-            if self.queued_bytes.compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            if self
+                .queued_bytes
+                .compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
                 return true;
             }
         }
@@ -421,10 +457,13 @@ impl AsyncLogger {
 
         let bytes = queued_record_bytes(&record);
         if bytes > self.max_queue_bytes {
-            return AppendResult::Fault(record, format!(
-                "Log record requires {bytes} bytes, exceeding logger byte capacity {}",
-                self.max_queue_bytes,
-            ));
+            return AppendResult::Fault(
+                record,
+                format!(
+                    "Log record requires {bytes} bytes, exceeding logger byte capacity {}",
+                    self.max_queue_bytes,
+                ),
+            );
         }
         if !self.reserve_bytes(bytes) {
             return AppendResult::Full(record);
@@ -438,11 +477,13 @@ impl AsyncLogger {
         match self.sender.try_send(command) {
             Ok(()) => AppendResult::Accepted,
             Err(TrySendError::Full(LogCommand::Record(command))) => {
-                self.queued_bytes.fetch_sub(command.queued_bytes, Ordering::SeqCst);
+                self.queued_bytes
+                    .fetch_sub(command.queued_bytes, Ordering::SeqCst);
                 AppendResult::Full(command.record)
             }
             Err(TrySendError::Disconnected(LogCommand::Record(command))) => {
-                self.queued_bytes.fetch_sub(command.queued_bytes, Ordering::SeqCst);
+                self.queued_bytes
+                    .fetch_sub(command.queued_bytes, Ordering::SeqCst);
                 AppendResult::Fault(command.record, "Logger channel closed".to_string())
             }
             Err(_) => unreachable!("only Record commands are submitted through try_enqueue"),
@@ -471,8 +512,9 @@ impl LogSinkPort for AsyncLogger {
             let (reply_sender, reply_receiver) = bounded(1);
             match self.try_enqueue(record.clone(), Some(reply_sender)) {
                 AppendResult::Accepted => {
-                    return reply_receiver.recv()
-                        .map_err(|_| "Logger worker stopped before durable append completed".to_string())?;
+                    return reply_receiver.recv().map_err(|_| {
+                        "Logger worker stopped before durable append completed".to_string()
+                    })?;
                 }
                 AppendResult::Full(_) => thread::sleep(Duration::from_millis(1)),
                 AppendResult::Fault(_, reason) => return Err(reason),
@@ -486,7 +528,10 @@ impl LogSinkPort for AsyncLogger {
         }
         let (reply_sender, reply_receiver) = bounded(1);
         loop {
-            match self.sender.try_send(LogCommand::Flush(reply_sender.clone())) {
+            match self
+                .sender
+                .try_send(LogCommand::Flush(reply_sender.clone()))
+            {
                 Ok(()) => break,
                 Err(TrySendError::Full(_)) => thread::sleep(Duration::from_millis(1)),
                 Err(TrySendError::Disconnected(_)) => {
@@ -494,7 +539,8 @@ impl LogSinkPort for AsyncLogger {
                 }
             }
         }
-        reply_receiver.recv()
+        reply_receiver
+            .recv()
             .map_err(|_| "Logger worker stopped before flush completed".to_string())?
     }
 }

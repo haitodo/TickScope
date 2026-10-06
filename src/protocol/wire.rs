@@ -36,7 +36,6 @@ pub const STATUS_CODE_DATA_LOSS: u16 = 5;
 pub const STATUS_CODE_UNCONFIRMED: u16 = 6;
 pub const STATUS_CODE_RECOVERY: u16 = 7;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Header {
     pub magic: u32,

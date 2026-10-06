@@ -6,7 +6,8 @@ use std::path::PathBuf;
 /// Embedded copies as reliable fallback when source repo is not on disk
 pub const EMBEDDED_TICK_COLLECTOR: &str = include_str!("../../mt5/TickCollector.mq5");
 pub const EMBEDDED_PROTOCOL_MQH: &str = include_str!("../../mt5/Include/TickScope/Protocol.mqh");
-pub const EMBEDDED_SOCKET_CLIENT_MQH: &str = include_str!("../../mt5/Include/TickScope/SocketClient.mqh");
+pub const EMBEDDED_SOCKET_CLIENT_MQH: &str =
+    include_str!("../../mt5/Include/TickScope/SocketClient.mqh");
 
 /// Discovered source files to deploy
 #[derive(Debug, Clone)]
@@ -30,7 +31,10 @@ pub fn load_source_files() -> SourceFiles {
     for base in &candidate_dirs {
         let ea_path = base.join("TickCollector.mq5");
         let proto_path = base.join("Include").join("TickScope").join("Protocol.mqh");
-        let socket_path = base.join("Include").join("TickScope").join("SocketClient.mqh");
+        let socket_path = base
+            .join("Include")
+            .join("TickScope")
+            .join("SocketClient.mqh");
 
         if ea_path.is_file() && proto_path.is_file() && socket_path.is_file() {
             if let (Ok(ea), Ok(proto), Ok(sock)) = (

@@ -69,15 +69,24 @@ impl SyncArbiter {
         clock: &VirtualClock,
         trade_store: &Arc<RwLock<ReplayTradeStore>>,
     ) -> (ArbiterAction, Option<(f64, f64, i64)>) {
-        let virtual_time_msc = val.get("virtual_time_msc").and_then(serde_json::Value::as_i64).unwrap_or(0);
+        let virtual_time_msc = val
+            .get("virtual_time_msc")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
         if virtual_time_msc <= 0 {
             return (ArbiterAction::Ignore, None);
         }
 
-        let is_playing = val.get("is_playing").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        let is_playing = val
+            .get("is_playing")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let multiplier = val
             .get("multiplier")
-            .and_then(|m| m.as_f64().or_else(|| m.as_str().and_then(|s| s.parse().ok())))
+            .and_then(|m| {
+                m.as_f64()
+                    .or_else(|| m.as_str().and_then(|s| s.parse().ok()))
+            })
             .unwrap_or(1.0);
 
         let target_utc_ms = mt5_to_utc_ms(virtual_time_msc);
@@ -109,7 +118,9 @@ impl SyncArbiter {
             let mut updated = false;
 
             if let Some(pos_val) = val.get("positions") {
-                if let Ok(mut positions) = serde_json::from_value::<Vec<ReplayTrade>>(pos_val.clone()) {
+                if let Ok(mut positions) =
+                    serde_json::from_value::<Vec<ReplayTrade>>(pos_val.clone())
+                {
                     for p in &mut positions {
                         p.open_utc_ms = mt5_to_utc_ms(p.open_time_msc);
                         p.close_utc_ms = p.close_time_msc.map(mt5_to_utc_ms);
@@ -120,7 +131,9 @@ impl SyncArbiter {
             }
 
             if let Some(hist_val) = val.get("history") {
-                if let Ok(mut history) = serde_json::from_value::<Vec<ReplayTrade>>(hist_val.clone()) {
+                if let Ok(mut history) =
+                    serde_json::from_value::<Vec<ReplayTrade>>(hist_val.clone())
+                {
                     for h in &mut history {
                         h.open_utc_ms = mt5_to_utc_ms(h.open_time_msc);
                         h.close_utc_ms = h.close_time_msc.map(mt5_to_utc_ms);
@@ -143,7 +156,10 @@ impl SyncArbiter {
         }
 
         // 3. Adaptive SEEK Detection with seek_epoch check & Hysteresis fallback
-        let seek_epoch = val.get("seek_epoch").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        let seek_epoch = val
+            .get("seek_epoch")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
         let is_seek = if seek_epoch > 0 && self.seek_epoch > 0 && seek_epoch != self.seek_epoch {
             // 明示的 seek_epoch 変更による確定的シーク
             true
@@ -229,7 +245,10 @@ mod tests {
             "multiplier": 1.0
         });
         let (action, _) = arbiter.evaluate(&v3, &clock, &trade_store);
-        assert!(matches!(action, ArbiterAction::PlaybackUpdate { .. }), "Micro-clamp must not trigger SEEK");
+        assert!(
+            matches!(action, ArbiterAction::PlaybackUpdate { .. }),
+            "Micro-clamp must not trigger SEEK"
+        );
 
         // 4. Genuine rewind (-500ms) -> Must trigger SEEK
         let v4 = serde_json::json!({
@@ -238,7 +257,10 @@ mod tests {
             "multiplier": 1.0
         });
         let (action, _) = arbiter.evaluate(&v4, &clock, &trade_store);
-        assert!(matches!(action, ArbiterAction::Seek { .. }), "Large backward jump must trigger SEEK");
+        assert!(
+            matches!(action, ArbiterAction::Seek { .. }),
+            "Large backward jump must trigger SEEK"
+        );
     }
 
     #[test]
@@ -275,7 +297,10 @@ mod tests {
             "seek_epoch": 2
         });
         let (action, _) = arbiter.evaluate(&v3, &clock, &trade_store);
-        assert!(matches!(action, ArbiterAction::Seek { .. }), "seek_epoch change must trigger SEEK");
+        assert!(
+            matches!(action, ArbiterAction::Seek { .. }),
+            "seek_epoch change must trigger SEEK"
+        );
     }
 
     #[test]
@@ -307,7 +332,11 @@ mod tests {
             "is_playing": true
         });
         arbiter.evaluate(&v2, &clock, &trade_store);
-        assert_eq!(trade_store.read().history.len(), 1, "History must be retained when omitted in same revision");
+        assert_eq!(
+            trade_store.read().history.len(),
+            1,
+            "History must be retained when omitted in same revision"
+        );
 
         // 3. New trade with revision 2
         let v3 = serde_json::json!({
@@ -333,7 +362,11 @@ mod tests {
             ]
         });
         arbiter.evaluate(&v3, &clock, &trade_store);
-        assert_eq!(trade_store.read().history.len(), 2, "History must update on revision change");
+        assert_eq!(
+            trade_store.read().history.len(),
+            2,
+            "History must update on revision change"
+        );
 
         // 4. Overfill history beyond MAX_REPLAY_TRADE_HISTORY (e.g. 25 trades) -> must retain latest 20
         let items: Vec<_> = (1..=25)
@@ -356,7 +389,15 @@ mod tests {
         arbiter.evaluate(&v4, &clock, &trade_store);
         let history = trade_store.read().history.clone();
         assert_eq!(history.len(), MAX_REPLAY_TRADE_HISTORY);
-        assert_eq!(history.first().unwrap().ticket, 6, "Oldest items (1..=5) must be pruned");
-        assert_eq!(history.last().unwrap().ticket, 25, "Latest items must be preserved");
+        assert_eq!(
+            history.first().unwrap().ticket,
+            6,
+            "Oldest items (1..=5) must be pruned"
+        );
+        assert_eq!(
+            history.last().unwrap().ticket,
+            25,
+            "Latest items must be preserved"
+        );
     }
 }

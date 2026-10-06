@@ -3,14 +3,14 @@
 use super::quick_settings;
 use super::DashboardApp;
 use crate::core::models::UiSnapshot;
-use crate::ui::settings::CandlePriceMode;
 use crate::ui::chart::{
-    draw_bid_ask_diff_chart,
-    draw_candlestick_chart_for_brokers_with_trades_interactive, draw_lead_lag_view,
-    draw_mid_diff_chart, draw_mid_dispersion_view_with_visibility, draw_move_breadth_view,
-    draw_quote_persistence_view_with_visibility, draw_realtime_quote_path_chart_with_visibility,
-    draw_spread_diff_chart, BottomMetric, BottomMetricCategory, ChartXAxisMode,
+    draw_bid_ask_diff_chart, draw_candlestick_chart_for_brokers_with_trades_interactive,
+    draw_lead_lag_view, draw_mid_diff_chart, draw_mid_dispersion_view_with_visibility,
+    draw_move_breadth_view, draw_quote_persistence_view_with_visibility,
+    draw_realtime_quote_path_chart_with_visibility, draw_spread_diff_chart, BottomMetric,
+    BottomMetricCategory, ChartXAxisMode,
 };
+use crate::ui::settings::CandlePriceMode;
 use eframe::egui;
 use egui::{Color32, RichText};
 

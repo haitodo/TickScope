@@ -1,7 +1,7 @@
 //! 1-to-1 Event Matcher for Lead/Lag.
 
 use crate::core::models::{LeadLagMatch, MoveEvent};
-use crate::core::types::{BrokerId, AnalysisSegmentId, MonoNs};
+use crate::core::types::{AnalysisSegmentId, BrokerId, MonoNs};
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]
@@ -86,7 +86,11 @@ impl OneToOneEventMatcher {
         None
     }
 
-    fn find_best_match(&self, incoming: &MoveEvent, candidates: &VecDeque<MoveEvent>) -> Option<usize> {
+    fn find_best_match(
+        &self,
+        incoming: &MoveEvent,
+        candidates: &VecDeque<MoveEvent>,
+    ) -> Option<usize> {
         let mut best_idx = None;
         let mut min_diff = u64::MAX;
 
@@ -152,8 +156,16 @@ impl OneToOneEventMatcher {
             match_id: self.match_count,
             leader,
             follower,
-            leader_event: if leader == self.broker_a { event_a } else { event_b },
-            follower_event: if follower == self.broker_a { event_a } else { event_b },
+            leader_event: if leader == self.broker_a {
+                event_a
+            } else {
+                event_b
+            },
+            follower_event: if follower == self.broker_a {
+                event_a
+            } else {
+                event_b
+            },
             t_leader: if leader == self.broker_a { t_a } else { t_b },
             t_follower: if follower == self.broker_a { t_a } else { t_b },
             signed_delta_ns,

@@ -7,4 +7,3 @@ pub mod timer;
 pub use coordinator::*;
 pub use terminal_manager::*;
 pub use timer::*;
-

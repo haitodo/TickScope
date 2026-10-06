@@ -428,7 +428,9 @@ impl HypothesisEngine {
                 ));
             }
             if is_persistence_high {
-                if let Some(med_p) = persistence.and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms) {
+                if let Some(med_p) = persistence
+                    .and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms)
+                {
                     evidence.add_item(format!(
                         "elevated median quote persistence {med_p:.1}ms indicates selective update filtering"
                     ));
@@ -459,8 +461,9 @@ impl HypothesisEngine {
             .and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms)
             .is_some_and(|m| m >= self.config.aggregation_persistence_threshold_ms);
 
-        let is_pattern_clustered =
-            fp.median_delay_ms >= 15.0 && fp.outlier_freq <= 0.02 && fp.observed_follow_freq >= 0.40;
+        let is_pattern_clustered = fp.median_delay_ms >= 15.0
+            && fp.outlier_freq <= 0.02
+            && fp.observed_follow_freq >= 0.40;
 
         if is_persistence_quantized || is_pattern_clustered {
             let mut evidence =
@@ -474,7 +477,9 @@ impl HypothesisEngine {
                 "quote revisions exhibit discrete batching or time-window aggregation".to_string(),
             );
             if is_persistence_quantized {
-                if let Some(med_p) = persistence.and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms) {
+                if let Some(med_p) = persistence
+                    .and_then(super::persistence::QuotePersistenceTracker::median_persistence_ms)
+                {
                     evidence.add_item(format!(
                         "measured median persistence of {med_p:.1}ms matches batch aggregation threshold"
                     ));
@@ -507,15 +512,9 @@ mod tests {
 
         let ctx = SampleContext::new(37, 10_000, 0.992);
         let fp = BrokerFingerprint::new(
-            1,
-            0.15,
-            0.65, // observed_follow_freq
+            1, 0.15, 0.65, // observed_follow_freq
             8.2,  // median_delay_ms
-            0.10,
-            0.01,
-            0.0,
-            0.4,
-            ctx,
+            0.10, 0.01, 0.0, 0.4, ctx,
         );
 
         let hypotheses = engine.evaluate(&fp, None, None);
@@ -530,9 +529,21 @@ mod tests {
         assert_eq!(h.evidence.fresh_rate, 0.992);
 
         // Verify evidence lines match RFC Section 50 example
-        assert!(h.evidence.items.iter().any(|i| i.contains("37 comparable events")));
-        assert!(h.evidence.items.iter().any(|i| i.contains("median observed lag 8.2ms")));
-        assert!(h.evidence.items.iter().any(|i| i.contains("fresh rate 99.2%")));
+        assert!(h
+            .evidence
+            .items
+            .iter()
+            .any(|i| i.contains("37 comparable events")));
+        assert!(h
+            .evidence
+            .items
+            .iter()
+            .any(|i| i.contains("median observed lag 8.2ms")));
+        assert!(h
+            .evidence
+            .items
+            .iter()
+            .any(|i| i.contains("fresh rate 99.2%")));
     }
 
     #[test]
@@ -584,15 +595,8 @@ mod tests {
 
         let ctx = SampleContext::new(50, 5_000, 0.98);
         let fp = BrokerFingerprint::new(
-            3,
-            0.30,
-            0.30,
-            4.0,
-            0.45, // high spread expansion frequency
-            0.02,
-            0.0,
-            0.5,
-            ctx,
+            3, 0.30, 0.30, 4.0, 0.45, // high spread expansion frequency
+            0.02, 0.0, 0.5, ctx,
         );
 
         let hypotheses = engine.evaluate(&fp, None, None);
@@ -615,15 +619,8 @@ mod tests {
 
         let ctx = SampleContext::new(100, 20_000, 0.95);
         let fp = BrokerFingerprint::new(
-            4,
-            0.05,
-            0.15,
-            18.0,
-            0.05,
-            0.22, // elevated stale frequency
-            0.0,
-            0.8,
-            ctx,
+            4, 0.05, 0.15, 18.0, 0.05, 0.22, // elevated stale frequency
+            0.0, 0.8, ctx,
         );
 
         let mut persistence = QuotePersistenceTracker::new(4);

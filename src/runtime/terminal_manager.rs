@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalProcessStatus {
     Running { pid: u32 },
@@ -135,16 +134,18 @@ impl TerminalManager {
 
         // Update path mapping if needed
         for broker in brokers {
-            self.broker_terminals.entry(broker.id).or_insert_with(|| {
-                
-                Self::resolve_terminal_path(broker, discovered)
-            });
+            self.broker_terminals
+                .entry(broker.id)
+                .or_insert_with(|| Self::resolve_terminal_path(broker, discovered));
         }
 
         let running_map = query_running_terminals();
 
         for broker in brokers {
-            let path_opt = self.broker_terminals.get(&broker.id).and_then(|p| p.as_ref());
+            let path_opt = self
+                .broker_terminals
+                .get(&broker.id)
+                .and_then(|p| p.as_ref());
             let status = match path_opt {
                 None => TerminalProcessStatus::NotFound,
                 Some(path) => {
@@ -170,7 +171,9 @@ impl TerminalManager {
 
     #[must_use]
     pub fn get_exe_path(&self, broker_id: BrokerId) -> Option<&PathBuf> {
-        self.broker_terminals.get(&broker_id).and_then(|p| p.as_ref())
+        self.broker_terminals
+            .get(&broker_id)
+            .and_then(|p| p.as_ref())
     }
 
     /// Launch terminal for a single broker.
@@ -271,8 +274,7 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
                     || exe_name.eq_ignore_ascii_case("terminal.exe")
                 {
                     let pid = entry.th32ProcessID;
-                    let process_handle =
-                        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                    let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
                     if !process_handle.is_null() {
                         let mut path_buf = [0u16; 1024];
                         let mut path_len = path_buf.len() as u32;
@@ -283,9 +285,9 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
                             &raw mut path_len,
                         ) != 0
                         {
-                            let full_path = PathBuf::from(
-                                std::ffi::OsString::from_wide(&path_buf[..path_len as usize]),
-                            );
+                            let full_path = PathBuf::from(std::ffi::OsString::from_wide(
+                                &path_buf[..path_len as usize],
+                            ));
                             let canon = full_path
                                 .canonicalize()
                                 .unwrap_or_else(|_| full_path.clone());
@@ -335,7 +337,6 @@ fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, Stri
             lpProcessInformation: *mut PROCESS_INFORMATION,
         ) -> BOOL;
     }
-
 
     let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
     si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
@@ -411,8 +412,7 @@ fn launch_terminal_process(exe_path: &Path, _minimized: bool) -> Result<u32, Str
 fn stop_terminal_process_async(pid: u32, timeout: Duration) {
     use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, WAIT_TIMEOUT};
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
-        PROCESS_TERMINATE,
+        OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowThreadProcessId, PostMessageW, WM_CLOSE,
@@ -429,14 +429,11 @@ fn stop_terminal_process_async(pid: u32, timeout: Duration) {
     }
 
     thread::spawn(move || unsafe {
-        log::info!(
-            "[TerminalManager] Posting WM_CLOSE to MT5 terminal (PID: {pid})..."
-        );
+        log::info!("[TerminalManager] Posting WM_CLOSE to MT5 terminal (PID: {pid})...");
         // Post WM_CLOSE to all top-level windows of target process
         EnumWindows(Some(enum_windows_proc), pid as LPARAM);
 
-        let process_handle =
-            OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, 0, pid);
+        let process_handle = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, 0, pid);
         if process_handle.is_null() {
             return;
         }
@@ -450,9 +447,7 @@ fn stop_terminal_process_async(pid: u32, timeout: Duration) {
             );
             TerminateProcess(process_handle, 1);
         } else {
-            log::info!(
-                "[TerminalManager] MT5 terminal (PID: {pid}) exited cleanly."
-            );
+            log::info!("[TerminalManager] MT5 terminal (PID: {pid}) exited cleanly.");
         }
         CloseHandle(process_handle);
     });
@@ -464,8 +459,8 @@ fn stop_terminal_process_async(_pid: u32, _timeout: Duration) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn test_resolve_terminal_path_override() {
@@ -492,7 +487,11 @@ mod tests {
         fs::write(&exe, "").unwrap();
 
         // Write origin.txt pointing to term_dir
-        fs::write(term_dir.join("origin.txt"), term_dir.to_string_lossy().as_bytes()).unwrap();
+        fs::write(
+            term_dir.join("origin.txt"),
+            term_dir.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
 
         let broker = BrokerConfig {
             name: "MyBroker".to_string(),
@@ -543,4 +542,3 @@ mod tests {
         assert_eq!(results2.len(), 3);
     }
 }
-

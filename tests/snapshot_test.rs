@@ -71,7 +71,10 @@ fn test_ts01_snapshot_builder_and_exchange() {
     exchange.publish(snapshot);
     let loaded = exchange.load_latest();
     assert_eq!(loaded.snapshot_revision, 1);
-    assert_eq!(loaded.active_pair_comparison.as_ref().unwrap().mid_diff, Some(0.002));
+    assert_eq!(
+        loaded.active_pair_comparison.as_ref().unwrap().mid_diff,
+        Some(0.002)
+    );
 }
 
 #[test]
@@ -138,4 +141,3 @@ fn test_ts04_repaint_signal_trigger() {
 
     assert_eq!(repaint_count.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
-

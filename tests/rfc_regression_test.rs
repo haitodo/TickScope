@@ -15,13 +15,15 @@ use std::sync::Arc;
 use tick_scope::config::{AppConfig, BrokerConfig, TimezoneRule};
 use tick_scope::core::models::*;
 use tick_scope::core::types::*;
-use tick_scope::protocol::*;
 use tick_scope::metrics::burst::{
     classify_quote_geometry, MultiBrokerBurstDetector, QuoteGeometry,
 };
 use tick_scope::metrics::consensus::{ConsensusCalculator, ObservedBrokerConsensus};
 use tick_scope::metrics::fingerprint::{BrokerFingerprint, SampleContext};
-use tick_scope::metrics::hypothesis::{EvidenceChain, Hypothesis, HypothesisEngine, HypothesisType};
+use tick_scope::metrics::hypothesis::{
+    EvidenceChain, Hypothesis, HypothesisEngine, HypothesisType,
+};
+use tick_scope::protocol::*;
 use tick_scope::state::snapshot::SnapshotBuilder;
 use tick_scope::tick::engine::TickEngine;
 
@@ -64,7 +66,6 @@ fn make_5_broker_config() -> AppConfig {
             terminal_path: None,
             receive_delay_ms: None,
         })
-
         .collect();
     config.active_pair = (1, 2);
     config
@@ -98,7 +99,9 @@ fn test_rfc_section81_test_a_single_broker_jump_outlier_not_market_move() {
     let consensus = calc.compute(&quotes, MonoNs(1_000_000_000));
 
     // 1. Consensus median is robust and remains near 150.00
-    let median = consensus.consensus_mid.expect("Consensus median must exist");
+    let median = consensus
+        .consensus_mid
+        .expect("Consensus median must exist");
     assert!(
         (median - 150.00).abs() < 0.005,
         "Observed Broker Median should be ~150.00, got {median}"
@@ -151,7 +154,9 @@ fn test_rfc_section81_test_a_single_broker_jump_outlier_not_market_move() {
 
     // 4. Verify no BUY or trading signal is produced
     assert!(
-        burst_detector.detect_cluster(MoveDirection::Up, 5, 5).is_none(),
+        burst_detector
+            .detect_cluster(MoveDirection::Up, 5, 5)
+            .is_none(),
         "No market move or buy signal produced from single broker jump"
     );
 }
@@ -457,16 +462,22 @@ fn test_invariant_i4_i5_reference_broker_change_preserves_consensus() {
     assert_eq!(c1.ask_range, c2.ask_range);
 
     engine.on_ingress_item(IngressItem::End {
-        broker_id: 5, generation: 1, reason: "test disconnect".into(),
+        broker_id: 5,
+        generation: 1,
+        reason: "test disconnect".into(),
     });
     let disconnected = engine.make_projection(UtcMs(1000));
     assert_eq!(disconnected.consensus.as_ref().unwrap().fresh_count, 4);
     assert_eq!(disconnected.consensus.as_ref().unwrap().total_count, 5);
-    assert_eq!(disconnected.current_breadth.as_ref().unwrap().stale_count, 1);
+    assert_eq!(
+        disconnected.current_breadth.as_ref().unwrap().stale_count,
+        1
+    );
 
     for broker_id in 1..=4 {
         engine.on_ingress_item(IngressItem::Progress {
-            broker_id, watermark_ns: MonoNs(10_000_000_000),
+            broker_id,
+            watermark_ns: MonoNs(10_000_000_000),
         });
     }
     let stale = engine.make_projection(UtcMs(10000));

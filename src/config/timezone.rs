@@ -14,7 +14,12 @@ pub enum TimezoneRule {
     /// Standard `MetaTrader` New York Close server time.
     /// Automatically resolves to UTC+3 (US DST / Summer) or UTC+2 (Standard Time / Winter).
     #[default]
-    #[serde(alias = "NYClose", alias = "nyclose", alias = "US/Eastern", alias = "ny_close")]
+    #[serde(
+        alias = "NYClose",
+        alias = "nyclose",
+        alias = "US/Eastern",
+        alias = "ny_close"
+    )]
     NyClose,
     /// Fixed UTC offset in seconds (uses configured `utc_offset_sec`).
     #[serde(alias = "Fixed", alias = "fixed")]

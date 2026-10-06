@@ -39,11 +39,7 @@ impl ReplayCoordinator {
     ///
     /// The spawned clock thread unwraps `interval.checked_sub(elapsed)`; the loop interval is a fixed
     /// positive constant, so this cannot fire.
-    pub fn new(
-        config: AppConfig,
-        tick_dir: &Path,
-        ws_url: &str,
-    ) -> Result<Self, String> {
+    pub fn new(config: AppConfig, tick_dir: &Path, ws_url: &str) -> Result<Self, String> {
         config.validate()?;
 
         let run_id = RunId::new_random();

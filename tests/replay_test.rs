@@ -18,85 +18,84 @@ use tick_scope::replay::parquet_source::{BrokerParquetSource, ReplayTick};
 use tick_scope::tick::engine::TickEngine;
 
 fn make_test_config() -> AppConfig {
-    
     AppConfig {
         brokers: vec![
-        BrokerConfig {
-            id: 1,
-            name: "OANDA".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 19101,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            timezone_rule: TimezoneRule::NyClose,
-            utc_offset_sec: 10800,
-            utc_verified: true,
-            auto_utc_offset: false,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-        BrokerConfig {
-            id: 2,
-            name: "Tradeview".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 19102,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            timezone_rule: TimezoneRule::NyClose,
-            utc_offset_sec: 10800,
-            utc_verified: true,
-            auto_utc_offset: false,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-        BrokerConfig {
-            id: 3,
-            name: "Dukascopy".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 19103,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            timezone_rule: TimezoneRule::NyClose,
-            utc_offset_sec: 10800,
-            utc_verified: true,
-            auto_utc_offset: false,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-        BrokerConfig {
-            id: 4,
-            name: "Axiory".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 19104,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            timezone_rule: TimezoneRule::NyClose,
-            utc_offset_sec: 10800,
-            utc_verified: true,
-            auto_utc_offset: false,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-        BrokerConfig {
-            id: 5,
-            name: "JFX".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 19105,
-            symbol: "USDJPY".to_string(),
-            point_size: 0.001,
-            pip_size: 0.01,
-            timezone_rule: TimezoneRule::NyClose,
-            utc_offset_sec: 10800,
-            utc_verified: true,
-            auto_utc_offset: false,
-            terminal_path: None,
-            receive_delay_ms: None,
-        },
-    ],
+            BrokerConfig {
+                id: 1,
+                name: "OANDA".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 19101,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                timezone_rule: TimezoneRule::NyClose,
+                utc_offset_sec: 10800,
+                utc_verified: true,
+                auto_utc_offset: false,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+            BrokerConfig {
+                id: 2,
+                name: "Tradeview".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 19102,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                timezone_rule: TimezoneRule::NyClose,
+                utc_offset_sec: 10800,
+                utc_verified: true,
+                auto_utc_offset: false,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+            BrokerConfig {
+                id: 3,
+                name: "Dukascopy".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 19103,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                timezone_rule: TimezoneRule::NyClose,
+                utc_offset_sec: 10800,
+                utc_verified: true,
+                auto_utc_offset: false,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+            BrokerConfig {
+                id: 4,
+                name: "Axiory".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 19104,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                timezone_rule: TimezoneRule::NyClose,
+                utc_offset_sec: 10800,
+                utc_verified: true,
+                auto_utc_offset: false,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+            BrokerConfig {
+                id: 5,
+                name: "JFX".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 19105,
+                symbol: "USDJPY".to_string(),
+                point_size: 0.001,
+                pip_size: 0.01,
+                timezone_rule: TimezoneRule::NyClose,
+                utc_offset_sec: 10800,
+                utc_verified: true,
+                auto_utc_offset: false,
+                terminal_path: None,
+                receive_delay_ms: None,
+            },
+        ],
         active_pair: (1, 2),
         ..AppConfig::default()
     }
@@ -138,10 +137,8 @@ fn test_virtual_clock_pause_freezes_time_and_preserves_live_health() {
     assert_eq!(sample1.unix_ns, sample2.unix_ns);
 
     // Verify engine projection keeps all 5 brokers LIVE when clock is frozen
-    let proj = engine.make_projection_at(
-        UtcMs(sample2.unix_ns.unwrap() / 1_000_000),
-        sample2.mono_ns,
-    );
+    let proj =
+        engine.make_projection_at(UtcMs(sample2.unix_ns.unwrap() / 1_000_000), sample2.mono_ns);
     for b in &proj.broker_overviews {
         assert_eq!(
             b.health.data_freshness,
@@ -161,33 +158,110 @@ fn test_5_broker_k_way_merge_stream_chronological_ordering() {
     // Create 5 fake broker sources with interleaved ticks
     let mut s1 = BrokerParquetSource::new(1, "OANDA", "usdjpy", root).unwrap();
     s1.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 1, utc_ms: 100, mt5_ms: 100, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
-        ReplayTick { broker_id: 1, utc_ms: 150, mt5_ms: 150, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
-        ReplayTick { broker_id: 1, utc_ms: 300, mt5_ms: 300, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick {
+            broker_id: 1,
+            utc_ms: 100,
+            mt5_ms: 100,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
+        ReplayTick {
+            broker_id: 1,
+            utc_ms: 150,
+            mt5_ms: 150,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
+        ReplayTick {
+            broker_id: 1,
+            utc_ms: 300,
+            mt5_ms: 300,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
     ]);
 
     let mut s2 = BrokerParquetSource::new(2, "Tradeview", "usdjpy", root).unwrap();
     s2.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 2, utc_ms: 110, mt5_ms: 110, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
-        ReplayTick { broker_id: 2, utc_ms: 200, mt5_ms: 200, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick {
+            broker_id: 2,
+            utc_ms: 110,
+            mt5_ms: 110,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
+        ReplayTick {
+            broker_id: 2,
+            utc_ms: 200,
+            mt5_ms: 200,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
     ]);
 
     let mut s3 = BrokerParquetSource::new(3, "Dukascopy", "usdjpy", root).unwrap();
     s3.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 3, utc_ms: 120, mt5_ms: 120, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
-        ReplayTick { broker_id: 3, utc_ms: 250, mt5_ms: 250, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick {
+            broker_id: 3,
+            utc_ms: 120,
+            mt5_ms: 120,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
+        ReplayTick {
+            broker_id: 3,
+            utc_ms: 250,
+            mt5_ms: 250,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
     ]);
 
     let mut s4 = BrokerParquetSource::new(4, "Axiory", "usdjpy", root).unwrap();
     s4.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 4, utc_ms: 130, mt5_ms: 130, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
-        ReplayTick { broker_id: 4, utc_ms: 150, mt5_ms: 150, bid: 150.0, ask: 150.02, receive_delay_ms: 0 }, // tie with broker 1
+        ReplayTick {
+            broker_id: 4,
+            utc_ms: 130,
+            mt5_ms: 130,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
+        ReplayTick {
+            broker_id: 4,
+            utc_ms: 150,
+            mt5_ms: 150,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        }, // tie with broker 1
     ]);
 
     let mut s5 = BrokerParquetSource::new(5, "JFX", "usdjpy", root).unwrap();
     s5.current_ticks = Arc::new(vec![
-        ReplayTick { broker_id: 5, utc_ms: 140, mt5_ms: 140, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
-        ReplayTick { broker_id: 5, utc_ms: 400, mt5_ms: 400, bid: 150.0, ask: 150.02, receive_delay_ms: 0 },
+        ReplayTick {
+            broker_id: 5,
+            utc_ms: 140,
+            mt5_ms: 140,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
+        ReplayTick {
+            broker_id: 5,
+            utc_ms: 400,
+            mt5_ms: 400,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 0,
+        },
     ]);
 
     let mut merge = MergeStream::new(vec![s1, s2, s3, s4, s5]);
@@ -219,23 +293,53 @@ fn test_merge_stream_receive_delay_ordering_and_seek() {
     let root = temp.path();
 
     // Domestic broker (e.g. JFX: delay = 20ms)
-    let mut s_dom = BrokerParquetSource::new(5, "JFX", "usdjpy", root).unwrap()
+    let mut s_dom = BrokerParquetSource::new(5, "JFX", "usdjpy", root)
+        .unwrap()
         .with_receive_delay_ms(20);
     s_dom.current_ticks = Arc::new(vec![
         // utc 1100 -> effective 1120
-        ReplayTick { broker_id: 5, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02, receive_delay_ms: 20 },
+        ReplayTick {
+            broker_id: 5,
+            utc_ms: 1100,
+            mt5_ms: 1100,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 20,
+        },
         // utc 1200 -> effective 1220
-        ReplayTick { broker_id: 5, utc_ms: 1200, mt5_ms: 1200, bid: 150.0, ask: 150.02, receive_delay_ms: 20 },
+        ReplayTick {
+            broker_id: 5,
+            utc_ms: 1200,
+            mt5_ms: 1200,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 20,
+        },
     ]);
 
     // Overseas broker (e.g. Tradeview: delay = 180ms)
-    let mut s_ovs = BrokerParquetSource::new(2, "Tradeview", "usdjpy", root).unwrap()
+    let mut s_ovs = BrokerParquetSource::new(2, "Tradeview", "usdjpy", root)
+        .unwrap()
         .with_receive_delay_ms(180);
     s_ovs.current_ticks = Arc::new(vec![
         // utc 1000 -> effective 1180
-        ReplayTick { broker_id: 2, utc_ms: 1000, mt5_ms: 1000, bid: 150.0, ask: 150.02, receive_delay_ms: 180 },
+        ReplayTick {
+            broker_id: 2,
+            utc_ms: 1000,
+            mt5_ms: 1000,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 180,
+        },
         // utc 1100 -> effective 1280
-        ReplayTick { broker_id: 2, utc_ms: 1100, mt5_ms: 1100, bid: 150.0, ask: 150.02, receive_delay_ms: 180 },
+        ReplayTick {
+            broker_id: 2,
+            utc_ms: 1100,
+            mt5_ms: 1100,
+            bid: 150.0,
+            ask: 150.02,
+            receive_delay_ms: 180,
+        },
     ]);
 
     let mut merge = MergeStream::new(vec![s_dom, s_ovs]);
@@ -245,7 +349,10 @@ fn test_merge_stream_receive_delay_ordering_and_seek() {
     // JFX tick arrives at 1120, while Tradeview arrives at 1180.
     // JFX must be popped FIRST!
     let t1 = merge.pop_next().expect("First tick");
-    assert_eq!(t1.broker_id, 5, "Domestic broker must arrive first despite later server time");
+    assert_eq!(
+        t1.broker_id, 5,
+        "Domestic broker must arrive first despite later server time"
+    );
     assert_eq!(t1.utc_ms, 1100);
 
     let t2 = merge.pop_next().expect("Second tick");
@@ -266,7 +373,10 @@ fn test_merge_stream_receive_delay_ordering_and_seek() {
     // - Tradeview: target_utc = 1150 - 180 = 970 -> cursor at tick utc 1000 (eff 1180)
     merge.seek_to_utc(1150);
     let after_seek = merge.pop_next().expect("Next tick after seek to 1150");
-    assert_eq!(after_seek.broker_id, 2, "Tradeview tick with arrival 1180 >= 1150 must NOT be skipped");
+    assert_eq!(
+        after_seek.broker_id, 2,
+        "Tradeview tick with arrival 1180 >= 1150 must NOT be skipped"
+    );
     assert_eq!(after_seek.utc_ms, 1000);
 }
 
@@ -375,7 +485,10 @@ fn test_5_broker_instant_seek_and_warmup_rebuild() {
 
     // Active pair comparison (Broker 1 & Broker 2) must be immediately available upon seek!
     let comp = proj.active_pair_comparison.expect("Active pair comparison");
-    assert!(comp.mid_diff.is_some(), "Mid diff must be calculated immediately upon seek");
+    assert!(
+        comp.mid_diff.is_some(),
+        "Mid diff must be calculated immediately upon seek"
+    );
     assert!((comp.mid_diff.unwrap() - (-0.01)).abs() < 1e-6);
 
     // Active brokers must have Live data freshness
@@ -451,7 +564,9 @@ async fn test_replay_driver_mock_websocket_sync() {
     let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config)));
     let stream = Arc::new(parking_lot::RwLock::new(MergeStream::new(vec![])));
     let tick_wake = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
-    let trade_store = Arc::new(parking_lot::RwLock::new(tick_scope::core::models::ReplayTradeStore::default()));
+    let trade_store = Arc::new(parking_lot::RwLock::new(
+        tick_scope::core::models::ReplayTradeStore::default(),
+    ));
 
     let mut driver = tick_scope::replay::driver::ReplayDriver::new(
         run_id,
@@ -475,7 +590,9 @@ async fn test_replay_driver_mock_websocket_sync() {
         "multiplier": 1.0,
         "speed_mode": "TEMPORAL"
     });
-    ws.send(Message::Text(initial_msg.to_string().into())).await.unwrap();
+    ws.send(Message::Text(initial_msg.to_string().into()))
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -491,7 +608,9 @@ async fn test_replay_driver_mock_websocket_sync() {
         "multiplier": 50.0,
         "speed_mode": "TEMPORAL"
     });
-    ws.send(Message::Text(play_msg.to_string().into())).await.unwrap();
+    ws.send(Message::Text(play_msg.to_string().into()))
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert!(clock.is_playing());
@@ -506,7 +625,9 @@ async fn test_replay_driver_mock_websocket_sync() {
         "multiplier": 50.0,
         "speed_mode": "TEMPORAL"
     });
-    ws.send(Message::Text(progress_msg.to_string().into())).await.unwrap();
+    ws.send(Message::Text(progress_msg.to_string().into()))
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // 7. Send SEEK message (jump forward by 10 minutes)
@@ -517,7 +638,9 @@ async fn test_replay_driver_mock_websocket_sync() {
         "multiplier": 1.0,
         "speed_mode": "TEMPORAL"
     });
-    ws.send(Message::Text(seek_msg.to_string().into())).await.unwrap();
+    ws.send(Message::Text(seek_msg.to_string().into()))
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert!(!clock.is_playing());
@@ -551,12 +674,18 @@ fn test_real_drehis_parquet_read_and_seek() {
 
     // 1. Test OANDA Parquet source
     let mut oanda = BrokerParquetSource::new(1, "OANDA", "usdjpy", tick_dir).unwrap();
-    assert!(!oanda.partitions.is_empty(), "OANDA must have discovered partitions in D:\\Drehis\\tick");
+    assert!(
+        !oanda.partitions.is_empty(),
+        "OANDA must have discovered partitions in D:\\Drehis\\tick"
+    );
 
     // Load August 2026
     let loaded = oanda.load_partition(2026, 8).unwrap();
     assert!(loaded, "August 2026 partition must load successfully");
-    assert!(oanda.current_ticks.len() > 1_000_000, "Must contain over 1M ticks");
+    assert!(
+        oanda.current_ticks.len() > 1_000_000,
+        "Must contain over 1M ticks"
+    );
 
     // Check first tick has valid prices
     let first = &oanda.current_ticks[0];
@@ -567,7 +696,10 @@ fn test_real_drehis_parquet_read_and_seek() {
     let target_time = 1_787_227_200_000;
     oanda.seek_to_utc(target_time);
     let peeked = oanda.peek().expect("Tick after seek");
-    assert!(peeked.utc_ms >= target_time, "Seeked tick must be >= target time");
+    assert!(
+        peeked.utc_ms >= target_time,
+        "Seeked tick must be >= target time"
+    );
 
     // 3. Test 60-second warm-up extraction
     let warmup = oanda.get_warmup_range(target_time - 60_000, target_time);
@@ -578,13 +710,23 @@ fn test_real_drehis_parquet_read_and_seek() {
 
     // 4. Test 5-broker real MergeStream
     let mut sources = Vec::new();
-    for &(b_id, name) in &[(1, "OANDA"), (2, "Tradeview"), (3, "Dukascopy"), (4, "Axiory"), (5, "JFX")] {
+    for &(b_id, name) in &[
+        (1, "OANDA"),
+        (2, "Tradeview"),
+        (3, "Dukascopy"),
+        (4, "Axiory"),
+        (5, "JFX"),
+    ] {
         if let Ok(mut src) = BrokerParquetSource::new(b_id, name, "usdjpy", tick_dir) {
             let _ = src.load_partition(2026, 8);
             sources.push(src);
         }
     }
-    assert_eq!(sources.len(), 5, "All 5 brokers must be loaded for August 2026");
+    assert_eq!(
+        sources.len(),
+        5,
+        "All 5 brokers must be loaded for August 2026"
+    );
 
     let mut merge = MergeStream::new(sources);
     merge.seek_to_utc(target_time);
@@ -601,14 +743,22 @@ fn test_real_drehis_parquet_read_and_seek() {
 fn test_cross_month_playback_boundary_transition() {
     let tick_dir = std::path::Path::new(r"D:\Drehis\tick");
     if !tick_dir.exists() {
-        eprintln!("D:\\Drehis\\tick does not exist on this machine; skipping live cross-month test");
+        eprintln!(
+            "D:\\Drehis\\tick does not exist on this machine; skipping live cross-month test"
+        );
         return;
     }
 
     let mut oanda = BrokerParquetSource::new(1, "OANDA", "usdjpy", tick_dir).unwrap();
     // Verify both August 2026 and September 2026 partitions exist
-    let aug_idx = oanda.partitions.iter().position(|p| p.year == 2026 && p.month == 8);
-    let sep_idx = oanda.partitions.iter().position(|p| p.year == 2026 && p.month == 9);
+    let aug_idx = oanda
+        .partitions
+        .iter()
+        .position(|p| p.year == 2026 && p.month == 8);
+    let sep_idx = oanda
+        .partitions
+        .iter()
+        .position(|p| p.year == 2026 && p.month == 9);
 
     if let (Some(a_idx), Some(s_idx)) = (aug_idx, sep_idx) {
         // Load August
@@ -628,9 +778,16 @@ fn test_cross_month_playback_boundary_transition() {
         // Now cursor is at the end of August. The next advance() must automatically
         // load September 2026 and return September's first tick!
         let sep_tick1 = oanda.advance().expect("September tick 1");
-        assert_eq!(oanda.current_partition_idx, Some(s_idx), "Partition must have transitioned to September");
+        assert_eq!(
+            oanda.current_partition_idx,
+            Some(s_idx),
+            "Partition must have transitioned to September"
+        );
         assert_eq!(oanda.cursor, 1);
-        assert!(sep_tick1.utc_ms >= aug_tick3.utc_ms, "September tick must follow August tick");
+        assert!(
+            sep_tick1.utc_ms >= aug_tick3.utc_ms,
+            "September tick must follow August tick"
+        );
 
         // Next tick is September tick 2
         let sep_tick2 = oanda.advance().expect("September tick 2");
@@ -647,7 +804,9 @@ fn test_rapid_seek_scrubbing_race_safety() {
     let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config)));
     let stream = Arc::new(parking_lot::RwLock::new(MergeStream::new(vec![])));
     let tick_wake = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
-    let trade_store = Arc::new(parking_lot::RwLock::new(tick_scope::core::models::ReplayTradeStore::default()));
+    let trade_store = Arc::new(parking_lot::RwLock::new(
+        tick_scope::core::models::ReplayTradeStore::default(),
+    ));
 
     let driver = tick_scope::replay::driver::ReplayDriver::new(
         run_id,
@@ -667,7 +826,9 @@ fn test_rapid_seek_scrubbing_race_safety() {
         let target_mt5 = base_time + jump;
 
         // Process rapid seek through driver
-        driver.session_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        driver
+            .session_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut eng_guard = driver.engine.lock();
         eng_guard.reset_state();
         driver.clock.set_time(mt5_to_utc_ms(target_mt5));
@@ -694,7 +855,13 @@ fn test_simulate_replay_seek_and_playback_candles() {
     let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config.clone())));
 
     let mut sources = Vec::new();
-    for &(b_id, name) in &[(1, "OANDA"), (2, "Tradeview"), (3, "Dukascopy"), (4, "Axiory"), (5, "JFX")] {
+    for &(b_id, name) in &[
+        (1, "OANDA"),
+        (2, "Tradeview"),
+        (3, "Dukascopy"),
+        (4, "Axiory"),
+        (5, "JFX"),
+    ] {
         if let Ok(mut src) = BrokerParquetSource::new(b_id, name, "usdjpy", tick_dir) {
             src = src.with_receive_delay_profile();
             let _ = src.load_partition(2026, 8);
@@ -722,15 +889,27 @@ fn test_simulate_replay_seek_and_playback_candles() {
     // Check projection immediately after rebuild
     {
         let eng = engine.lock();
-        let proj = eng.make_projection_at(UtcMs(start_utc_ms), MonoNs(start_utc_ms as u64 * 1_000_000));
+        let proj =
+            eng.make_projection_at(UtcMs(start_utc_ms), MonoNs(start_utc_ms as u64 * 1_000_000));
         println!("Projection after rebuild:");
         for bo in &proj.broker_overviews {
-            println!("  Broker {}: quote={:?}, health={:?}", bo.broker_id, bo.latest_quote.is_some(), bo.health.data_freshness);
+            println!(
+                "  Broker {}: quote={:?}, health={:?}",
+                bo.broker_id,
+                bo.latest_quote.is_some(),
+                bo.health.data_freshness
+            );
         }
         for (&period, cv) in &proj.candle_views {
             for (bid, slots) in &cv.slots_by_broker {
                 let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
-                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+                println!(
+                    "  Period {}ms, Broker {}: {} / {} slots populated",
+                    period,
+                    bid,
+                    populated,
+                    slots.len()
+                );
             }
         }
         assert!(
@@ -760,16 +939,23 @@ fn test_simulate_replay_seek_and_playback_candles() {
             let mut st = merge_stream.write();
             st.pop_up_to(current_utc, 1024)
         };
-        println!("Second {}: popped {} ticks up to {}", sec, ticks.len(), current_utc);
+        println!(
+            "Second {}: popped {} ticks up to {}",
+            sec,
+            ticks.len(),
+            current_utc
+        );
 
         let mut eng = engine.lock();
         if !ticks.is_empty() {
-            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> = std::collections::HashMap::new();
+            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> =
+                std::collections::HashMap::new();
             for t in ticks {
                 broker_groups.entry(t.broker_id).or_default().push(t);
             }
             for (b_id, b_ticks) in broker_groups {
-                let item = make_ingress_tick_batch(b_id, 1, &b_ticks, sec as u64 * 1000, false, run_id);
+                let item =
+                    make_ingress_tick_batch(b_id, 1, &b_ticks, sec as u64 * 1000, false, run_id);
                 eng.on_ingress_item(item);
             }
         }
@@ -785,12 +971,19 @@ fn test_simulate_replay_seek_and_playback_candles() {
     // Check projection after 5 seconds of playback
     {
         let eng = engine.lock();
-        let proj = eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
+        let proj =
+            eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
         println!("\nProjection after 5s playback (current_utc: {current_utc}):");
         for (&period, cv) in &proj.candle_views {
             for (bid, slots) in &cv.slots_by_broker {
                 let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
-                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+                println!(
+                    "  Period {}ms, Broker {}: {} / {} slots populated",
+                    period,
+                    bid,
+                    populated,
+                    slots.len()
+                );
             }
         }
     }
@@ -813,15 +1006,27 @@ fn test_simulate_replay_seek_and_playback_candles() {
     // Check projection immediately after +10M jump
     {
         let eng = engine.lock();
-        let proj = eng.make_projection_at(UtcMs(jump_utc_ms), MonoNs(jump_utc_ms as u64 * 1_000_000));
+        let proj =
+            eng.make_projection_at(UtcMs(jump_utc_ms), MonoNs(jump_utc_ms as u64 * 1_000_000));
         println!("Projection immediately after +10M jump:");
         for bo in &proj.broker_overviews {
-            println!("  Broker {}: quote={:?}, health={:?}", bo.broker_id, bo.latest_quote.is_some(), bo.health.data_freshness);
+            println!(
+                "  Broker {}: quote={:?}, health={:?}",
+                bo.broker_id,
+                bo.latest_quote.is_some(),
+                bo.health.data_freshness
+            );
         }
         for (&period, cv) in &proj.candle_views {
             for (bid, slots) in &cv.slots_by_broker {
                 let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
-                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+                println!(
+                    "  Period {}ms, Broker {}: {} / {} slots populated",
+                    period,
+                    bid,
+                    populated,
+                    slots.len()
+                );
             }
         }
         assert!(
@@ -843,7 +1048,10 @@ fn test_simulate_replay_seek_and_playback_candles() {
             }
         }
         println!("  Total timestamp inversions after jump: {inversions}");
-        assert_eq!(inversions, 0, "Timestamps in realtime_quote_points must be strictly non-decreasing!");
+        assert_eq!(
+            inversions, 0,
+            "Timestamps in realtime_quote_points must be strictly non-decreasing!"
+        );
     }
 
     // 4. Play 5 seconds forward after jump
@@ -855,16 +1063,29 @@ fn test_simulate_replay_seek_and_playback_candles() {
             let mut st = merge_stream.write();
             st.pop_up_to(current_utc, 1024)
         };
-        println!("After jump Second {}: popped {} ticks up to {}", sec, ticks.len(), current_utc);
+        println!(
+            "After jump Second {}: popped {} ticks up to {}",
+            sec,
+            ticks.len(),
+            current_utc
+        );
 
         let mut eng = engine.lock();
         if !ticks.is_empty() {
-            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> = std::collections::HashMap::new();
+            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> =
+                std::collections::HashMap::new();
             for t in ticks {
                 broker_groups.entry(t.broker_id).or_default().push(t);
             }
             for (b_id, b_ticks) in broker_groups {
-                let item = make_ingress_tick_batch(b_id, 2, &b_ticks, 10000 + sec as u64 * 1000, false, run_id);
+                let item = make_ingress_tick_batch(
+                    b_id,
+                    2,
+                    &b_ticks,
+                    10000 + sec as u64 * 1000,
+                    false,
+                    run_id,
+                );
                 eng.on_ingress_item(item);
             }
         }
@@ -880,12 +1101,19 @@ fn test_simulate_replay_seek_and_playback_candles() {
     // Check projection after 5 seconds of playback post-jump
     {
         let eng = engine.lock();
-        let proj = eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
+        let proj =
+            eng.make_projection_at(UtcMs(current_utc), MonoNs(current_utc as u64 * 1_000_000));
         println!("\nProjection after 5s playback post-jump (current_utc: {current_utc}):");
         for (&period, cv) in &proj.candle_views {
             for (bid, slots) in &cv.slots_by_broker {
                 let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
-                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+                println!(
+                    "  Period {}ms, Broker {}: {} / {} slots populated",
+                    period,
+                    bid,
+                    populated,
+                    slots.len()
+                );
             }
         }
     }
@@ -905,7 +1133,13 @@ fn test_simulate_august_3_live_issue() {
     let engine = Arc::new(parking_lot::Mutex::new(TickEngine::new(config.clone())));
 
     let mut sources = Vec::new();
-    for &(b_id, name) in &[(1, "OANDA"), (2, "Tradeview"), (3, "Dukascopy"), (4, "Axiory"), (5, "JFX")] {
+    for &(b_id, name) in &[
+        (1, "OANDA"),
+        (2, "Tradeview"),
+        (3, "Dukascopy"),
+        (4, "Axiory"),
+        (5, "JFX"),
+    ] {
         if let Ok(mut src) = BrokerParquetSource::new(b_id, name, "usdjpy", tick_dir) {
             let _ = src.load_partition(2026, 8);
             sources.push(src);
@@ -949,21 +1183,35 @@ fn test_simulate_august_3_live_issue() {
         for (&period, cv) in &proj.candle_views {
             for (bid, slots) in &cv.slots_by_broker {
                 let populated = slots.iter().filter(|s| s.ohlc.is_some()).count();
-                println!("  Period {}ms, Broker {}: {} / {} slots populated", period, bid, populated, slots.len());
+                println!(
+                    "  Period {}ms, Broker {}: {} / {} slots populated",
+                    period,
+                    bid,
+                    populated,
+                    slots.len()
+                );
             }
         }
         for (bid, ch) in &eng.channels {
             println!(
                 "  Channel {}: connected={}, watermark={}, pending_frames={}, expected_seq={}",
-                bid, ch.is_connected, ch.watermark.0, ch.pending_frames.len(), ch.ledger.expected_sequence()
+                bid,
+                ch.is_connected,
+                ch.watermark.0,
+                ch.pending_frames.len(),
+                ch.ledger.expected_sequence()
             );
         }
-        println!("  Realtime quote history len: {}", eng.realtime_quote_history.len());
+        println!(
+            "  Realtime quote history len: {}",
+            eng.realtime_quote_history.len()
+        );
     }
 
     // Simulate PlaybackPump popping ticks
     let mut current_utc = start_utc_ms;
-    let mut next_sequences: std::collections::HashMap<BrokerId, u64> = std::collections::HashMap::new();
+    let mut next_sequences: std::collections::HashMap<BrokerId, u64> =
+        std::collections::HashMap::new();
     for sec in 1..=5 {
         current_utc += 1000;
         clock.set_time(current_utc);
@@ -972,26 +1220,44 @@ fn test_simulate_august_3_live_issue() {
             let mut st = merge_stream.write();
             st.pop_up_to(current_utc, 1024)
         };
-        println!("Second {}: popped {} ticks up to {}", sec, ticks.len(), current_utc);
+        println!(
+            "Second {}: popped {} ticks up to {}",
+            sec,
+            ticks.len(),
+            current_utc
+        );
         for t in &ticks {
-            println!("   -> popped tick: broker={}, utc_ms={}, mt5_ms={}, bid={}, ask={}", t.broker_id, t.utc_ms, t.mt5_ms, t.bid, t.ask);
+            println!(
+                "   -> popped tick: broker={}, utc_ms={}, mt5_ms={}, bid={}, ask={}",
+                t.broker_id, t.utc_ms, t.mt5_ms, t.bid, t.ask
+            );
         }
 
         let mut eng = engine.lock();
         if !ticks.is_empty() {
-            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> = std::collections::HashMap::new();
+            let mut broker_groups: std::collections::HashMap<BrokerId, Vec<ReplayTick>> =
+                std::collections::HashMap::new();
             for t in ticks {
                 broker_groups.entry(t.broker_id).or_default().push(t);
             }
             for (b_id, b_ticks) in broker_groups {
-                let seq = next_sequences.entry(b_id).or_insert_with(|| eng.channels.get(&b_id).map_or(1, |c| c.ledger.expected_sequence().max(1)));
+                let seq = next_sequences.entry(b_id).or_insert_with(|| {
+                    eng.channels
+                        .get(&b_id)
+                        .map_or(1, |c| c.ledger.expected_sequence().max(1))
+                });
                 let item = make_ingress_tick_batch(b_id, 1, &b_ticks, *seq, false, run_id);
                 *seq += b_ticks.len() as u64;
                 eng.on_ingress_item(item);
             }
         }
 
-        let active_ids: Vec<BrokerId> = eng.channels.iter().filter(|(_, ch)| ch.is_connected).map(|(&id, _)| id).collect();
+        let active_ids: Vec<BrokerId> = eng
+            .channels
+            .iter()
+            .filter(|(_, ch)| ch.is_connected)
+            .map(|(&id, _)| id)
+            .collect();
         for b_id in active_ids {
             eng.on_ingress_item(IngressItem::Progress {
                 broker_id: b_id,
@@ -1002,10 +1268,18 @@ fn test_simulate_august_3_live_issue() {
         for (bid, ch) in &eng.channels {
             println!(
                 "  [Sec {}] Channel {}: connected={}, watermark={}, pending_frames={}",
-                sec, bid, ch.is_connected, ch.watermark.0, ch.pending_frames.len()
+                sec,
+                bid,
+                ch.is_connected,
+                ch.watermark.0,
+                ch.pending_frames.len()
             );
         }
-        println!("  [Sec {}] Realtime quote history len: {}", sec, eng.realtime_quote_history.len());
+        println!(
+            "  [Sec {}] Realtime quote history len: {}",
+            sec,
+            eng.realtime_quote_history.len()
+        );
 
         let proj = eng.make_projection_at(UtcMs(current_utc), current_mono);
         for (&period, cv) in &proj.candle_views {
@@ -1018,10 +1292,20 @@ fn test_simulate_august_3_live_issue() {
             }
         }
         if sec == 5 {
-            let s1_latest = proj.candle_views.get(&1000).unwrap().slots_by_broker.get(&1).unwrap().last().and_then(|s| s.ohlc.as_ref());
-            assert!(s1_latest.is_some(), "S1 latest candle must be populated with incoming ticks");
+            let s1_latest = proj
+                .candle_views
+                .get(&1000)
+                .unwrap()
+                .slots_by_broker
+                .get(&1)
+                .unwrap()
+                .last()
+                .and_then(|s| s.ohlc.as_ref());
+            assert!(
+                s1_latest.is_some(),
+                "S1 latest candle must be populated with incoming ticks"
+            );
         }
         drop(eng);
     }
 }
-

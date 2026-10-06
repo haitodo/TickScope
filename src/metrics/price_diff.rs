@@ -1,7 +1,7 @@
 //! Realtime price difference and rolling waveform buffer.
 
 use crate::core::models::DiffPoint;
-use crate::core::types::{BrokerId, Quote, MonoNs};
+use crate::core::types::{BrokerId, MonoNs, Quote};
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]

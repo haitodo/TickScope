@@ -3,9 +3,7 @@
 use log::LevelFilter;
 use std::path::PathBuf;
 use tick_scope::cli::{parse_level_filter, CliArgs};
-use tick_scope::logging::{
-    format_log_line, init_disabled_logging, init_logging,
-};
+use tick_scope::logging::{format_log_line, init_disabled_logging, init_logging};
 
 #[test]
 fn test_cli_parsing_matrix() {

@@ -3,9 +3,9 @@
 //! Measures elapsed time between quote revisions and tracks whether subsequent broker
 //! behavior followed or reverted when a broker initiates a move.
 
-use crate::core::models::MoveEvent;
-use crate::core::types::{BrokerId, Quote, MonoNs};
 use super::fingerprint::SampleContext;
+use crate::core::models::MoveEvent;
+use crate::core::types::{BrokerId, MonoNs, Quote};
 use std::collections::VecDeque;
 
 /// Tracks quote persistence per broker.
@@ -268,7 +268,9 @@ impl RepricingPersistenceTracker {
     /// Follow rate: proportion of times other brokers followed the lead move.
     #[must_use]
     pub fn follow_rate(&self) -> f64 {
-        let total = self.total_leads.max(self.follow_count + self.reversion_count);
+        let total = self
+            .total_leads
+            .max(self.follow_count + self.reversion_count);
         if total == 0 {
             0.0
         } else {
@@ -279,7 +281,9 @@ impl RepricingPersistenceTracker {
     /// Reversion rate: proportion of times the leader reverted without followers.
     #[must_use]
     pub fn reversion_rate(&self) -> f64 {
-        let total = self.total_leads.max(self.follow_count + self.reversion_count);
+        let total = self
+            .total_leads
+            .max(self.follow_count + self.reversion_count);
         if total == 0 {
             0.0
         } else {
@@ -306,7 +310,9 @@ impl RepricingPersistenceTracker {
 
     /// Event-driven hook for subsequent move events from any broker.
     pub fn on_subsequent_event(&mut self, event: &MoveEvent) {
-        let Some(pending) = self.pending_lead.as_ref() else { return };
+        let Some(pending) = self.pending_lead.as_ref() else {
+            return;
+        };
 
         // Check if window expired
         if event.rx_mono_ns.saturating_sub(pending.created_at).0 > self.window_ns {
@@ -342,8 +348,8 @@ impl RepricingPersistenceTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::TickId;
     use crate::core::models::{MoveDirection, MoveQuality};
+    use crate::core::types::TickId;
 
     fn dummy_quote(broker_id: BrokerId, bid: f64, ask: f64, mono_ms: u64) -> Quote {
         Quote {
@@ -404,14 +410,8 @@ mod tests {
         tracker.on_quote(&dummy_quote(2, 1.2000, 1.2002, 100));
 
         // Unchanged quotes arriving at 110ms and 120ms
-        assert_eq!(
-            tracker.on_quote(&dummy_quote(2, 1.2000, 1.2002, 110)),
-            None
-        );
-        assert_eq!(
-            tracker.on_quote(&dummy_quote(2, 1.2000, 1.2002, 120)),
-            None
-        );
+        assert_eq!(tracker.on_quote(&dummy_quote(2, 1.2000, 1.2002, 110)), None);
+        assert_eq!(tracker.on_quote(&dummy_quote(2, 1.2000, 1.2002, 120)), None);
 
         // Price revision arrives at 160ms -> persisted for 60ms (160 - 100)
         let dur = tracker.on_quote(&dummy_quote(2, 1.2001, 1.2003, 160));

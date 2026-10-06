@@ -138,7 +138,8 @@ impl CliArgs {
                 "-l" | "--log-level" => {
                     let val = iter.next().ok_or_else(|| CliError::MissingOptionValue {
                         option: arg.clone(),
-                        message: "requires a log level argument (error, warn, info, debug, trace)".into(),
+                        message: "requires a log level argument (error, warn, info, debug, trace)"
+                            .into(),
                     })?;
                     cli.log_level = Some(parse_level_filter(&val)?);
                 }
@@ -328,16 +329,22 @@ mod tests {
     #[test]
     fn test_duplicate_config_error() {
         let err = CliArgs::parse(["foo.toml", "bar.toml"]).unwrap_err();
-        assert!(err.to_string().contains("Multiple configuration files specified"));
+        assert!(err
+            .to_string()
+            .contains("Multiple configuration files specified"));
 
         let err = CliArgs::parse(["--config", "foo.toml", "bar.toml"]).unwrap_err();
-        assert!(err.to_string().contains("Multiple configuration files specified"));
+        assert!(err
+            .to_string()
+            .contains("Multiple configuration files specified"));
     }
 
     #[test]
     fn test_unknown_option_error() {
         let err = CliArgs::parse(["--invalid-option"]).unwrap_err();
-        assert!(err.to_string().contains("Unknown option '--invalid-option'"));
+        assert!(err
+            .to_string()
+            .contains("Unknown option '--invalid-option'"));
     }
 
     #[test]
@@ -375,16 +382,22 @@ mod tests {
 
         // Flags after `--` are treated as positional arguments
         let err = CliArgs::parse(["--", "first.toml", "second.toml"]).unwrap_err();
-        assert!(err.to_string().contains("Multiple configuration files specified"));
+        assert!(err
+            .to_string()
+            .contains("Multiple configuration files specified"));
     }
 
     #[test]
     fn test_empty_config_path_rejected() {
         let err = CliArgs::parse([""]).unwrap_err();
-        assert!(err.to_string().contains("Configuration file path cannot be empty"));
+        assert!(err
+            .to_string()
+            .contains("Configuration file path cannot be empty"));
 
         let err = CliArgs::parse(["   "]).unwrap_err();
-        assert!(err.to_string().contains("Configuration file path cannot be empty"));
+        assert!(err
+            .to_string()
+            .contains("Configuration file path cannot be empty"));
 
         let err = CliArgs::parse(["--config", ""]).unwrap_err();
         assert!(err.to_string().contains("requires a non-empty file path"));

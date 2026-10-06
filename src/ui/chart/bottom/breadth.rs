@@ -1,8 +1,8 @@
 use crate::core::models::{BrokerOverview, MoveDirection};
 use crate::core::types::BrokerId;
 use crate::metrics::{EventCluster, MoveBreadth};
-use crate::ui::shared::broker_name;
 use crate::ui::chart::theme::ChartTheme;
+use crate::ui::shared::broker_name;
 use egui::{Color32, Pos2, Rect};
 
 /// Move Breadth View (RFC §42, §61)

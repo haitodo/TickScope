@@ -96,7 +96,10 @@ mod tests {
         assert_eq!(le_u32(&buf, 4), 0x0706_0504);
         assert_eq!(le_u64(&buf, 8), 0x0F0E_0D0C_0B0A_0908);
         assert_eq!(le_i32(&buf, 0), 0x0302_0100);
-        assert_eq!(le_f64(&buf, 0), f64::from_le_bytes([0, 1, 2, 3, 4, 5, 6, 7]));
+        assert_eq!(
+            le_f64(&buf, 0),
+            f64::from_le_bytes([0, 1, 2, 3, 4, 5, 6, 7])
+        );
     }
 
     #[test]

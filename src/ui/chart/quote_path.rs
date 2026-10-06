@@ -1,10 +1,10 @@
-use crate::core::models::{BrokerOverview, RealtimeQuotePoint};
-use crate::core::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
 use super::common::{
     chart_plot_rect, draw_x_axis_caption, is_live, price_decimals_for_pip, x_axis_coordinate,
     CHART_HEADER_HEIGHT,
 };
 use super::theme::{broker_color_for_name, dim_color, ChartTheme};
+use crate::core::models::{BrokerOverview, RealtimeQuotePoint};
+use crate::core::types::{BrokerId, ConnectionState, FreshnessState, MonoNs};
 use egui::{Color32, Pos2, Rect, Stroke};
 use serde::{Deserialize, Serialize};
 
@@ -116,7 +116,9 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         })
     });
 
-    let Some(center_price) = latest_mid else { return };
+    let Some(center_price) = latest_mid else {
+        return;
+    };
 
     let pip_size = pip_size.max(f64::EPSILON);
     let half_span = (fixed_follow_span_pips * pip_size / 2.0).max(f64::EPSILON);
@@ -169,10 +171,7 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
     let mut ordered_brokers: Vec<(usize, &BrokerOverview)> = broker_overviews
         .iter()
         .enumerate()
-        .filter(|(_, broker)| {
-            visible_broker_ids
-                .is_none_or(|v| v.contains(&broker.broker_id))
-        })
+        .filter(|(_, broker)| visible_broker_ids.is_none_or(|v| v.contains(&broker.broker_id)))
         .collect();
     ordered_brokers.sort_by_key(|(_, broker)| {
         i32::from(broker.broker_id == selected_pair.0 || broker.broker_id == selected_pair.1)
@@ -190,9 +189,10 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         } else {
             "·"
         };
-        let quote = broker
-            .latest_quote
-            .as_ref().map_or_else(|| "--".to_owned(), |quote| format!("{:.*}", price_decimals, quote.mid));
+        let quote = broker.latest_quote.as_ref().map_or_else(
+            || "--".to_owned(),
+            |quote| format!("{:.*}", price_decimals, quote.mid),
+        );
         let availability = match broker.health.connection {
             ConnectionState::Disconnected => " DISCONNECTED",
             ConnectionState::Connecting => " CONNECTING",
@@ -283,7 +283,8 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
                 if let Some(prev_pos) = previous {
                     // Defensive guard: never draw line segments backwards in time
                     if curr_pos.x >= prev_pos.x {
-                        painter.line_segment([prev_pos, curr_pos], Stroke::new(1.0_f32, line_color));
+                        painter
+                            .line_segment([prev_pos, curr_pos], Stroke::new(1.0_f32, line_color));
                         previous = Some(curr_pos);
                     }
                 } else {

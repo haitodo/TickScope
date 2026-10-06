@@ -4,7 +4,13 @@ use tick_scope::core::models::*;
 use tick_scope::core::types::*;
 use tick_scope::tick::candle::{calculate_slot_start, CandleBook};
 
-const fn make_test_tick(broker_id: BrokerId, seq: Sequence, utc_ms: i64, bid: f64, ask: f64) -> NormalizedTick {
+const fn make_test_tick(
+    broker_id: BrokerId,
+    seq: Sequence,
+    utc_ms: i64,
+    bid: f64,
+    ask: f64,
+) -> NormalizedTick {
     NormalizedTick {
         observed: ObservedTick {
             tick_id: TickId {
@@ -101,7 +107,10 @@ fn test_tc02_empty_slots_and_aligned_x_axis() {
     let b2_slots = &view.slots_by_broker[&2];
     assert_eq!(b2_slots.len(), 3);
     for slot in b2_slots {
-        assert!(slot.ohlc.is_none(), "Empty slot must not have synthetic OHLC");
+        assert!(
+            slot.ohlc.is_none(),
+            "Empty slot must not have synthetic OHLC"
+        );
         assert_eq!(slot.tick_count, 0);
     }
 }
@@ -136,14 +145,23 @@ fn test_tc03_slot_active_to_closed_advancement() {
 fn test_tc04_retention_slots_preserved_to_left_edge() {
     use tick_scope::config::SlotRetention;
 
-    let retentions = vec![SlotRetention { period_ms: 1000, slots: 60 }];
+    let retentions = vec![SlotRetention {
+        period_ms: 1000,
+        slots: 60,
+    }];
     let mut book = CandleBook::with_retentions(&retentions);
 
     // Feed 70 slots of ticks (from 1000ms to 70000ms)
     for i in 1..=70 {
         let utc_ms = i * 1000;
         book.on_tick(
-            &make_test_tick(1, i as u64, utc_ms, 150.0 + (i as f64 * 0.01), 150.02 + (i as f64 * 0.01)),
+            &make_test_tick(
+                1,
+                i as u64,
+                utc_ms,
+                150.0 + (i as f64 * 0.01),
+                150.02 + (i as f64 * 0.01),
+            ),
             PriceMode::Bid,
             UtcMs(utc_ms + 100),
         );
@@ -175,17 +193,34 @@ fn test_tc05_engine_candle_views_use_configured_retention_slots() {
 
     let mut config = AppConfig::default();
     config.history.retentions = vec![
-        tick_scope::config::SlotRetention { period_ms: 1000, slots: 60 },
-        tick_scope::config::SlotRetention { period_ms: 60000, slots: 60 },
+        tick_scope::config::SlotRetention {
+            period_ms: 1000,
+            slots: 60,
+        },
+        tick_scope::config::SlotRetention {
+            period_ms: 60000,
+            slots: 60,
+        },
     ];
     let engine = TickEngine::new(config);
     let proj = engine.make_projection(UtcMs(1_000_000));
 
     let cv_s1 = proj.candle_views.get(&1000).expect("S1 candle view exists");
-    assert_eq!(cv_s1.slot_starts.len(), 60, "S1 candle view should have 60 slots as configured");
+    assert_eq!(
+        cv_s1.slot_starts.len(),
+        60,
+        "S1 candle view should have 60 slots as configured"
+    );
 
-    let cv_m1 = proj.candle_views.get(&60000).expect("M1 candle view exists");
-    assert_eq!(cv_m1.slot_starts.len(), 60, "M1 candle view should have 60 slots as configured");
+    let cv_m1 = proj
+        .candle_views
+        .get(&60000)
+        .expect("M1 candle view exists");
+    assert_eq!(
+        cv_m1.slot_starts.len(),
+        60,
+        "M1 candle view should have 60 slots as configured"
+    );
 }
 
 #[test]
@@ -209,7 +244,8 @@ fn test_future_tick_breaks_subsequent_present_candles() {
     // Query present candle view
     let view = book.get_candle_view(1000, &[5], 10, UtcMs(10_000));
     let present_slot = &view.slots_by_broker[&5][9];
-    assert!(present_slot.ohlc.is_some(), "Present slot must have OHLC even if a future tick arrived previously");
+    assert!(
+        present_slot.ohlc.is_some(),
+        "Present slot must have OHLC even if a future tick arrived previously"
+    );
 }
-
-

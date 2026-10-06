@@ -1,18 +1,25 @@
 //! Tick Engine: N-broker watermark merge, ledger, and pipeline coordination.
 
 use crate::config::{AppConfig, TimezoneRule};
-use crate::core::models::{LeadLagMatch, RealtimeQuotePoint, PriceMode};
-use crate::core::types::{MonoNs, SessionId, BrokerId, Quote, HealthState, Diagnostic, NormalizationState, ConnectionState, FreshnessState, HeartbeatState, UtcMs, TickId, DiagnosticSeverity, SequenceDisposition, ObservedTick, IntegrityState, PhaseState};
-use crate::protocol::{ReceivedFrame, IngressItem, HEADER_FLAG_WARMUP, FramePayload, HB_FLAG_HAS_OFFSET_SAMPLE, PHASE_WARMING};
+use crate::core::models::{LeadLagMatch, PriceMode, RealtimeQuotePoint};
+use crate::core::types::{
+    BrokerId, ConnectionState, Diagnostic, DiagnosticSeverity, FreshnessState, HealthState,
+    HeartbeatState, IntegrityState, MonoNs, NormalizationState, ObservedTick, PhaseState, Quote,
+    SequenceDisposition, SessionId, TickId, UtcMs,
+};
 use crate::metrics::burst::MultiBrokerBurstDetector;
 use crate::metrics::consensus::ConsensusCalculator;
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::metrics::fingerprint::BrokerFingerprintTracker;
-use crate::metrics::persistence::{QuotePersistenceTracker, RepricingPersistenceTracker};
 use crate::metrics::hypothesis::HypothesisEngine;
 use crate::metrics::lead_lag::SignificantMidMoveDetector;
+use crate::metrics::persistence::{QuotePersistenceTracker, RepricingPersistenceTracker};
 use crate::metrics::price_diff::PairDifferenceTracker;
 use crate::metrics::spread::SpreadTracker;
+use crate::protocol::{
+    FramePayload, IngressItem, ReceivedFrame, HB_FLAG_HAS_OFFSET_SAMPLE, HEADER_FLAG_WARMUP,
+    PHASE_WARMING,
+};
 use crate::tick::candle::CandleBook;
 use crate::tick::ledger::SequenceLedger;
 use crate::tick::matcher::OneToOneEventMatcher;
@@ -153,7 +160,8 @@ impl TickEngine {
             active_pair.0,
             active_pair.1,
             config.display.visible_seconds,
-        ).with_max_points(config.display.visible_ticks);
+        )
+        .with_max_points(config.display.visible_ticks);
         let matcher = OneToOneEventMatcher::new(
             active_pair.0,
             active_pair.1,
@@ -221,15 +229,16 @@ impl TickEngine {
     }
 
     pub fn set_active_pair(&mut self, pair: (BrokerId, BrokerId)) {
-        if pair.0 != pair.1 && pair != self.active_pair
-            && self.channels.contains_key(&pair.0) && self.channels.contains_key(&pair.1) {
+        if pair.0 != pair.1
+            && pair != self.active_pair
+            && self.channels.contains_key(&pair.0)
+            && self.channels.contains_key(&pair.1)
+        {
             self.active_pair = pair;
             self.latest_pair_match = None;
-            self.pair_tracker = PairDifferenceTracker::new(
-                pair.0,
-                pair.1,
-                self.config.display.visible_seconds,
-            ).with_max_points(self.config.display.visible_ticks);
+            self.pair_tracker =
+                PairDifferenceTracker::new(pair.0, pair.1, self.config.display.visible_seconds)
+                    .with_max_points(self.config.display.visible_ticks);
             self.matcher = OneToOneEventMatcher::new(
                 pair.0,
                 pair.1,
@@ -268,9 +277,12 @@ impl TickEngine {
 
         for b in &self.config.brokers {
             self.spread_trackers.insert(b.id, SpreadTracker::new(b.id));
-            self.quote_persistence.insert(b.id, QuotePersistenceTracker::new(b.id));
-            self.repricing_persistence.insert(b.id, RepricingPersistenceTracker::new(b.id));
-            self.fingerprint_trackers.insert(b.id, BrokerFingerprintTracker::new(b.id));
+            self.quote_persistence
+                .insert(b.id, QuotePersistenceTracker::new(b.id));
+            self.repricing_persistence
+                .insert(b.id, RepricingPersistenceTracker::new(b.id));
+            self.fingerprint_trackers
+                .insert(b.id, BrokerFingerprintTracker::new(b.id));
 
             let initial_verified = match b.timezone_rule {
                 TimezoneRule::NyClose | TimezoneRule::Jst | TimezoneRule::Utc => true,
@@ -305,11 +317,8 @@ impl TickEngine {
         }
 
         let (a, b) = self.active_pair;
-        self.pair_tracker = PairDifferenceTracker::new(
-            a,
-            b,
-            self.config.display.visible_seconds,
-        ).with_max_points(self.config.display.visible_ticks);
+        self.pair_tracker = PairDifferenceTracker::new(a, b, self.config.display.visible_seconds)
+            .with_max_points(self.config.display.visible_ticks);
 
         self.matcher = OneToOneEventMatcher::new(
             a,
@@ -324,7 +333,8 @@ impl TickEngine {
         self.current_watermark = MonoNs::ZERO;
         self.diagnostics.clear();
         self.consensus_calc = ConsensusCalculator::new(self.config.health.stale_after_ms);
-        self.burst_detector = MultiBrokerBurstDetector::new(self.config.matcher.matching_window_ms, 2);
+        self.burst_detector =
+            MultiBrokerBurstDetector::new(self.config.matcher.matching_window_ms, 2);
         self.hypothesis_engine = HypothesisEngine::default();
         self.realtime_quote_history.clear();
         self.projection_revision += 1;
@@ -389,7 +399,9 @@ impl TickEngine {
         let mut fast_quote = None;
 
         let is_disconnected = {
-            let Some(ch) = self.channels.get_mut(&broker_id) else { return };
+            let Some(ch) = self.channels.get_mut(&broker_id) else {
+                return;
+            };
 
             match item {
                 IngressItem::Connected { generation, .. } => {
@@ -414,12 +426,13 @@ impl TickEngine {
                     if rf.rx_mono_ns > ch.watermark {
                         ch.watermark = rf.rx_mono_ns;
                     }
-                    ch.pending_frame_bytes = ch.pending_frame_bytes
-                        .saturating_add(rf.wire_len());
+                    ch.pending_frame_bytes = ch.pending_frame_bytes.saturating_add(rf.wire_len());
                     fast_quote = Self::extract_fast_path_quote(broker_id, &rf);
                     ch.pending_frames.push_back(rf);
                 }
-                IngressItem::End { generation, reason, .. } => {
+                IngressItem::End {
+                    generation, reason, ..
+                } => {
                     if generation == 0 || ch.generation == 0 || ch.generation == generation {
                         ch.is_connected = false;
                         self.latest_quotes.remove(&broker_id);
@@ -479,7 +492,11 @@ impl TickEngine {
             min_wm
         } else {
             // If no broker is connected, advance by max watermark available
-            self.channels.values().map(|c| c.watermark).max().unwrap_or(MonoNs::ZERO)
+            self.channels
+                .values()
+                .map(|c| c.watermark)
+                .max()
+                .unwrap_or(MonoNs::ZERO)
         }
     }
 
@@ -497,7 +514,11 @@ impl TickEngine {
                     let is_warmup = (front.frame.header.header_flags & HEADER_FLAG_WARMUP) != 0;
                     if is_warmup || front.rx_mono_ns <= global_watermark {
                         let key = (
-                            if is_warmup { MonoNs::ZERO } else { front.rx_mono_ns },
+                            if is_warmup {
+                                MonoNs::ZERO
+                            } else {
+                                front.rx_mono_ns
+                            },
                             bid,
                             front.connection_generation,
                             front.frame_index,
@@ -520,11 +541,18 @@ impl TickEngine {
         }
     }
 
-    fn extract_fast_path_quote(broker_id: BrokerId, rf: &ReceivedFrame) -> Option<(Quote, MonoNs, bool)> {
+    fn extract_fast_path_quote(
+        broker_id: BrokerId,
+        rf: &ReceivedFrame,
+    ) -> Option<(Quote, MonoNs, bool)> {
         if let FramePayload::TickBatch(ticks) = &rf.frame.payload {
             let is_warmup = (rf.frame.header.header_flags & HEADER_FLAG_WARMUP) != 0;
             if let Some(last_tick) = ticks.iter().rev().find(|t| {
-                t.bid.is_finite() && t.ask.is_finite() && t.bid > 0.0 && t.ask > 0.0 && t.ask >= t.bid
+                t.bid.is_finite()
+                    && t.ask.is_finite()
+                    && t.bid > 0.0
+                    && t.ask > 0.0
+                    && t.ask >= t.bid
             }) {
                 let quote = Quote {
                     tick_id: TickId {
@@ -547,7 +575,13 @@ impl TickEngine {
         None
     }
 
-    fn apply_fast_path_quote(&mut self, broker_id: BrokerId, quote: Quote, rx_mono_ns: MonoNs, is_warmup: bool) {
+    fn apply_fast_path_quote(
+        &mut self,
+        broker_id: BrokerId,
+        quote: Quote,
+        rx_mono_ns: MonoNs,
+        is_warmup: bool,
+    ) {
         let should_update = match self.fast_quotes.get(&broker_id) {
             Some(existing) => {
                 quote.tick_id.session_id != existing.tick_id.session_id
@@ -575,9 +609,7 @@ impl TickEngine {
     fn pop_pending_frame(&mut self, broker_id: BrokerId) -> Option<ReceivedFrame> {
         let channel = self.channels.get_mut(&broker_id)?;
         let frame = channel.pending_frames.pop_front()?;
-        channel.pending_frame_bytes = channel
-            .pending_frame_bytes
-            .saturating_sub(frame.wire_len());
+        channel.pending_frame_bytes = channel.pending_frame_bytes.saturating_sub(frame.wire_len());
         Some(frame)
     }
 
@@ -610,12 +642,17 @@ impl TickEngine {
                 code: "MERGE_BACKPRESSURE".to_string(),
                 severity: DiagnosticSeverity::Warn,
                 broker_id,
-                session_id: self.channels.get(&broker_id).and_then(|channel| channel.session_id),
+                session_id: self
+                    .channels
+                    .get(&broker_id)
+                    .and_then(|channel| channel.session_id),
                 mono_ns: self.current_watermark,
                 sequence_range: None,
                 known_count: Some(forced),
                 detail_value: 0,
-                message: "Merge wait budget exhausted; processed queued frames out of watermark order".to_string(),
+                message:
+                    "Merge wait budget exhausted; processed queued frames out of watermark order"
+                        .to_string(),
             });
         }
     }
@@ -644,7 +681,9 @@ impl TickEngine {
                     if let Some(unix_ns) = rf.rx_unix_ns {
                         let sec = unix_ns / 1_000_000_000;
                         if sec > 0 {
-                            let expected = ch.timezone_rule.resolve_offset(sec, ch.active_utc_offset_sec);
+                            let expected = ch
+                                .timezone_rule
+                                .resolve_offset(sec, ch.active_utc_offset_sec);
                             if expected != ch.active_utc_offset_sec {
                                 log::info!(
                                     "Broker {} ({}) NYClose DST calendar transition: {}s -> {}s ({:+}h)",
@@ -660,7 +699,10 @@ impl TickEngine {
                             }
                         }
                     }
-                } else if ch.auto_utc_offset && ch.timezone_rule == TimezoneRule::Fixed && !is_batch_warmup {
+                } else if ch.auto_utc_offset
+                    && ch.timezone_rule == TimezoneRule::Fixed
+                    && !is_batch_warmup
+                {
                     if let Some(unix_ns) = rf.rx_unix_ns {
                         if let Some(last_tick) = ticks.last() {
                             let pc_sec = (unix_ns / 1_000_000_000) as f64;
@@ -721,8 +763,11 @@ impl TickEngine {
                             rx_mono_ns: rf.rx_mono_ns,
                             utc_ms: Some(UtcMs(tick.broker_time_msc)),
                             is_warmup,
-                            is_valid: tick.bid.is_finite() && tick.ask.is_finite()
-                                && tick.bid > 0.0 && tick.ask > 0.0 && tick.ask >= tick.bid,
+                            is_valid: tick.bid.is_finite()
+                                && tick.ask.is_finite()
+                                && tick.bid > 0.0
+                                && tick.ask > 0.0
+                                && tick.ask >= tick.bid,
                         };
 
                         // Update spread tracker
@@ -735,9 +780,11 @@ impl TickEngine {
                         // Feed CandleBook if valid
                         if quote.is_valid {
                             if let Ok(norm) = normalize_tick(&obs, utc_offset, utc_verified, 1) {
-                                let rx_utc_now = UtcMs(rf.rx_unix_ns.map_or(norm.utc_ms.0, |ns| ns / 1_000_000));
+                                let rx_utc_now =
+                                    UtcMs(rf.rx_unix_ns.map_or(norm.utc_ms.0, |ns| ns / 1_000_000));
                                 self.candle_book.on_tick(&norm, PriceMode::Bid, rx_utc_now);
-                                self.mid_candle_book.on_tick(&norm, PriceMode::Mid, rx_utc_now);
+                                self.mid_candle_book
+                                    .on_tick(&norm, PriceMode::Mid, rx_utc_now);
                             }
                         }
 
@@ -748,38 +795,63 @@ impl TickEngine {
 
                         // Update fingerprint tracker tick count
                         if let Some(ft) = self.fingerprint_trackers.get_mut(&broker_id) {
-                            ft.record_tick(false, false, !is_warmup && quote.is_valid, rf.rx_mono_ns);
+                            ft.record_tick(
+                                false,
+                                false,
+                                !is_warmup && quote.is_valid,
+                                rf.rx_mono_ns,
+                            );
                         }
 
                         // Store latest quote in chronological merge order
                         if quote.is_valid {
                             self.latest_quotes.insert(broker_id, quote);
-                            if self.fast_quotes.get(&broker_id).is_none_or(|fq| fq.rx_mono_ns <= rf.rx_mono_ns) {
+                            if self
+                                .fast_quotes
+                                .get(&broker_id)
+                                .is_none_or(|fq| fq.rx_mono_ns <= rf.rx_mono_ns)
+                            {
                                 self.fast_quotes.insert(broker_id, quote);
                             }
                         }
 
                         // Evaluate move detectors for ALL brokers to drive multi-broker bursts and fingerprints
                         if quote.is_valid && !quote.is_warmup {
-                            let move_event = self.move_detectors.get_mut(&broker_id)
+                            let move_event = self
+                                .move_detectors
+                                .get_mut(&broker_id)
                                 .and_then(|md| md.on_quote(&quote));
                             if let Some(move_ev) = move_event {
                                 let total_b = self.config.brokers.len();
-                                let fresh_c = self.latest_quotes.values().filter(|q| {
-                                    q.is_valid && !q.is_warmup && q.mid.is_finite()
-                                        && q.rx_mono_ns <= rf.rx_mono_ns
-                                        && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
-                                            <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
-                                }).count();
+                                let fresh_c = self
+                                    .latest_quotes
+                                    .values()
+                                    .filter(|q| {
+                                        q.is_valid
+                                            && !q.is_warmup
+                                            && q.mid.is_finite()
+                                            && q.rx_mono_ns <= rf.rx_mono_ns
+                                            && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
+                                                <= self
+                                                    .config
+                                                    .health
+                                                    .stale_after_ms
+                                                    .saturating_mul(1_000_000)
+                                    })
+                                    .count();
 
-                                let cluster_opt = self.burst_detector.on_event(move_ev, total_b, fresh_c);
+                                let cluster_opt =
+                                    self.burst_detector.on_event(move_ev, total_b, fresh_c);
                                 if let Some(cluster) = cluster_opt {
-                                    if let Some(ft) = self.fingerprint_trackers.get_mut(&cluster.first_observed) {
+                                    if let Some(ft) =
+                                        self.fingerprint_trackers.get_mut(&cluster.first_observed)
+                                    {
                                         ft.record_lead();
                                     }
                                     for &b in &cluster.participating_brokers {
                                         if b != cluster.first_observed {
-                                            if let Some(ft) = self.fingerprint_trackers.get_mut(&b) {
+                                            if let Some(ft) = self.fingerprint_trackers.get_mut(&b)
+                                            {
                                                 ft.record_follow(cluster.observed_span_ms);
                                             }
                                         }
@@ -797,18 +869,30 @@ impl TickEngine {
 
                         // If broker is part of active pair, update price diff series
                         let (a, b) = self.active_pair;
-                        if (broker_id == a || broker_id == b) && quote.is_valid && !quote.is_warmup {
-                            let fresh = |id| self.latest_quotes.get(&id).filter(|q| {
-                                q.is_valid && !q.is_warmup
-                                    && q.rx_mono_ns <= rf.rx_mono_ns
-                                    && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
-                                        <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
-                            });
+                        if (broker_id == a || broker_id == b) && quote.is_valid && !quote.is_warmup
+                        {
+                            let fresh = |id| {
+                                self.latest_quotes.get(&id).filter(|q| {
+                                    q.is_valid
+                                        && !q.is_warmup
+                                        && q.rx_mono_ns <= rf.rx_mono_ns
+                                        && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
+                                            <= self
+                                                .config
+                                                .health
+                                                .stale_after_ms
+                                                .saturating_mul(1_000_000)
+                                })
+                            };
                             let q_a = fresh(a);
                             let q_b = fresh(b);
                             let synchronized = q_a.zip(q_b).filter(|(qa, qb)| {
                                 qa.rx_mono_ns.0.abs_diff(qb.rx_mono_ns.0)
-                                    <= self.config.matcher.max_quote_skew_ms.saturating_mul(1_000_000)
+                                    <= self
+                                        .config
+                                        .matcher
+                                        .max_quote_skew_ms
+                                        .saturating_mul(1_000_000)
                             });
                             self.pair_tracker.compute_and_record(
                                 synchronized.map(|(qa, _)| qa),
@@ -823,7 +907,11 @@ impl TickEngine {
                             if let Some(unix_ns) = rf.rx_unix_ns {
                                 let now_utc_ms = unix_ns / 1_000_000;
                                 let age_ms = (now_utc_ms - tick_utc_ms).max(0) as u64;
-                                MonoNs(rf.rx_mono_ns.0.saturating_sub(age_ms.saturating_mul(1_000_000)))
+                                MonoNs(
+                                    rf.rx_mono_ns
+                                        .0
+                                        .saturating_sub(age_ms.saturating_mul(1_000_000)),
+                                )
                             } else {
                                 rf.rx_mono_ns
                             }
@@ -842,7 +930,11 @@ impl TickEngine {
                                 } else if !q.is_warmup
                                     && q.rx_mono_ns <= rf.rx_mono_ns
                                     && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
-                                        <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
+                                        <= self
+                                            .config
+                                            .health
+                                            .stale_after_ms
+                                            .saturating_mul(1_000_000)
                                 {
                                     mids.insert(bid, q.mid);
                                 }
@@ -862,16 +954,25 @@ impl TickEngine {
                         {
                             self.realtime_quote_history.push_back(pt);
                         } else {
-                            let idx = self.realtime_quote_history.partition_point(|p| p.mono_ns < tick_mono_ns);
+                            let idx = self
+                                .realtime_quote_history
+                                .partition_point(|p| p.mono_ns < tick_mono_ns);
                             let merged = if idx < self.realtime_quote_history.len()
-                                && self.realtime_quote_history[idx].mono_ns.0.saturating_sub(tick_mono_ns.0) <= 20_000_000
+                                && self.realtime_quote_history[idx]
+                                    .mono_ns
+                                    .0
+                                    .saturating_sub(tick_mono_ns.0)
+                                    <= 20_000_000
                             {
                                 let p = &mut self.realtime_quote_history[idx];
                                 p.broker_mids.insert(broker_id, quote.mid);
                                 p.consensus_mid = compute_median_from_mids(&p.broker_mids);
                                 true
                             } else if idx > 0
-                                && tick_mono_ns.0.saturating_sub(self.realtime_quote_history[idx - 1].mono_ns.0) <= 20_000_000
+                                && tick_mono_ns
+                                    .0
+                                    .saturating_sub(self.realtime_quote_history[idx - 1].mono_ns.0)
+                                    <= 20_000_000
                             {
                                 let p = &mut self.realtime_quote_history[idx - 1];
                                 p.broker_mids.insert(broker_id, quote.mid);
@@ -885,7 +986,8 @@ impl TickEngine {
                             }
                         }
 
-                        while self.realtime_quote_history.len() > self.config.display.visible_ticks {
+                        while self.realtime_quote_history.len() > self.config.display.visible_ticks
+                        {
                             self.realtime_quote_history.pop_front();
                         }
 
@@ -913,7 +1015,8 @@ impl TickEngine {
                             sequence_range: Some((first, last)),
                             known_count: Some(last.saturating_sub(first).saturating_add(1)),
                             detail_value: 0,
-                            message: "One or more source tick sequences were not observed".to_string(),
+                            message: "One or more source tick sequences were not observed"
+                                .to_string(),
                         });
                     }
                 }
@@ -995,10 +1098,7 @@ impl TickEngine {
             let rx_mono_ns = rf.rx_mono_ns;
             let processing_mono_ns = self.processing_mono_ns;
             let is_tick_batch = matches!(&rf.frame.payload, FramePayload::TickBatch(_));
-            if is_tick_batch
-                && processing_mono_ns.0 >= rx_mono_ns.0
-                && processing_mono_ns.0 > 0
-            {
+            if is_tick_batch && processing_mono_ns.0 >= rx_mono_ns.0 && processing_mono_ns.0 > 0 {
                 diagnostics.record_ns(
                     DiagnosticStage::IngressToEngine,
                     processing_mono_ns.saturating_sub(rx_mono_ns).0,
@@ -1073,7 +1173,8 @@ impl TickEngine {
 
                 let eff_utc = t.effective_utc_ms();
                 // Ensure strictly monotonic non-decreasing timestamp invariant across all brokers
-                let mono_ns = MonoNs((eff_utc.max(0) as u64).saturating_mul(1_000_000)).max(last_mono_ns);
+                let mono_ns =
+                    MonoNs((eff_utc.max(0) as u64).saturating_mul(1_000_000)).max(last_mono_ns);
                 last_mono_ns = mono_ns;
                 let consensus_mid = compute_median_from_mids(&current_mids);
 
@@ -1104,4 +1205,3 @@ impl TickEngine {
         }
     }
 }
-
