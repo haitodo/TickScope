@@ -84,7 +84,7 @@ impl CandleFollowCriteria {
 }
 
 const fn default_active_pair() -> (BrokerId, BrokerId) {
-    (1, 2)
+    (2, 5)
 }
 
 const fn default_timeframe_ms() -> i64 {
@@ -153,7 +153,7 @@ const fn default_true() -> bool {
 
 #[allow(clippy::unnecessary_wraps)] // serde(default) requires the field type
 const fn default_non_minimized_broker_id() -> Option<BrokerId> {
-    Some(1)
+    Some(5)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -576,7 +576,7 @@ mod tests {
         assert_eq!(state.bottom_x_axis_mode, ChartXAxisMode::ReceiveTime);
         assert_eq!(state.bottom_metric, BottomMetric::MidDiff);
         assert!(state.broker_order.is_empty());
-        assert_eq!(state.mt5_non_minimized_broker, Some(1));
+        assert_eq!(state.mt5_non_minimized_broker, Some(5));
     }
 
     #[test]

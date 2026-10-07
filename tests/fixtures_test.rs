@@ -69,5 +69,11 @@ fn test_load_default_config() {
         config.brokers.len() >= 2,
         "Default config has at least 2 brokers"
     );
-    assert_eq!(config.active_pair, (1, 2));
+    assert_eq!(config.active_pair, (2, 5));
+    assert_eq!(config.brokers.len(), 5);
+    assert_eq!(config.brokers[0].name, "Axiory");
+    assert_eq!(config.brokers[1].name, "JFX");
+    assert_eq!(config.brokers[2].name, "Dukascopy");
+    assert_eq!(config.brokers[3].name, "Tradeview");
+    assert_eq!(config.brokers[4].name, "OANDA");
 }

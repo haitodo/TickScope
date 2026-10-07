@@ -1,6 +1,6 @@
 # TickScope Default Configuration (Multi-Broker Setup)
 
-active_pair = [1, 2]
+active_pair = [2, 5]
 
 # Note: timezone_rule = "ny_close" automatically sets and transitions MT5 server timezone
 # between UTC+3 (Summer / US DST) and UTC+2 (Winter / Standard Time) based on the calendar,
@@ -10,9 +10,22 @@ active_pair = [1, 2]
 
 [[brokers]]
 id = 1
-name = "OANDA"
+name = "Axiory"
 host = "127.0.0.1"
-symbol = "USDJPY.cl"
+symbol = "USDJPY"
+point_size = 0.001
+pip_size = 0.01
+timezone_rule = "ny_close"
+utc_offset_sec = 10800
+utc_verified = true
+auto_utc_offset = false
+receive_delay_ms = 170
+
+[[brokers]]
+id = 2
+name = "JFX"
+host = "127.0.0.1"
+symbol = "USDJPY_MT"
 point_size = 0.001
 pip_size = 0.01
 timezone_rule = "ny_close"
@@ -20,19 +33,6 @@ utc_offset_sec = 10800
 utc_verified = true
 auto_utc_offset = false
 receive_delay_ms = 20
-
-[[brokers]]
-id = 2
-name = "Tradeview"
-host = "127.0.0.1"
-symbol = "USDJPY.edge"
-point_size = 0.001
-pip_size = 0.01
-timezone_rule = "ny_close"
-utc_offset_sec = 10800
-utc_verified = true
-auto_utc_offset = false
-receive_delay_ms = 180
 
 [[brokers]]
 id = 3
@@ -49,22 +49,22 @@ receive_delay_ms = 190
 
 [[brokers]]
 id = 4
-name = "Axiory"
+name = "Tradeview"
 host = "127.0.0.1"
-symbol = "USDJPY"
+symbol = "USDJPY.edge"
 point_size = 0.001
 pip_size = 0.01
 timezone_rule = "ny_close"
 utc_offset_sec = 10800
 utc_verified = true
 auto_utc_offset = false
-receive_delay_ms = 170
+receive_delay_ms = 180
 
 [[brokers]]
 id = 5
-name = "JFX"
+name = "OANDA"
 host = "127.0.0.1"
-symbol = "USDJPY_MT"
+symbol = "USDJPY.cl"
 point_size = 0.001
 pip_size = 0.01
 timezone_rule = "ny_close"

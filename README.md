@@ -135,7 +135,7 @@ tick-scope.exe [OPTIONS] [CONFIG_PATH]
 
 ## 設定（config/default.toml）
 
-初期設定では `OANDA` / `Axiory` / `JFX` / `Dukascopy` / `Tradeview` の USDJPY 用設定が用意されています。
+初期設定では `Axiory` / `JFX` / `Dukascopy` / `Tradeview` / `OANDA` の USDJPY 用設定が用意されています。
 
 ### 設定ファイルの探索優先順位
 1. コマンドライン引数（`--config <PATH>` または 位置引数）

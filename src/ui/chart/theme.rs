@@ -78,23 +78,23 @@ impl Default for ChartTheme {
             bg_color: crate::ui::style::BACKGROUND,
             grid_color: Color32::from_rgba_unmultiplied(175, 195, 220, 24),
             // Neutral broker-identity colors (RFC §87: no green=buy/red=sell semantics)
-            candle_up_a: COLOR_OANDA,
-            candle_down_a: dim_candle_color(COLOR_OANDA),
-            candle_up_b: COLOR_TRADEVIEW,
-            candle_down_b: dim_candle_color(COLOR_TRADEVIEW),
+            candle_up_a: COLOR_JFX,
+            candle_down_a: dim_candle_color(COLOR_JFX),
+            candle_up_b: COLOR_OANDA,
+            candle_down_b: dim_candle_color(COLOR_OANDA),
             diff_line: crate::ui::style::WARNING, // Gold for mid diff
             bid_diff_line: Color32::from_rgb(0, 191, 255), // Deep Sky Blue for bid diff
             ask_diff_line: Color32::from_rgb(255, 105, 180), // Hot Pink for ask diff
             spread_diff_line: Color32::from_rgb(175, 125, 255), // Light Purple for spread diff
             zero_line: Color32::from_rgba_unmultiplied(255, 255, 255, 72),
             // Default broker colors corresponding to default.toml brokers
-            // (0: OANDA, 1: Tradeview, 2: Dukascopy, 3: Axiory, 4: JFX)
+            // (0: Axiory, 1: JFX, 2: Dukascopy, 3: Tradeview, 4: OANDA)
             broker_colors: [
-                COLOR_OANDA,                      // #00D37E OANDA
-                COLOR_TRADEVIEW,                  // #E53935 Tradeview
-                COLOR_DUKASCOPY,                  // #3B82F6 Dukascopy
                 COLOR_AXIORY,                     // #8A29D5 Axiory
                 COLOR_JFX,                        // #A8C92B JFX
+                COLOR_DUKASCOPY,                  // #3B82F6 Dukascopy
+                COLOR_TRADEVIEW,                  // #E53935 Tradeview
+                COLOR_OANDA,                      // #00D37E OANDA
                 Color32::from_rgb(255, 130, 170), // Pink
                 Color32::from_rgb(255, 220, 80),  // Gold
                 Color32::from_rgb(200, 200, 200), // Silver
@@ -170,7 +170,7 @@ mod tests {
         );
         assert_eq!(
             broker_color_for_name(&theme, Some("Unknown"), 1),
-            COLOR_TRADEVIEW
+            COLOR_JFX
         );
     }
 }
