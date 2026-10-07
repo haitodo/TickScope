@@ -609,17 +609,7 @@ fn draw_trade_overlays_impl(
 
     let clip_painter = painter.with_clip_rect(plot_rect);
 
-    // 1. チャート上部ヘッダーHUD (オープンポジションの常時サマリー表示)
-    draw_header_position_hud(
-        painter,
-        chart_rect,
-        open_positions,
-        pip_size,
-        price_decimals,
-        live_market_price,
-    );
-
-    // 2. 履歴トレード (振り返りモード時に全履歴を展開)
+    // 1. 履歴トレード (振り返りモード時に全履歴を展開)
     for trade in history {
         let (entry_left, entry_right, entry_cx) = slot_span_for_time(
             view,
@@ -760,7 +750,7 @@ fn draw_trade_overlays_impl(
         }
     }
 
-    // 3. オープンポジション (建玉保有中)
+    // 2. オープンポジション (建玉保有中)
     for trade in open_positions {
         let is_buy = trade.side.eq_ignore_ascii_case("BUY");
         let (entry_left, entry_right, _) = slot_span_for_time(
@@ -950,8 +940,14 @@ fn draw_price_axis_position_badge(
         plot_rect.bottom() - badge_h * 0.5,
     );
 
-    // 形式B: 建値 (+pips) 例: "150.235 (+1.8p)" (BUY/SELLなし)
-    let text = format!("{open_price:.price_decimals$} ({pips:+.1}p)");
+    // 整数部を省略した建値 (例: 157.835 -> ".835") と 評価pips (例: "0.5p", "-1.2p")
+    let full_price = format!("{open_price:.price_decimals$}");
+    let decimal_price = match full_price.find('.') {
+        Some(idx) => &full_price[idx..],
+        None => &full_price,
+    };
+    let pips_val = if pips.abs() < 0.05 { 0.0 } else { pips };
+    let text = format!("{decimal_price}({pips_val:.1}p)");
     let bg_color = if pips >= 0.0 {
         crate::ui::chart::theme::trade_tooltip_profit_bg()
     } else {
@@ -961,7 +957,7 @@ fn draw_price_axis_position_badge(
     let font_id = egui::FontId::monospace(10.0);
     let galley = painter.layout_no_wrap(text, font_id, Color32::WHITE);
     let text_w = galley.size().x;
-    let badge_w = (text_w + 8.0).clamp(62.0, 84.0);
+    let badge_w = (text_w + 6.0).clamp(52.0, 84.0);
 
     let badge_rect = Rect::from_center_size(
         Pos2::new(axis_left + badge_w * 0.5 + 2.0, badge_y),
@@ -978,80 +974,6 @@ fn draw_price_axis_position_badge(
         galley,
         Color32::WHITE,
     );
-}
-
-fn draw_header_position_hud(
-    painter: &egui::Painter,
-    chart_rect: Rect,
-    open_positions: &[ReplayTrade],
-    pip_size: f64,
-    price_decimals: usize,
-    live_market_price: Option<f64>,
-) {
-    if open_positions.is_empty() {
-        return;
-    }
-
-    let hud_y = chart_rect.top() + 6.0;
-    let mut right_cursor = chart_rect.right() - PRICE_AXIS_WIDTH - 140.0;
-
-    for trade in open_positions {
-        let is_buy = trade.side.eq_ignore_ascii_case("BUY");
-        let cur_price = live_market_price.or(trade.current_price);
-        let pips = if pip_size > 0.0 {
-            if let Some(cur) = cur_price {
-                let diff = if is_buy {
-                    cur - trade.open_price
-                } else {
-                    trade.open_price - cur
-                };
-                diff / pip_size
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
-
-        // スキャルピング用にBUY/SELLの文字を省き、ロット・建値・リアルタイムpipsを表示
-        let text = format!(
-            "● {:.2}L @ {:.*} | {:+.1}p",
-            trade.volume, price_decimals, trade.open_price, pips
-        );
-
-        let bg_color = if pips >= 0.0 {
-            crate::ui::chart::theme::trade_pill_profit_bg()
-        } else {
-            crate::ui::chart::theme::trade_pill_loss_bg()
-        };
-        let border_color = if is_buy {
-            crate::ui::chart::theme::TRADE_MARK_BUY
-        } else {
-            crate::ui::chart::theme::TRADE_MARK_SELL
-        };
-
-        let font_id = egui::FontId::monospace(10.5);
-        let galley = painter.layout_no_wrap(text, font_id, Color32::WHITE);
-        let text_w = galley.size().x;
-        let badge_w = text_w + 12.0;
-        let badge_h = 18.0;
-
-        let badge_rect = Rect::from_min_size(
-            Pos2::new(right_cursor - badge_w, hud_y),
-            egui::vec2(badge_w, badge_h),
-        );
-
-        if badge_rect.left() > chart_rect.left() + 200.0 {
-            painter.rect_filled(badge_rect, 3.0, bg_color);
-            painter.rect_stroke(badge_rect, 3.0, Stroke::new(1.0_f32, border_color));
-            painter.galley(
-                Pos2::new(badge_rect.min.x + 6.0, badge_rect.min.y + 2.0),
-                galley,
-                Color32::WHITE,
-            );
-            right_cursor -= badge_w + 6.0;
-        }
-    }
 }
 
 fn interact_trade_rect(
