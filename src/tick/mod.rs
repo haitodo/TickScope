@@ -6,9 +6,11 @@ pub mod ledger;
 pub mod matcher;
 pub mod normalize;
 pub mod projection;
+pub mod tick_candle;
 
 pub use candle::*;
 pub use engine::*;
 pub use ledger::*;
 pub use matcher::*;
 pub use normalize::*;
+pub use tick_candle::*;

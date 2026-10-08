@@ -104,7 +104,7 @@ impl DashboardApp {
             candle_margin_edge_latch: None,
             chart_anchor: None,
             bottom_chart_anchor: None,
-            pip_size: 0.001,
+            pip_size: 0.01,
             visible_seconds: 60,
             visible_ticks: 300,
             chart_max_quote_age_ms: 500,
@@ -881,22 +881,30 @@ impl DashboardApp {
         ctx.input(|i| {
             if (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::Num0) {
                 reset_size_requested = true;
-            } else if i.key_pressed(egui::Key::Num2) {
-                self.bottom_metric = BottomMetric::MidDiff;
-            } else if i.key_pressed(egui::Key::Num3) {
-                self.bottom_metric = BottomMetric::BidAskDiff;
-            } else if i.key_pressed(egui::Key::Num4) {
-                self.bottom_metric = BottomMetric::SpreadDiff;
-            } else if i.key_pressed(egui::Key::Num5) {
-                self.bottom_metric = BottomMetric::LeadLag;
-            } else if i.key_pressed(egui::Key::Num6) {
-                self.bottom_metric = BottomMetric::MidDispersion;
-            } else if i.key_pressed(egui::Key::Num7) {
-                self.bottom_metric = BottomMetric::MoveBreadthView;
-            } else if i.key_pressed(egui::Key::Num8) {
-                self.bottom_metric = BottomMetric::QuotePersistence;
             } else if i.key_pressed(egui::Key::Num1) {
                 self.bottom_metric = BottomMetric::QuotePath;
+            } else if i.key_pressed(egui::Key::Num2) {
+                self.bottom_metric = BottomMetric::TickCandle;
+            } else if i.key_pressed(egui::Key::Num3) {
+                self.bottom_metric = BottomMetric::MidDiff;
+            } else if i.key_pressed(egui::Key::Num4) {
+                self.bottom_metric = BottomMetric::BidAskDiff;
+            } else if i.key_pressed(egui::Key::Num5) {
+                self.bottom_metric = BottomMetric::SpreadDiff;
+            } else if i.key_pressed(egui::Key::Num6) {
+                self.bottom_metric = BottomMetric::LeadLag;
+            } else if i.key_pressed(egui::Key::Num7) {
+                self.bottom_metric = BottomMetric::MidDispersion;
+            } else if i.key_pressed(egui::Key::Num8) {
+                self.bottom_metric = BottomMetric::MoveBreadthView;
+            } else if i.key_pressed(egui::Key::Num9) {
+                self.bottom_metric = BottomMetric::QuotePersistence;
+            } else if i.key_pressed(egui::Key::Q) {
+                if self.bottom_metric == BottomMetric::QuotePath {
+                    self.bottom_metric = BottomMetric::TickCandle;
+                } else {
+                    self.bottom_metric = BottomMetric::QuotePath;
+                }
             } else if i.key_pressed(egui::Key::Tab) {
                 if i.modifiers.shift {
                     self.bottom_metric = self.bottom_metric.prev();

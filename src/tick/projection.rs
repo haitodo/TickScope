@@ -227,6 +227,12 @@ impl TickEngine {
         let mut realtime_quote_points = Vec::with_capacity(self.realtime_quote_history.len());
         realtime_quote_points.extend(self.realtime_quote_history.iter().cloned());
 
+        // 6. Tick Candles
+        let mut tick_candles = HashMap::with_capacity(self.tick_candle_trackers.len());
+        for (&bid, tracker) in &self.tick_candle_trackers {
+            tick_candles.insert(bid, tracker.candles.clone());
+        }
+
         EngineProjection {
             revision: self.projection_revision,
             watermark_ns: self.current_watermark,
@@ -243,6 +249,7 @@ impl TickEngine {
             hypotheses,
             latency_summary,
             realtime_quote_points,
+            tick_candles,
         }
     }
 }

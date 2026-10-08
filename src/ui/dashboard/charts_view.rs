@@ -7,8 +7,9 @@ use crate::ui::chart::{
     draw_bid_ask_diff_chart, draw_candlestick_chart_for_brokers_with_trades_interactive,
     draw_lead_lag_view, draw_mid_diff_chart, draw_mid_dispersion_view_with_visibility,
     draw_move_breadth_view, draw_quote_persistence_view_with_visibility,
-    draw_realtime_quote_path_chart_with_visibility, draw_spread_diff_chart, BottomMetric,
-    BottomMetricCategory, ChartXAxisMode,
+    draw_realtime_quote_path_chart_with_visibility, draw_spread_diff_chart,
+    draw_tick_candle_view, BottomMetric, BottomMetricCategory,
+    ChartXAxisMode,
 };
 use crate::ui::settings::CandlePriceMode;
 use eframe::egui;
@@ -125,6 +126,37 @@ pub fn render_charts_view(
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
 
+                // Quick Toggle Pill between QuotePath & TickCandle
+                let is_qp = app.bottom_metric == BottomMetric::QuotePath;
+                let is_tc = app.bottom_metric == BottomMetric::TickCandle;
+                if ui
+                    .selectable_label(
+                        is_qp,
+                        RichText::new("1: Quote Path")
+                            .color(if is_qp { crate::ui::style::HIGHLIGHT } else { crate::ui::style::MUTED })
+                            .small()
+                            .strong(),
+                    )
+                    .on_hover_text("Realtime Multi-Broker Quote Path [Key: 1 / Toggle: Q]")
+                    .clicked()
+                {
+                    app.bottom_metric = BottomMetric::QuotePath;
+                }
+                if ui
+                    .selectable_label(
+                        is_tc,
+                        RichText::new("2: Tick Candle")
+                            .color(if is_tc { crate::ui::style::HIGHLIGHT } else { crate::ui::style::MUTED })
+                            .small()
+                            .strong(),
+                    )
+                    .on_hover_text("0.2p Noise-Cancelled Tick Candle [Key: 2 / Toggle: Q]")
+                    .clicked()
+                {
+                    app.bottom_metric = BottomMetric::TickCandle;
+                }
+                ui.separator();
+
                 // Indicator Selector (ComboBox + Prev/Next buttons)
                 ui.label(
                     RichText::new("Indicator:")
@@ -187,6 +219,34 @@ pub fn render_charts_view(
                     .clicked()
                 {
                     app.bottom_metric = app.bottom_metric.next();
+                }
+
+                // Single Broker Selector (for TickCandle)
+                if app.bottom_metric.is_single_broker_metric() {
+                    ui.separator();
+                    ui.label(RichText::new("Target:").color(crate::ui::style::TEXT_LABEL).small());
+                    let target_name = snapshot
+                        .broker_overviews
+                        .iter()
+                        .find(|b| b.broker_id == app.selected_broker_a)
+                        .map(|b| b.name.as_str())
+                        .unwrap_or("Broker");
+                    ui.menu_button(
+                        RichText::new(format!("[A] {target_name}"))
+                            .strong()
+                            .color(crate::ui::style::HIGHLIGHT),
+                        |ui| {
+                            for b in &snapshot.broker_overviews {
+                                if ui
+                                    .selectable_label(b.broker_id == app.selected_broker_a, &b.name)
+                                    .clicked()
+                                {
+                                    app.set_broker_a(b.broker_id);
+                                    ui.close_menu();
+                                }
+                            }
+                        },
+                    );
                 }
 
                 // Pair Selector (Pair metrics 1-4)
@@ -407,6 +467,32 @@ pub fn render_charts_view(
                     0.4,
                     &mut app.bottom_chart_anchor,
                     &app.theme,
+                );
+            }
+            BottomMetric::TickCandle => {
+                let target_broker_id = app.selected_broker_a;
+                let broker_name = snapshot
+                    .broker_overviews
+                    .iter()
+                    .find(|b| b.broker_id == target_broker_id)
+                    .map(|b| b.name.as_str())
+                    .unwrap_or("Broker");
+
+                let empty_candles = Vec::new();
+                let candles = snapshot
+                    .tick_candles
+                    .get(&target_broker_id)
+                    .unwrap_or(&empty_candles);
+
+                let pointer_pos = ui.input(|i| i.pointer.hover_pos());
+                draw_tick_candle_view(
+                    &bottom_painter,
+                    bottom_rect,
+                    candles,
+                    broker_name,
+                    app.pip_size,
+                    &app.theme,
+                    pointer_pos,
                 );
             }
         }

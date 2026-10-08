@@ -80,6 +80,7 @@ pub struct TickEngine {
     pub(crate) performance_diagnostics: Option<DiagnosticsHandle>,
     pub(crate) processing_mono_ns: MonoNs,
     pub realtime_quote_history: VecDeque<RealtimeQuotePoint>,
+    pub tick_candle_trackers: HashMap<BrokerId, super::tick_candle::TickCandleTracker>,
 }
 
 impl TickEngine {
@@ -89,6 +90,7 @@ impl TickEngine {
         let mut spread_trackers = HashMap::new();
         let mut health_states = HashMap::new();
         let mut move_detectors = HashMap::new();
+        let mut tick_candle_trackers = HashMap::new();
 
         let candle_book = CandleBook::with_retentions(&config.history.retentions);
         let mid_candle_book = CandleBook::with_retentions(&config.history.retentions);
@@ -131,6 +133,11 @@ impl TickEngine {
             quote_persistence.insert(b.id, QuotePersistenceTracker::new(b.id));
             repricing_persistence.insert(b.id, RepricingPersistenceTracker::new(b.id));
             fingerprint_trackers.insert(b.id, BrokerFingerprintTracker::new(b.id));
+            let pip = if b.pip_size > 0.0 { b.pip_size } else { 0.01 };
+            tick_candle_trackers.insert(
+                b.id,
+                super::tick_candle::TickCandleTracker::new(b.id, 600, 0.2, pip),
+            );
 
             let h = HealthState {
                 broker_id: b.id,
@@ -202,6 +209,7 @@ impl TickEngine {
             performance_diagnostics: None,
             processing_mono_ns: MonoNs::ZERO,
             realtime_quote_history,
+            tick_candle_trackers,
         }
     }
 
@@ -337,6 +345,9 @@ impl TickEngine {
             MultiBrokerBurstDetector::new(self.config.matcher.matching_window_ms, 2);
         self.hypothesis_engine = HypothesisEngine::default();
         self.realtime_quote_history.clear();
+        for tracker in self.tick_candle_trackers.values_mut() {
+            tracker.reset();
+        }
         self.projection_revision += 1;
     }
 
@@ -785,6 +796,19 @@ impl TickEngine {
                                 self.candle_book.on_tick(&norm, PriceMode::Bid, rx_utc_now);
                                 self.mid_candle_book
                                     .on_tick(&norm, PriceMode::Mid, rx_utc_now);
+                            }
+                        }
+
+                        // Feed TickCandleTracker if valid
+                        if quote.is_valid {
+                            let time_sec = if tick.broker_time_msc > 0 {
+                                tick.broker_time_msc / 1000
+                            } else {
+                                rf.rx_unix_ns
+                                    .map_or(0, |ns| (ns / 1_000_000_000) as i64)
+                            };
+                            if let Some(tct) = self.tick_candle_trackers.get_mut(&broker_id) {
+                                tct.on_tick(quote.mid, time_sec);
                             }
                         }
 

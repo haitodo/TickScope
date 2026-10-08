@@ -341,9 +341,11 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         BottomMetric::QuotePersistence.next(),
         BottomMetric::QuotePath
     );
-    assert_eq!(BottomMetric::QuotePath.next(), BottomMetric::MidDiff);
+    assert_eq!(BottomMetric::QuotePath.next(), BottomMetric::TickCandle);
+    assert_eq!(BottomMetric::TickCandle.next(), BottomMetric::MidDiff);
 
-    assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::QuotePath);
+    assert_eq!(BottomMetric::MidDiff.prev(), BottomMetric::TickCandle);
+    assert_eq!(BottomMetric::TickCandle.prev(), BottomMetric::QuotePath);
     assert_eq!(
         BottomMetric::QuotePath.prev(),
         BottomMetric::QuotePersistence
@@ -363,36 +365,40 @@ fn test_bottom_metric_shortcuts_and_cycling() {
 
     // 2. Key mapping tests
     assert_eq!(
+        BottomMetric::from_key_number(1),
+        Some(BottomMetric::QuotePath)
+    );
+    assert_eq!(
         BottomMetric::from_key_number(2),
-        Some(BottomMetric::MidDiff)
+        Some(BottomMetric::TickCandle)
     );
     assert_eq!(
         BottomMetric::from_key_number(3),
-        Some(BottomMetric::BidAskDiff)
+        Some(BottomMetric::MidDiff)
     );
     assert_eq!(
         BottomMetric::from_key_number(4),
-        Some(BottomMetric::SpreadDiff)
+        Some(BottomMetric::BidAskDiff)
     );
     assert_eq!(
         BottomMetric::from_key_number(5),
-        Some(BottomMetric::LeadLag)
+        Some(BottomMetric::SpreadDiff)
     );
     assert_eq!(
         BottomMetric::from_key_number(6),
-        Some(BottomMetric::MidDispersion)
+        Some(BottomMetric::LeadLag)
     );
     assert_eq!(
         BottomMetric::from_key_number(7),
-        Some(BottomMetric::MoveBreadthView)
+        Some(BottomMetric::MidDispersion)
     );
     assert_eq!(
         BottomMetric::from_key_number(8),
-        Some(BottomMetric::QuotePersistence)
+        Some(BottomMetric::MoveBreadthView)
     );
     assert_eq!(
-        BottomMetric::from_key_number(1),
-        Some(BottomMetric::QuotePath)
+        BottomMetric::from_key_number(9),
+        Some(BottomMetric::QuotePersistence)
     );
 
     // 3. UI Key input event simulation
@@ -421,10 +427,10 @@ fn test_bottom_metric_shortcuts_and_cycling() {
 
     let ctx = egui::Context::default();
 
-    // Simulate pressing Key 3 (Num3)
+    // Simulate pressing Key 2 (Num2) -> TickCandle
     let mut input2 = egui::RawInput::default();
     input2.events.push(egui::Event::Key {
-        key: egui::Key::Num3,
+        key: egui::Key::Num2,
         physical_key: None,
         pressed: true,
         repeat: false,
@@ -433,12 +439,12 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     let _ = ctx.run(input2, |ctx| {
         app.render_ui(ctx);
     });
-    assert_eq!(app.bottom_metric(), BottomMetric::BidAskDiff);
+    assert_eq!(app.bottom_metric(), BottomMetric::TickCandle);
 
-    // Simulate pressing Key 4 (Num4)
+    // Simulate pressing Key 3 (Num3) -> MidDiff
     let mut input3 = egui::RawInput::default();
     input3.events.push(egui::Event::Key {
-        key: egui::Key::Num4,
+        key: egui::Key::Num3,
         physical_key: None,
         pressed: true,
         repeat: false,
@@ -447,18 +453,32 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     let _ = ctx.run(input3, |ctx| {
         app.render_ui(ctx);
     });
-    assert_eq!(app.bottom_metric(), BottomMetric::SpreadDiff);
+    assert_eq!(app.bottom_metric(), BottomMetric::MidDiff);
 
-    // Simulate pressing Key 5 (Num5)
+    // Simulate pressing Key 4 (Num4) -> BidAskDiff
     let mut input4 = egui::RawInput::default();
     input4.events.push(egui::Event::Key {
-        key: egui::Key::Num5,
+        key: egui::Key::Num4,
         physical_key: None,
         pressed: true,
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
     let _ = ctx.run(input4, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::BidAskDiff);
+
+    // Simulate pressing Key 6 (Num6) -> LeadLag
+    let mut input6 = egui::RawInput::default();
+    input6.events.push(egui::Event::Key {
+        key: egui::Key::Num6,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input6, |ctx| {
         app.render_ui(ctx);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);

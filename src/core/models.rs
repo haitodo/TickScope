@@ -147,6 +147,31 @@ pub struct RealtimeQuotePoint {
     pub consensus_mid: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TickCandleBar {
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub time_sec: i64,
+    pub is_minute_changed: bool,
+    pub is_confirmed: bool,
+}
+
+impl TickCandleBar {
+    #[inline]
+    #[must_use]
+    pub fn is_bull(&self) -> bool {
+        self.close > self.open
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_bear(&self) -> bool {
+        self.close < self.open
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EngineProjection {
     pub revision: u64,
@@ -167,6 +192,8 @@ pub struct EngineProjection {
     pub hypotheses: Vec<crate::metrics::Hypothesis>,
     pub latency_summary: crate::metrics::StageLatencySummary,
     pub realtime_quote_points: Vec<RealtimeQuotePoint>,
+    #[serde(default)]
+    pub tick_candles: HashMap<BrokerId, Vec<TickCandleBar>>,
 }
 
 impl Default for EngineProjection {
@@ -187,6 +214,7 @@ impl Default for EngineProjection {
             hypotheses: Vec::new(),
             latency_summary: crate::metrics::StageLatencySummary::default(),
             realtime_quote_points: Vec::new(),
+            tick_candles: HashMap::new(),
         }
     }
 }
@@ -219,6 +247,8 @@ pub struct UiSnapshot {
     pub hypotheses: Vec<crate::metrics::Hypothesis>,
     pub latency_summary: crate::metrics::StageLatencySummary,
     pub realtime_quote_points: Vec<RealtimeQuotePoint>,
+    #[serde(default)]
+    pub tick_candles: HashMap<BrokerId, Vec<TickCandleBar>>,
 }
 
 impl Default for UiSnapshot {
@@ -245,6 +275,7 @@ impl Default for UiSnapshot {
             hypotheses: Vec::new(),
             latency_summary: crate::metrics::StageLatencySummary::default(),
             realtime_quote_points: Vec::new(),
+            tick_candles: HashMap::new(),
         }
     }
 }

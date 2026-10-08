@@ -63,6 +63,7 @@ impl SnapshotBuilder {
             hypotheses: projection.hypotheses,
             latency_summary: projection.latency_summary,
             realtime_quote_points: projection.realtime_quote_points,
+            tick_candles: projection.tick_candles,
         })
     }
 }
