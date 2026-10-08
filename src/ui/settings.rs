@@ -19,6 +19,7 @@ pub const MIN_WINDOW_HEIGHT: f32 = 500.0;
 pub const VALID_TIMEFRAMES_MS: [i64; 4] = [1000, 5000, 10000, 60000];
 pub const DEFAULT_CANDLE_BAR_WIDTH: f32 = 5.0;
 pub const VALID_CANDLE_BAR_WIDTHS: [f32; 6] = [3.0, 4.0, 5.0, 6.0, 8.0, 10.0];
+pub const VALID_TICK_CANDLE_BAR_WIDTHS: [f32; 9] = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0];
 pub const VALID_CANDLE_FIXED_PIPS: [f64; 5] = [2.5, 5.0, 10.0, 25.0, 50.0];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -92,6 +93,10 @@ const fn default_timeframe_ms() -> i64 {
 }
 
 const fn default_candle_bar_width() -> f32 {
+    DEFAULT_CANDLE_BAR_WIDTH
+}
+
+const fn default_tick_candle_bar_width() -> f32 {
     DEFAULT_CANDLE_BAR_WIDTH
 }
 
@@ -174,6 +179,10 @@ pub struct UiState {
     pub show_broker_overview: bool,
     #[serde(default = "default_candle_bar_width")]
     pub candle_bar_width: f32,
+    #[serde(default = "default_tick_candle_bar_width")]
+    pub tick_candle_bar_width: f32,
+    #[serde(default = "default_true")]
+    pub tick_candle_show_current_price: bool,
     #[serde(default)]
     pub candle_price_scale: CandlePriceScaleMode,
     #[serde(default)]
@@ -207,6 +216,8 @@ impl Default for UiState {
             show_candle_context: false,
             selected_timeframe_ms: default_timeframe_ms(),
             candle_bar_width: default_candle_bar_width(),
+            tick_candle_bar_width: default_tick_candle_bar_width(),
+            tick_candle_show_current_price: true,
             candle_price_scale: CandlePriceScaleMode::default(),
             candle_price_mode: CandlePriceMode::default(),
             candle_follow_criteria: CandleFollowCriteria::default(),
@@ -272,6 +283,12 @@ impl UiState {
             .any(|&w| (w - self.candle_bar_width).abs() < 1e-4)
         {
             self.candle_bar_width = default_candle_bar_width();
+        }
+        if !VALID_TICK_CANDLE_BAR_WIDTHS
+            .iter()
+            .any(|&w| (w - self.tick_candle_bar_width).abs() < 1e-4)
+        {
+            self.tick_candle_bar_width = default_tick_candle_bar_width();
         }
         match self.candle_price_scale {
             CandlePriceScaleMode::Auto => {}
@@ -506,6 +523,8 @@ mod tests {
             show_candle_context: true,
             selected_timeframe_ms: 10000,
             candle_bar_width: 6.0,
+            tick_candle_bar_width: 8.0,
+            tick_candle_show_current_price: false,
             candle_price_scale: CandlePriceScaleMode::Fixed(10.0),
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::MarginEdge,
@@ -645,6 +664,8 @@ mod tests {
             show_candle_context: false,
             selected_timeframe_ms: 42000, // Invalid timeframe
             candle_bar_width: 99.0,       // Invalid width -> should sanitize to default
+            tick_candle_bar_width: 88.0,  // Invalid width -> should sanitize to default
+            tick_candle_show_current_price: true,
             candle_price_scale: CandlePriceScaleMode::Fixed(99.0), // Invalid fixed pips -> should sanitize to Auto
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::Median,
@@ -690,6 +711,7 @@ mod tests {
         // candle_bar_width should sanitize to default
 
         assert_eq!(state.candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
+        assert_eq!(state.tick_candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
         // candle_price_scale should sanitize to Auto
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);
         // window size should sanitize to min/defaults
@@ -735,6 +757,8 @@ mod tests {
     #[test]
     fn test_candle_scale_and_width_options() {
         assert!(VALID_CANDLE_BAR_WIDTHS.contains(&10.0));
+        assert!(VALID_TICK_CANDLE_BAR_WIDTHS.contains(&1.0));
+        assert!(VALID_TICK_CANDLE_BAR_WIDTHS.contains(&2.0));
         assert!(VALID_CANDLE_FIXED_PIPS.contains(&2.5));
         assert!(VALID_CANDLE_FIXED_PIPS.contains(&25.0));
         assert!(!VALID_CANDLE_FIXED_PIPS.contains(&20.0));

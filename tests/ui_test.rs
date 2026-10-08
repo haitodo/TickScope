@@ -678,6 +678,7 @@ fn test_ui_settings_persistence_lifecycle() {
         app.set_bottom_metric(BottomMetric::SpreadDiff);
         app.set_show_broker_overview(true);
         app.set_candle_bar_width(6.0);
+        app.set_tick_candle_bar_width(8.0);
 
         let ctx = egui::Context::default();
         app.set_always_on_top(&ctx, true);
@@ -710,6 +711,7 @@ fn test_ui_settings_persistence_lifecycle() {
     assert_eq!(loaded.bottom_metric, BottomMetric::LeadLag);
     assert!(loaded.show_broker_overview);
     assert_eq!(loaded.candle_bar_width, 6.0);
+    assert_eq!(loaded.tick_candle_bar_width, 8.0);
     assert!(loaded.always_on_top);
 
     // 3. Second session: reconcile with brokers and restore into new app instance
@@ -741,6 +743,7 @@ fn test_ui_settings_persistence_lifecycle() {
         assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
         assert!(app.show_broker_overview());
         assert_eq!(app.candle_bar_width(), 6.0);
+        assert_eq!(app.tick_candle_bar_width(), 8.0);
         assert!(app.always_on_top());
     }
 

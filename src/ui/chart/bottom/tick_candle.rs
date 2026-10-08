@@ -4,7 +4,9 @@
 //! into high-definition, noise-filtered candlesticks, ignoring sub-threshold price vibration
 //! and canceling bidirectional noise within the threshold.
 
-use super::super::common::{chart_plot_rect, CHART_HEADER_HEIGHT};
+use super::super::common::{
+    chart_plot_rect, price_decimals_for_pip, CHART_HEADER_HEIGHT,
+};
 use super::super::theme::ChartTheme;
 use egui::{Color32, FontId, Pos2, Rect, Stroke};
 
@@ -122,6 +124,8 @@ pub fn draw_tick_candle_view(
     candles: &[TickCandleBar],
     broker_name: &str,
     pip_size: f64,
+    bar_width: f32,
+    show_current_price: bool,
     theme: &ChartTheme,
     pointer_pos: Option<Pos2>,
 ) {
@@ -140,27 +144,50 @@ pub fn draw_tick_candle_view(
 
     let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
     let pip_size = pip_size.max(1e-9);
+    let price_prec = price_decimals_for_pip(pip_size);
 
-    // Compute price range across visible candles
+    // Layout configuration (supports slim bars down to 1.0px for dense tick candle flows)
+    let candle_width = bar_width.clamp(1.0, 15.0);
+    let candle_spacing = if candle_width <= 2.0 {
+        1.0_f32
+    } else {
+        (candle_width * 0.4).clamp(1.5, 4.0)
+    };
+    let rounding = if candle_width <= 2.0 { 0.0 } else { 1.0 };
+    let step_x = candle_width + candle_spacing;
+    let right_edge = plot_rect.right() - 8.0;
+
+    // Determine candles visible inside the plot viewport (right-to-left)
+    let max_visible_bars = if step_x > 0.0 {
+        let available_w = (right_edge - (plot_rect.left() - candle_width)).max(0.0);
+        ((available_w / step_x).ceil() as usize + 1).min(candles.len())
+    } else {
+        candles.len()
+    };
+    let visible_candles = &candles[candles.len().saturating_sub(max_visible_bars)..];
+
+    // Compute price range strictly across visible candles for responsive auto-fit
     let mut min_price = f64::INFINITY;
     let mut max_price = f64::NEG_INFINITY;
-    for c in candles {
+    for c in visible_candles {
         min_price = min_price.min(c.low);
         max_price = max_price.max(c.high);
     }
 
     if !min_price.is_finite() || !max_price.is_finite() || min_price >= max_price {
-        if let Some(first) = candles.first() {
-            min_price = first.close - 2.0 * pip_size;
-            max_price = first.close + 2.0 * pip_size;
+        if let Some(first) = visible_candles.first().or_else(|| candles.last()) {
+            min_price = first.close - 0.5 * pip_size;
+            max_price = first.close + 0.5 * pip_size;
         } else {
             return;
         }
     }
 
-    // Add 10% padding on price axis
+    // Dynamic padding optimized for 0.2p noise-cancelled tick candles:
+    // Scale tightly to visible swings without leaving excessive empty margins at top/bottom.
     let raw_span = max_price - min_price;
-    let padding = (raw_span * 0.1).max(pip_size);
+    let effective_span = raw_span.max(0.4 * pip_size);
+    let padding = (effective_span * 0.08).max(0.15 * pip_size);
     let price_min = min_price - padding;
     let price_max = max_price + padding;
     let price_span = (price_max - price_min).max(1e-9);
@@ -182,12 +209,6 @@ pub fn draw_tick_candle_view(
         }
     }
     let ongoing_block_count = current_block_len;
-
-    // Layout configuration
-    let candle_width = 5.0_f32;
-    let candle_spacing = 2.0_f32;
-    let step_x = candle_width + candle_spacing;
-    let right_edge = plot_rect.right() - 8.0;
 
     // Hover detection
     let mut hovered_candle: Option<(&TickCandleBar, f32)> = None;
@@ -215,22 +236,25 @@ pub fn draw_tick_candle_view(
         let h_secs = h_day_sec % 60;
         let h_diff = (hc.close - hc.open) / pip_size;
         format!(
-            "{} | HOVER [{:02}:{:02}:{:02}] | O: {:.5} H: {:.5} L: {:.5} C: {:.5} ({:+.1}p)",
+            "{} | HOVER [{:02}:{:02}:{:02}] | O: {:.prec$} H: {:.prec$} L: {:.prec$} C: {:.prec$} ({diff:+.1}p)",
             broker_name,
             h_hrs, h_mins, h_secs,
             hc.open, hc.high, hc.low, hc.close,
-            h_diff,
+            diff = h_diff,
+            prec = price_prec,
         )
     } else {
         let net_change = latest.close - latest.open;
         let net_pips = net_change / pip_size;
         format!(
-            "{} | Tick Candle [0.2p] | Visible: {} | Curr 1m: {} bars | Close: {:.5} ({:+.1}p)",
+            "{} | Tick Candle [0.2p] | Visible: {}/{} bars | Curr 1m: {} bars | Close: {:.prec$} ({net_pips:+.1}p)",
             broker_name,
+            visible_candles.len(),
             candles.len(),
             ongoing_block_count,
             latest.close,
-            net_pips,
+            net_pips = net_pips,
+            prec = price_prec,
         )
     };
 
@@ -262,7 +286,7 @@ pub fn draw_tick_candle_view(
         painter.text(
             Pos2::new(plot_rect.right() + 6.0, y),
             egui::Align2::LEFT_CENTER,
-            format!("{p:.5}"),
+            format!("{p:.prec$}", prec = price_prec),
             FontId::monospace(10.0),
             Color32::from_rgb(140, 155, 175),
         );
@@ -342,24 +366,16 @@ pub fn draw_tick_candle_view(
 
         let y_open = price_to_y(candle.open);
         let y_close = price_to_y(candle.close);
-        let y_high = price_to_y(candle.high);
-        let y_low = price_to_y(candle.low);
 
-        let (body_color, stroke_color) = if candle.is_bull() {
-            (bull_color, bull_color)
+        let body_color = if candle.is_bull() {
+            bull_color
         } else if candle.is_bear() {
-            (bear_color, bear_color)
+            bear_color
         } else {
-            (doji_color, doji_color)
+            doji_color
         };
 
-        // Wick
-        painter.line_segment(
-            [Pos2::new(center_x, y_high), Pos2::new(center_x, y_low)],
-            Stroke::new(1.0_f32, stroke_color),
-        );
-
-        // Body
+        // Body (Wick omitted for clean high-density tick candle display)
         let top_body = y_open.min(y_close);
         let bottom_body = y_open.max(y_close);
         let half_w = candle_width * 0.5;
@@ -371,14 +387,14 @@ pub fn draw_tick_candle_view(
                     Pos2::new(center_x - half_w, y_open),
                     Pos2::new(center_x + half_w, y_open),
                 ],
-                Stroke::new(1.5_f32, body_color),
+                Stroke::new(1.0_f32, body_color),
             );
         } else {
             let body_rect = Rect::from_min_max(
                 Pos2::new(center_x - half_w, top_body),
                 Pos2::new(center_x + half_w, bottom_body),
             );
-            painter.rect_filled(body_rect, 1.0, body_color);
+            painter.rect_filled(body_rect, rounding, body_color);
         }
     }
 
@@ -411,44 +427,45 @@ pub fn draw_tick_candle_view(
             painter.text(
                 hover_badge_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                format!("{hover_price:.5}"),
+                format!("{hover_price:.prec$}", prec = price_prec),
                 FontId::monospace(10.0),
                 Color32::from_rgb(180, 220, 255),
             );
         }
     }
 
-    // Current price dashed line
-    let cur_y = price_to_y(latest.close);
-    painter.line_segment(
-        [
-            Pos2::new(plot_rect.left(), cur_y),
-            Pos2::new(plot_rect.right() + 4.0, cur_y),
-        ],
-        Stroke::new(
-            1.0_f32,
-            Color32::from_rgba_unmultiplied(255, 215, 0, 180), // Gold
-        ),
-    );
+    // Current price dashed line and axis badge
+    if show_current_price {
+        let cur_y = price_to_y(latest.close);
+        painter.line_segment(
+            [
+                Pos2::new(plot_rect.left(), cur_y),
+                Pos2::new(plot_rect.right() + 4.0, cur_y),
+            ],
+            Stroke::new(
+                1.0_f32,
+                Color32::from_rgba_unmultiplied(255, 215, 0, 180), // Gold
+            ),
+        );
 
-    // Current price badge on axis
-    let badge_rect = Rect::from_center_size(
-        Pos2::new(plot_rect.right() + 32.0, cur_y),
-        egui::Vec2::new(54.0, 14.0),
-    );
-    painter.rect_filled(badge_rect, 2.0, Color32::from_rgb(45, 55, 75));
-    painter.rect_stroke(
-        badge_rect,
-        2.0,
-        Stroke::new(1.0_f32, Color32::from_rgb(255, 215, 0)),
-    );
-    painter.text(
-        badge_rect.center(),
-        egui::Align2::CENTER_CENTER,
-        format!("{:.5}", latest.close),
-        FontId::monospace(10.0),
-        Color32::from_rgb(255, 225, 80),
-    );
+        let badge_rect = Rect::from_center_size(
+            Pos2::new(plot_rect.right() + 32.0, cur_y),
+            egui::Vec2::new(54.0, 14.0),
+        );
+        painter.rect_filled(badge_rect, 2.0, Color32::from_rgb(45, 55, 75));
+        painter.rect_stroke(
+            badge_rect,
+            2.0,
+            Stroke::new(1.0_f32, Color32::from_rgb(255, 215, 0)),
+        );
+        painter.text(
+            badge_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("{:.prec$}", latest.close, prec = price_prec),
+            FontId::monospace(10.0),
+            Color32::from_rgb(255, 225, 80),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -489,5 +506,58 @@ mod tests {
         // The noise should have been absorbed
         assert!(!candles.is_empty());
         assert_eq!(candles.last().unwrap().close, 150.005);
+    }
+
+    #[test]
+    fn test_draw_tick_candle_view_scaling_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let rect = Rect::from_min_size(Pos2::new(0.0, 0.0), egui::vec2(600.0, 250.0));
+                let painter = ui.painter_at(rect);
+                let theme = ChartTheme::default();
+
+                // Create 100 candles: past candles have a high price spike, recent are tight
+                let mut candles = Vec::new();
+                for i in 0..100 {
+                    let base_price = if i < 20 { 160.0 } else { 150.0 };
+                    candles.push(TickCandleBar {
+                        open: base_price,
+                        high: base_price + 0.005,
+                        low: base_price - 0.005,
+                        close: base_price + 0.002,
+                        time_sec: 1000 + (i as i64),
+                        is_minute_changed: i % 15 == 0,
+                        is_confirmed: true,
+                    });
+                }
+
+                // Render with standard bar width and verify no panics
+                draw_tick_candle_view(
+                    &painter,
+                    rect,
+                    &candles,
+                    "Broker Test",
+                    0.01,
+                    5.0,
+                    true,
+                    &theme,
+                    Some(Pos2::new(300.0, 100.0)),
+                );
+
+                // Render with slim 1.0px bar width and hidden current price line
+                draw_tick_candle_view(
+                    &painter,
+                    rect,
+                    &candles,
+                    "Broker Test",
+                    0.01,
+                    1.0,
+                    false,
+                    &theme,
+                    None,
+                );
+            });
+        });
     }
 }

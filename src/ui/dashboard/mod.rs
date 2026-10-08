@@ -37,6 +37,8 @@ pub struct DashboardApp {
     pub(crate) theme: ChartTheme,
     pub(crate) show_candle_context: bool,
     pub(crate) candle_bar_width: f32,
+    pub(crate) tick_candle_bar_width: f32,
+    pub(crate) tick_candle_show_current_price: bool,
     pub(crate) candle_price_scale: CandlePriceScaleMode,
     pub(crate) candle_price_mode: CandlePriceMode,
     pub(crate) candle_follow_criteria: CandleFollowCriteria,
@@ -97,6 +99,8 @@ impl DashboardApp {
             theme: ChartTheme::default(),
             show_candle_context: true,
             candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
+            tick_candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
+            tick_candle_show_current_price: true,
             candle_price_scale: CandlePriceScaleMode::Auto,
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::Median,
@@ -157,6 +161,8 @@ impl DashboardApp {
         self.show_candle_context = state.show_candle_context;
         self.selected_timeframe_ms = state.selected_timeframe_ms;
         self.candle_bar_width = state.candle_bar_width;
+        self.tick_candle_bar_width = state.tick_candle_bar_width;
+        self.tick_candle_show_current_price = state.tick_candle_show_current_price;
         self.candle_price_scale = state.candle_price_scale;
         self.candle_price_mode = state.candle_price_mode;
         self.candle_follow_criteria = state.candle_follow_criteria;
@@ -242,6 +248,8 @@ impl DashboardApp {
             show_candle_context: self.show_candle_context,
             selected_timeframe_ms: self.selected_timeframe_ms,
             candle_bar_width: self.candle_bar_width,
+            tick_candle_bar_width: self.tick_candle_bar_width,
+            tick_candle_show_current_price: self.tick_candle_show_current_price,
             candle_price_scale: self.candle_price_scale,
             candle_price_mode: self.candle_price_mode,
             candle_follow_criteria: self.candle_follow_criteria,
@@ -618,6 +626,30 @@ impl DashboardApp {
     }
 
     #[must_use]
+    pub const fn tick_candle_bar_width(&self) -> f32 {
+        self.tick_candle_bar_width
+    }
+
+    pub fn set_tick_candle_bar_width(&mut self, width: f32) {
+        if (self.tick_candle_bar_width - width).abs() > 1e-4 {
+            self.tick_candle_bar_width = width;
+            self.state_dirty = true;
+        }
+    }
+
+    #[must_use]
+    pub const fn tick_candle_show_current_price(&self) -> bool {
+        self.tick_candle_show_current_price
+    }
+
+    pub fn set_tick_candle_show_current_price(&mut self, show: bool) {
+        if self.tick_candle_show_current_price != show {
+            self.tick_candle_show_current_price = show;
+            self.state_dirty = true;
+        }
+    }
+
+    #[must_use]
     pub const fn candle_price_scale(&self) -> CandlePriceScaleMode {
         self.candle_price_scale
     }
@@ -696,6 +728,8 @@ impl DashboardApp {
         let prev_candle = self.show_candle_context;
         let prev_timeframe = self.selected_timeframe_ms;
         let prev_candle_bar_width = self.candle_bar_width;
+        let prev_tick_candle_bar_width = self.tick_candle_bar_width;
+        let prev_tick_candle_show_price = self.tick_candle_show_current_price;
         let prev_candle_scale = self.candle_price_scale;
         let prev_candle_follow = self.candle_follow_criteria;
         let prev_top_xaxis = self.top_x_axis_mode;
@@ -772,6 +806,8 @@ impl DashboardApp {
         if self.show_candle_context != prev_candle
             || self.selected_timeframe_ms != prev_timeframe
             || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
+            || (self.tick_candle_bar_width - prev_tick_candle_bar_width).abs() > 1e-4
+            || self.tick_candle_show_current_price != prev_tick_candle_show_price
             || self.candle_price_scale != prev_candle_scale
             || self.candle_follow_criteria != prev_candle_follow
             || self.top_x_axis_mode != prev_top_xaxis

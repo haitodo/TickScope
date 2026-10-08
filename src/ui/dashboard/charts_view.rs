@@ -247,6 +247,54 @@ pub fn render_charts_view(
                             }
                         },
                     );
+
+                    ui.separator();
+                    ui.label(RichText::new("Bar:").color(crate::ui::style::TEXT_LABEL).small());
+                    let bar_label = if app.tick_candle_bar_width.fract() == 0.0 {
+                        format!("{:.0}px", app.tick_candle_bar_width)
+                    } else {
+                        format!("{:.1}px", app.tick_candle_bar_width)
+                    };
+                    egui::ComboBox::from_id_salt("bottom_tick_candle_bar_width")
+                        .selected_text(
+                            RichText::new(bar_label)
+                                .strong()
+                                .color(crate::ui::style::HIGHLIGHT),
+                        )
+                        .width(55.0)
+                        .show_ui(ui, |ui| {
+                            for &w in &crate::ui::settings::VALID_TICK_CANDLE_BAR_WIDTHS {
+                                let is_active = (app.tick_candle_bar_width - w).abs() < 1e-4;
+                                let label = if w.fract() == 0.0 {
+                                    format!("{w:.0}px")
+                                } else {
+                                    format!("{w:.1}px")
+                                };
+                                if ui.selectable_label(is_active, label).clicked() {
+                                    app.set_tick_candle_bar_width(w);
+                                }
+                            }
+                        });
+
+                    ui.separator();
+                    let is_price_line = app.tick_candle_show_current_price;
+                    if ui
+                        .selectable_label(
+                            is_price_line,
+                            RichText::new("Price Line")
+                                .small()
+                                .strong()
+                                .color(if is_price_line {
+                                    crate::ui::style::HIGHLIGHT
+                                } else {
+                                    crate::ui::style::MUTED
+                                }),
+                        )
+                        .on_hover_text("Toggle current price line and axis badge [Click]")
+                        .clicked()
+                    {
+                        app.set_tick_candle_show_current_price(!is_price_line);
+                    }
                 }
 
                 // Pair Selector (Pair metrics 1-4)
@@ -491,6 +539,8 @@ pub fn render_charts_view(
                     candles,
                     broker_name,
                     app.pip_size,
+                    app.tick_candle_bar_width,
+                    app.tick_candle_show_current_price,
                     &app.theme,
                     pointer_pos,
                 );
