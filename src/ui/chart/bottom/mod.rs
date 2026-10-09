@@ -23,8 +23,8 @@ pub enum BottomMetric {
     MidDispersion,
     MoveBreadthView,
     QuotePersistence,
-    #[default]
     QuotePath,
+    #[default]
     TickCandle,
 }
 

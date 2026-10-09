@@ -221,10 +221,12 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
 fn test_candlestick_fixed_slot_width_and_responsive_slots() {
     use tick_scope::ui::chart::{draw_candlestick_chart_multi, ChartTheme};
     use tick_scope::ui::settings::{
-        DEFAULT_CANDLE_BAR_WIDTH, VALID_CANDLE_BAR_WIDTHS, VALID_CANDLE_FIXED_PIPS,
+        DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_TICK_CANDLE_BAR_WIDTH, VALID_CANDLE_BAR_WIDTHS,
+        VALID_CANDLE_FIXED_PIPS,
     };
 
-    assert_eq!(DEFAULT_CANDLE_BAR_WIDTH, 5.0);
+    assert_eq!(DEFAULT_CANDLE_BAR_WIDTH, 8.0);
+    assert_eq!(DEFAULT_TICK_CANDLE_BAR_WIDTH, 2.0);
     assert_eq!(VALID_CANDLE_BAR_WIDTHS, [3.0, 4.0, 5.0, 6.0, 8.0, 10.0]);
     assert_eq!(VALID_CANDLE_FIXED_PIPS, [2.5, 5.0, 10.0, 25.0, 50.0]);
 
@@ -423,9 +425,23 @@ fn test_bottom_metric_shortcuts_and_cycling() {
     let exchange = Arc::new(SnapshotExchange::new(snap));
     let mut app = DashboardApp::new(exchange, (1, 2));
 
-    assert_eq!(app.bottom_metric(), BottomMetric::QuotePath);
+    assert_eq!(app.bottom_metric(), BottomMetric::TickCandle);
 
     let ctx = egui::Context::default();
+
+    // Simulate pressing Key 1 (Num1) -> QuotePath
+    let mut input1 = egui::RawInput::default();
+    input1.events.push(egui::Event::Key {
+        key: egui::Key::Num1,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let _ = ctx.run(input1, |ctx| {
+        app.render_ui(ctx);
+    });
+    assert_eq!(app.bottom_metric(), BottomMetric::QuotePath);
 
     // Simulate pressing Key 2 (Num2) -> TickCandle
     let mut input2 = egui::RawInput::default();
@@ -1219,19 +1235,19 @@ fn test_always_on_top_persistence_and_backward_compatibility() {
     let temp_dir = tempfile::tempdir().unwrap();
     let state_file = temp_dir.path().join("ui_state.json");
 
-    // 1. Default value is false
+    // 1. Default value is true
     let default_state = UiState::default();
-    assert!(!default_state.always_on_top);
+    assert!(default_state.always_on_top);
 
-    // 2. Set to true, save, and reload
+    // 2. Set to false, save, and reload
     let state = UiState {
-        always_on_top: true,
+        always_on_top: false,
         ..Default::default()
     };
     save_ui_state(&state_file, &state).expect("save_ui_state should succeed");
 
     let loaded = load_ui_state(&state_file).expect("load_ui_state should succeed");
-    assert!(loaded.always_on_top);
+    assert!(!loaded.always_on_top);
 
     // 3. Backward compatibility: deserialize JSON without always_on_top field
     let legacy_json = r#"{
@@ -1243,8 +1259,8 @@ fn test_always_on_top_persistence_and_backward_compatibility() {
     }"#;
     let legacy_state: UiState = serde_json::from_str(legacy_json).expect("deserialize legacy json");
     assert!(
-        !legacy_state.always_on_top,
-        "legacy json must default always_on_top to false"
+        legacy_state.always_on_top,
+        "legacy json must default always_on_top to true"
     );
 }
 
@@ -1256,17 +1272,17 @@ fn test_always_on_top_toggle_and_hotkey() {
 
     let ctx = egui::Context::default();
 
-    // Initially false
-    assert!(!app.always_on_top());
+    // Initially true
+    assert!(app.always_on_top());
 
     // Toggle via method
     app.toggle_always_on_top(&ctx);
-    assert!(app.always_on_top());
-    assert!(app.current_ui_state().always_on_top);
-
-    app.toggle_always_on_top(&ctx);
     assert!(!app.always_on_top());
     assert!(!app.current_ui_state().always_on_top);
+
+    app.toggle_always_on_top(&ctx);
+    assert!(app.always_on_top());
+    assert!(app.current_ui_state().always_on_top);
 
     // Toggle via 'T' keyboard shortcut
     let mut input_t = egui::RawInput::default();
@@ -1281,11 +1297,11 @@ fn test_always_on_top_toggle_and_hotkey() {
         app.render_ui(ctx);
     });
     assert!(
-        app.always_on_top(),
-        "Pressing T should enable always_on_top"
+        !app.always_on_top(),
+        "Pressing T should disable always_on_top"
     );
 
-    // Press T again to turn off
+    // Press T again to turn back on
     let mut input_t2 = egui::RawInput::default();
     input_t2.events.push(egui::Event::Key {
         key: egui::Key::T,
@@ -1298,8 +1314,8 @@ fn test_always_on_top_toggle_and_hotkey() {
         app.render_ui(ctx);
     });
     assert!(
-        !app.always_on_top(),
-        "Pressing T again should disable always_on_top"
+        app.always_on_top(),
+        "Pressing T again should enable always_on_top"
     );
 }
 
@@ -1581,8 +1597,8 @@ fn test_candlestick_price_line_broker_independent_from_indicator() {
     let exchange = Arc::new(SnapshotExchange::new(snap));
     let mut app = DashboardApp::new(exchange, (1, 2));
 
-    // Initially None (falls back to selected_broker_a = 1)
-    assert_eq!(app.candle_price_line_broker(), None);
+    // Initially Some(5) (defaults to OANDA broker ID 5)
+    assert_eq!(app.candle_price_line_broker(), Some(5));
     assert_eq!(app.selected_pair().0, 1);
 
     // Set Price Line broker explicitly to broker 3

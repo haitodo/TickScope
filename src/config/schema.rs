@@ -292,7 +292,7 @@ const fn default_repaint_hz() -> u32 {
     60
 }
 const fn default_timeframe_ms() -> i64 {
-    60000
+    10000
 }
 const fn default_visible_seconds() -> u64 {
     60

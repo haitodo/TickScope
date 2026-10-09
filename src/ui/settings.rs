@@ -17,7 +17,8 @@ pub const DEFAULT_WINDOW_HEIGHT: f32 = 750.0;
 pub const MIN_WINDOW_WIDTH: f32 = 800.0;
 pub const MIN_WINDOW_HEIGHT: f32 = 500.0;
 pub const VALID_TIMEFRAMES_MS: [i64; 4] = [1000, 5000, 10000, 60000];
-pub const DEFAULT_CANDLE_BAR_WIDTH: f32 = 5.0;
+pub const DEFAULT_CANDLE_BAR_WIDTH: f32 = 8.0;
+pub const DEFAULT_TICK_CANDLE_BAR_WIDTH: f32 = 2.0;
 pub const VALID_CANDLE_BAR_WIDTHS: [f32; 6] = [3.0, 4.0, 5.0, 6.0, 8.0, 10.0];
 pub const VALID_TICK_CANDLE_BAR_WIDTHS: [f32; 9] = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0];
 pub const VALID_CANDLE_FIXED_PIPS: [f64; 5] = [2.5, 5.0, 10.0, 25.0, 50.0];
@@ -97,7 +98,7 @@ const fn default_candle_bar_width() -> f32 {
 }
 
 const fn default_tick_candle_bar_width() -> f32 {
-    DEFAULT_CANDLE_BAR_WIDTH
+    DEFAULT_TICK_CANDLE_BAR_WIDTH
 }
 
 const fn default_window_size() -> [f32; 2] {
@@ -161,11 +162,16 @@ const fn default_non_minimized_broker_id() -> Option<BrokerId> {
     Some(5)
 }
 
+#[allow(clippy::unnecessary_wraps)] // serde(default) requires the field type
+const fn default_candle_price_line_broker() -> Option<BrokerId> {
+    Some(5)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiState {
     #[serde(default = "default_active_pair")]
     pub active_pair: (BrokerId, BrokerId),
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub show_candle_context: bool,
     #[serde(default = "default_timeframe_ms")]
     pub selected_timeframe_ms: i64,
@@ -181,11 +187,11 @@ pub struct UiState {
     pub candle_bar_width: f32,
     #[serde(default = "default_tick_candle_bar_width")]
     pub tick_candle_bar_width: f32,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub tick_candle_show_current_price: bool,
     #[serde(default = "default_true")]
     pub candle_show_current_price: bool,
-    #[serde(default)]
+    #[serde(default = "default_candle_price_line_broker")]
     pub candle_price_line_broker: Option<BrokerId>,
     #[serde(default)]
     pub candle_price_scale: CandlePriceScaleMode,
@@ -207,7 +213,7 @@ pub struct UiState {
     pub mt5_auto_close: bool,
     #[serde(default = "default_non_minimized_broker_id")]
     pub mt5_non_minimized_broker: Option<BrokerId>,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub always_on_top: bool,
     #[serde(default)]
     pub window: WindowGeometryState,
@@ -217,13 +223,13 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             active_pair: default_active_pair(),
-            show_candle_context: false,
+            show_candle_context: true,
             selected_timeframe_ms: default_timeframe_ms(),
             candle_bar_width: default_candle_bar_width(),
             tick_candle_bar_width: default_tick_candle_bar_width(),
-            tick_candle_show_current_price: true,
+            tick_candle_show_current_price: false,
             candle_show_current_price: true,
-            candle_price_line_broker: None,
+            candle_price_line_broker: default_candle_price_line_broker(),
             candle_price_scale: CandlePriceScaleMode::default(),
             candle_price_mode: CandlePriceMode::default(),
             candle_follow_criteria: CandleFollowCriteria::default(),
@@ -238,7 +244,7 @@ impl Default for UiState {
             mt5_auto_launch: false,
             mt5_auto_close: false,
             mt5_non_minimized_broker: default_non_minimized_broker_id(),
-            always_on_top: false,
+            always_on_top: true,
             window: WindowGeometryState::default(),
         }
     }
@@ -412,7 +418,10 @@ impl UiState {
         // 6. Reconcile candle price line broker
         if let Some(id) = self.candle_price_line_broker {
             if !brokers.iter().any(|bk| bk.id == id) {
-                self.candle_price_line_broker = None;
+                self.candle_price_line_broker = brokers
+                    .iter()
+                    .find(|bk| bk.name.eq_ignore_ascii_case("oanda"))
+                    .map(|bk| bk.id);
             }
         }
     }
@@ -611,6 +620,12 @@ mod tests {
         assert_eq!(state.bottom_metric, BottomMetric::MidDiff);
         assert!(state.broker_order.is_empty());
         assert_eq!(state.mt5_non_minimized_broker, Some(5));
+        assert!(state.always_on_top);
+        assert_eq!(state.candle_price_line_broker, Some(5));
+        assert_eq!(state.candle_bar_width, 8.0);
+        assert_eq!(state.tick_candle_bar_width, 2.0);
+        assert!(!state.tick_candle_show_current_price);
+        assert!(state.candle_show_current_price);
     }
 
     #[test]
@@ -728,7 +743,7 @@ mod tests {
         // candle_bar_width should sanitize to default
 
         assert_eq!(state.candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
-        assert_eq!(state.tick_candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
+        assert_eq!(state.tick_candle_bar_width, DEFAULT_TICK_CANDLE_BAR_WIDTH);
         assert_eq!(state.candle_price_line_broker, None);
         // candle_price_scale should sanitize to Auto
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);

@@ -13,8 +13,8 @@ use crate::ui::chart::{BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatch
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
     save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, UiState,
-    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH,
-    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
+    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_TICK_CANDLE_BAR_WIDTH,
+    DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
 };
 use crate::ui::shared::broker_name;
 use crate::ui::style;
@@ -95,16 +95,16 @@ impl DashboardApp {
             exchange,
             selected_broker_a: initial_pair.0,
             selected_broker_b: initial_pair.1,
-            selected_timeframe_ms: 1000, // Default 1-second candles (RFC §19)
+            selected_timeframe_ms: 10000, // Default 10-second candles (S10)
             show_debug_overlay: false,
-            bottom_metric: BottomMetric::QuotePath, // Default: Realtime Quote Path
+            bottom_metric: BottomMetric::TickCandle, // Default: 0.2p Noise-Cancelled Tick Candle
             theme: ChartTheme::default(),
             show_candle_context: true,
             candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
             candle_show_current_price: true,
-            candle_price_line_broker: None,
-            tick_candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
-            tick_candle_show_current_price: true,
+            candle_price_line_broker: Some(5),
+            tick_candle_bar_width: DEFAULT_TICK_CANDLE_BAR_WIDTH,
+            tick_candle_show_current_price: false,
             candle_price_scale: CandlePriceScaleMode::Auto,
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::Median,
@@ -138,8 +138,8 @@ impl DashboardApp {
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
             mt5_auto_close: false,
-            mt5_non_minimized_broker: Some(1),
-            always_on_top: false,
+            mt5_non_minimized_broker: Some(5),
+            always_on_top: true,
             show_mt5_stop_confirm_modal: false,
             terminal_manager: crate::runtime::TerminalManager::new(),
             discovered_terminals: Vec::new(),
