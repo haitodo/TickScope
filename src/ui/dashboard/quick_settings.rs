@@ -146,10 +146,23 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
                 let is_on = app.candle_show_current_price;
                 if ui
                     .selectable_label(is_on, if is_on { "表示 (ON)" } else { "非表示 (OFF)" })
-                    .on_hover_text("選択ブローカーの現在値水平ラインとY軸価格バッジの表示/非表示")
+                    .on_hover_text("現在値水平ラインとY軸価格バッジの表示/非表示")
                     .clicked()
                 {
                     app.set_candle_show_current_price(!is_on);
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Price Line Broker:");
+                let current_id = app
+                    .candle_price_line_broker
+                    .unwrap_or(app.selected_broker_a);
+                for b in &snapshot.broker_overviews {
+                    let is_sel = b.broker_id == current_id;
+                    if ui.selectable_label(is_sel, &b.name).clicked() {
+                        app.set_candle_price_line_broker(Some(b.broker_id));
+                    }
                 }
             });
 

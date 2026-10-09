@@ -679,6 +679,7 @@ fn test_ui_settings_persistence_lifecycle() {
         app.set_show_broker_overview(true);
         app.set_candle_bar_width(6.0);
         app.set_candle_show_current_price(false);
+        app.set_candle_price_line_broker(Some(3));
         app.set_tick_candle_bar_width(8.0);
         app.set_tick_candle_show_current_price(false);
 
@@ -715,6 +716,7 @@ fn test_ui_settings_persistence_lifecycle() {
     assert_eq!(loaded.candle_bar_width, 6.0);
     assert_eq!(loaded.tick_candle_bar_width, 8.0);
     assert!(!loaded.candle_show_current_price);
+    assert_eq!(loaded.candle_price_line_broker, Some(3));
     assert!(!loaded.tick_candle_show_current_price);
     assert!(loaded.always_on_top);
 
@@ -749,6 +751,7 @@ fn test_ui_settings_persistence_lifecycle() {
         assert_eq!(app.candle_bar_width(), 6.0);
         assert_eq!(app.tick_candle_bar_width(), 8.0);
         assert!(!app.candle_show_current_price());
+        assert_eq!(app.candle_price_line_broker(), Some(3));
         assert!(!app.tick_candle_show_current_price());
         assert!(app.always_on_top());
     }
@@ -768,6 +771,7 @@ fn test_ui_settings_persistence_lifecycle() {
     ];
     loaded.reconcile_with_brokers(&brokers_missing_c, (1, 2));
     assert_eq!(loaded.active_pair, (1, 2));
+    assert_eq!(loaded.candle_price_line_broker, None);
 }
 
 #[test]
@@ -1570,4 +1574,27 @@ fn test_candlestick_chart_current_price_line_toggle() {
         "Enabling show_current_price should produce additional shapes: with={shapes_with_price}, without={shapes_without_price}"
     );
 }
+
+#[test]
+fn test_candlestick_price_line_broker_independent_from_indicator() {
+    let snap = Arc::new(UiSnapshot::default());
+    let exchange = Arc::new(SnapshotExchange::new(snap));
+    let mut app = DashboardApp::new(exchange, (1, 2));
+
+    // Initially None (falls back to selected_broker_a = 1)
+    assert_eq!(app.candle_price_line_broker(), None);
+    assert_eq!(app.selected_pair().0, 1);
+
+    // Set Price Line broker explicitly to broker 3
+    app.set_candle_price_line_broker(Some(3));
+    assert_eq!(app.candle_price_line_broker(), Some(3));
+
+    // Change indicator / comparison active pair to broker 2
+    app.set_broker_a(2);
+    assert_eq!(app.selected_pair().0, 2);
+
+    // Price Line broker remains 3 (completely independent from indicator broker A)
+    assert_eq!(app.candle_price_line_broker(), Some(3));
+}
+
 

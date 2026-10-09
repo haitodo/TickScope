@@ -75,6 +75,9 @@ pub fn render_charts_view(
         });
 
         if app.show_candle_context {
+            let price_line_broker = app
+                .candle_price_line_broker
+                .unwrap_or(app.selected_broker_a);
             draw_candlestick_chart_for_brokers_with_trades_interactive(
                 &mut *ui,
                 &painter,
@@ -94,7 +97,7 @@ pub fn render_charts_view(
                 app.candle_price_mode.price_mode(),
                 &app.theme,
                 trade_slices,
-                Some(app.selected_broker_a),
+                Some(price_line_broker),
                 app.candle_show_current_price,
             );
         } else {

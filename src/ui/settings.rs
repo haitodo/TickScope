@@ -186,6 +186,8 @@ pub struct UiState {
     #[serde(default = "default_true")]
     pub candle_show_current_price: bool,
     #[serde(default)]
+    pub candle_price_line_broker: Option<BrokerId>,
+    #[serde(default)]
     pub candle_price_scale: CandlePriceScaleMode,
     #[serde(default)]
     pub candle_price_mode: CandlePriceMode,
@@ -221,6 +223,7 @@ impl Default for UiState {
             tick_candle_bar_width: default_tick_candle_bar_width(),
             tick_candle_show_current_price: true,
             candle_show_current_price: true,
+            candle_price_line_broker: None,
             candle_price_scale: CandlePriceScaleMode::default(),
             candle_price_mode: CandlePriceMode::default(),
             candle_follow_criteria: CandleFollowCriteria::default(),
@@ -405,6 +408,13 @@ impl UiState {
                 self.mt5_non_minimized_broker = resolved;
             }
         }
+
+        // 6. Reconcile candle price line broker
+        if let Some(id) = self.candle_price_line_broker {
+            if !brokers.iter().any(|bk| bk.id == id) {
+                self.candle_price_line_broker = None;
+            }
+        }
     }
 }
 
@@ -529,6 +539,7 @@ mod tests {
             tick_candle_bar_width: 8.0,
             tick_candle_show_current_price: false,
             candle_show_current_price: false,
+            candle_price_line_broker: Some(3),
             candle_price_scale: CandlePriceScaleMode::Fixed(10.0),
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::MarginEdge,
@@ -671,6 +682,7 @@ mod tests {
             tick_candle_bar_width: 88.0,  // Invalid width -> should sanitize to default
             tick_candle_show_current_price: true,
             candle_show_current_price: true,
+            candle_price_line_broker: Some(99),
             candle_price_scale: CandlePriceScaleMode::Fixed(99.0), // Invalid fixed pips -> should sanitize to Auto
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::Median,
@@ -717,6 +729,7 @@ mod tests {
 
         assert_eq!(state.candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
         assert_eq!(state.tick_candle_bar_width, DEFAULT_CANDLE_BAR_WIDTH);
+        assert_eq!(state.candle_price_line_broker, None);
         // candle_price_scale should sanitize to Auto
         assert_eq!(state.candle_price_scale, CandlePriceScaleMode::Auto);
         // window size should sanitize to min/defaults

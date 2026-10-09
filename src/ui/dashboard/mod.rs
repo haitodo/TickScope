@@ -38,6 +38,7 @@ pub struct DashboardApp {
     pub(crate) show_candle_context: bool,
     pub(crate) candle_bar_width: f32,
     pub(crate) candle_show_current_price: bool,
+    pub(crate) candle_price_line_broker: Option<BrokerId>,
     pub(crate) tick_candle_bar_width: f32,
     pub(crate) tick_candle_show_current_price: bool,
     pub(crate) candle_price_scale: CandlePriceScaleMode,
@@ -101,6 +102,7 @@ impl DashboardApp {
             show_candle_context: true,
             candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
             candle_show_current_price: true,
+            candle_price_line_broker: None,
             tick_candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
             tick_candle_show_current_price: true,
             candle_price_scale: CandlePriceScaleMode::Auto,
@@ -164,6 +166,7 @@ impl DashboardApp {
         self.selected_timeframe_ms = state.selected_timeframe_ms;
         self.candle_bar_width = state.candle_bar_width;
         self.candle_show_current_price = state.candle_show_current_price;
+        self.candle_price_line_broker = state.candle_price_line_broker;
         self.tick_candle_bar_width = state.tick_candle_bar_width;
         self.tick_candle_show_current_price = state.tick_candle_show_current_price;
         self.candle_price_scale = state.candle_price_scale;
@@ -252,6 +255,7 @@ impl DashboardApp {
             selected_timeframe_ms: self.selected_timeframe_ms,
             candle_bar_width: self.candle_bar_width,
             candle_show_current_price: self.candle_show_current_price,
+            candle_price_line_broker: self.candle_price_line_broker,
             tick_candle_bar_width: self.tick_candle_bar_width,
             tick_candle_show_current_price: self.tick_candle_show_current_price,
             candle_price_scale: self.candle_price_scale,
@@ -642,6 +646,18 @@ impl DashboardApp {
     }
 
     #[must_use]
+    pub const fn candle_price_line_broker(&self) -> Option<BrokerId> {
+        self.candle_price_line_broker
+    }
+
+    pub fn set_candle_price_line_broker(&mut self, broker: Option<BrokerId>) {
+        if self.candle_price_line_broker != broker {
+            self.candle_price_line_broker = broker;
+            self.state_dirty = true;
+        }
+    }
+
+    #[must_use]
     pub const fn tick_candle_bar_width(&self) -> f32 {
         self.tick_candle_bar_width
     }
@@ -745,6 +761,7 @@ impl DashboardApp {
         let prev_timeframe = self.selected_timeframe_ms;
         let prev_candle_bar_width = self.candle_bar_width;
         let prev_candle_show_price = self.candle_show_current_price;
+        let prev_candle_price_line_broker = self.candle_price_line_broker;
         let prev_tick_candle_bar_width = self.tick_candle_bar_width;
         let prev_tick_candle_show_price = self.tick_candle_show_current_price;
         let prev_candle_scale = self.candle_price_scale;
@@ -824,6 +841,7 @@ impl DashboardApp {
             || self.selected_timeframe_ms != prev_timeframe
             || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
             || self.candle_show_current_price != prev_candle_show_price
+            || self.candle_price_line_broker != prev_candle_price_line_broker
             || (self.tick_candle_bar_width - prev_tick_candle_bar_width).abs() > 1e-4
             || self.tick_candle_show_current_price != prev_tick_candle_show_price
             || self.candle_price_scale != prev_candle_scale

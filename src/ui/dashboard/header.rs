@@ -272,6 +272,65 @@ pub fn render_top_header(
                         });
 
                     let is_price_line = app.candle_show_current_price;
+
+                    // Price Line Target Broker Selector
+                    let current_broker_id = app
+                        .candle_price_line_broker
+                        .unwrap_or(app.selected_broker_a);
+                    let current_broker_name = snapshot
+                        .broker_overviews
+                        .iter()
+                        .find(|b| b.broker_id == current_broker_id)
+                        .map(|b| b.name.as_str())
+                        .unwrap_or("Broker");
+                    let color_index = crate::ui::shared::broker_index(
+                        &snapshot.broker_overviews,
+                        current_broker_id,
+                        0,
+                    );
+                    let broker_color = crate::ui::chart::theme::broker_color_for_name(
+                        &app.theme,
+                        Some(current_broker_name),
+                        color_index,
+                    );
+
+                    egui::ComboBox::from_id_salt("header_price_line_broker")
+                        .selected_text(
+                            RichText::new(current_broker_name)
+                                .color(if is_price_line {
+                                    broker_color
+                                } else {
+                                    crate::ui::style::MUTED
+                                })
+                                .strong(),
+                        )
+                        .width(56.0)
+                        .show_ui(ui, |ui| {
+                            for b in &snapshot.broker_overviews {
+                                let b_color_index = crate::ui::shared::broker_index(
+                                    &snapshot.broker_overviews,
+                                    b.broker_id,
+                                    0,
+                                );
+                                let b_color = crate::ui::chart::theme::broker_color_for_name(
+                                    &app.theme,
+                                    Some(&b.name),
+                                    b_color_index,
+                                );
+                                let is_sel = b.broker_id == current_broker_id;
+                                if ui
+                                    .selectable_label(
+                                        is_sel,
+                                        RichText::new(&b.name).color(b_color),
+                                    )
+                                    .clicked()
+                                {
+                                    app.set_candle_price_line_broker(Some(b.broker_id));
+                                    ui.close_menu();
+                                }
+                            }
+                        });
+
                     let price_line_btn = ui.selectable_label(
                         is_price_line,
                         RichText::new("Price Line")
@@ -283,7 +342,7 @@ pub fn render_top_header(
                             .strong(),
                     );
                     if price_line_btn
-                        .on_hover_text("選択ブローカーの現在値ラインと価格バッジの表示/非表示 [Click]")
+                        .on_hover_text("現在値ラインと価格バッジの表示/非表示 [Click]")
                         .clicked()
                     {
                         app.set_candle_show_current_price(!is_price_line);
