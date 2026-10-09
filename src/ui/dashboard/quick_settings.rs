@@ -142,6 +142,18 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
             });
 
             ui.horizontal(|ui| {
+                ui.label("Price Line:");
+                let is_on = app.candle_show_current_price;
+                if ui
+                    .selectable_label(is_on, if is_on { "表示 (ON)" } else { "非表示 (OFF)" })
+                    .on_hover_text("選択ブローカーの現在値水平ラインとY軸価格バッジの表示/非表示")
+                    .clicked()
+                {
+                    app.set_candle_show_current_price(!is_on);
+                }
+            });
+
+            ui.horizontal(|ui| {
                 ui.label("Price Scale:");
                 let is_auto = app.candle_price_scale == CandlePriceScaleMode::Auto;
                 if ui.selectable_label(is_auto, "Auto").clicked() {

@@ -94,6 +94,8 @@ pub fn render_charts_view(
                 app.candle_price_mode.price_mode(),
                 &app.theme,
                 trade_slices,
+                Some(app.selected_broker_a),
+                app.candle_show_current_price,
             );
         } else {
             draw_realtime_quote_path_chart_with_visibility(

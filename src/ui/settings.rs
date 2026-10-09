@@ -183,6 +183,8 @@ pub struct UiState {
     pub tick_candle_bar_width: f32,
     #[serde(default = "default_true")]
     pub tick_candle_show_current_price: bool,
+    #[serde(default = "default_true")]
+    pub candle_show_current_price: bool,
     #[serde(default)]
     pub candle_price_scale: CandlePriceScaleMode,
     #[serde(default)]
@@ -218,6 +220,7 @@ impl Default for UiState {
             candle_bar_width: default_candle_bar_width(),
             tick_candle_bar_width: default_tick_candle_bar_width(),
             tick_candle_show_current_price: true,
+            candle_show_current_price: true,
             candle_price_scale: CandlePriceScaleMode::default(),
             candle_price_mode: CandlePriceMode::default(),
             candle_follow_criteria: CandleFollowCriteria::default(),
@@ -525,6 +528,7 @@ mod tests {
             candle_bar_width: 6.0,
             tick_candle_bar_width: 8.0,
             tick_candle_show_current_price: false,
+            candle_show_current_price: false,
             candle_price_scale: CandlePriceScaleMode::Fixed(10.0),
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::MarginEdge,
@@ -666,6 +670,7 @@ mod tests {
             candle_bar_width: 99.0,       // Invalid width -> should sanitize to default
             tick_candle_bar_width: 88.0,  // Invalid width -> should sanitize to default
             tick_candle_show_current_price: true,
+            candle_show_current_price: true,
             candle_price_scale: CandlePriceScaleMode::Fixed(99.0), // Invalid fixed pips -> should sanitize to Auto
             candle_price_mode: CandlePriceMode::Bid,
             candle_follow_criteria: CandleFollowCriteria::Median,

@@ -97,7 +97,7 @@ pub fn generate_tick_candles(
             }
 
             let prev_minute = candles.last().map(|c| c.time_sec / 60);
-            let is_minute_changed = prev_minute.map_or(false, |pm| time_sec / 60 != pm);
+            let is_minute_changed = prev_minute.is_some_and(|pm| time_sec / 60 != pm);
 
             candles.push(TickCandleBar {
                 open: last_price,

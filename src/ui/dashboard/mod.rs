@@ -37,6 +37,7 @@ pub struct DashboardApp {
     pub(crate) theme: ChartTheme,
     pub(crate) show_candle_context: bool,
     pub(crate) candle_bar_width: f32,
+    pub(crate) candle_show_current_price: bool,
     pub(crate) tick_candle_bar_width: f32,
     pub(crate) tick_candle_show_current_price: bool,
     pub(crate) candle_price_scale: CandlePriceScaleMode,
@@ -99,6 +100,7 @@ impl DashboardApp {
             theme: ChartTheme::default(),
             show_candle_context: true,
             candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
+            candle_show_current_price: true,
             tick_candle_bar_width: DEFAULT_CANDLE_BAR_WIDTH,
             tick_candle_show_current_price: true,
             candle_price_scale: CandlePriceScaleMode::Auto,
@@ -161,6 +163,7 @@ impl DashboardApp {
         self.show_candle_context = state.show_candle_context;
         self.selected_timeframe_ms = state.selected_timeframe_ms;
         self.candle_bar_width = state.candle_bar_width;
+        self.candle_show_current_price = state.candle_show_current_price;
         self.tick_candle_bar_width = state.tick_candle_bar_width;
         self.tick_candle_show_current_price = state.tick_candle_show_current_price;
         self.candle_price_scale = state.candle_price_scale;
@@ -248,6 +251,7 @@ impl DashboardApp {
             show_candle_context: self.show_candle_context,
             selected_timeframe_ms: self.selected_timeframe_ms,
             candle_bar_width: self.candle_bar_width,
+            candle_show_current_price: self.candle_show_current_price,
             tick_candle_bar_width: self.tick_candle_bar_width,
             tick_candle_show_current_price: self.tick_candle_show_current_price,
             candle_price_scale: self.candle_price_scale,
@@ -626,6 +630,18 @@ impl DashboardApp {
     }
 
     #[must_use]
+    pub const fn candle_show_current_price(&self) -> bool {
+        self.candle_show_current_price
+    }
+
+    pub fn set_candle_show_current_price(&mut self, show: bool) {
+        if self.candle_show_current_price != show {
+            self.candle_show_current_price = show;
+            self.state_dirty = true;
+        }
+    }
+
+    #[must_use]
     pub const fn tick_candle_bar_width(&self) -> f32 {
         self.tick_candle_bar_width
     }
@@ -728,6 +744,7 @@ impl DashboardApp {
         let prev_candle = self.show_candle_context;
         let prev_timeframe = self.selected_timeframe_ms;
         let prev_candle_bar_width = self.candle_bar_width;
+        let prev_candle_show_price = self.candle_show_current_price;
         let prev_tick_candle_bar_width = self.tick_candle_bar_width;
         let prev_tick_candle_show_price = self.tick_candle_show_current_price;
         let prev_candle_scale = self.candle_price_scale;
@@ -806,6 +823,7 @@ impl DashboardApp {
         if self.show_candle_context != prev_candle
             || self.selected_timeframe_ms != prev_timeframe
             || (self.candle_bar_width - prev_candle_bar_width).abs() > 1e-4
+            || self.candle_show_current_price != prev_candle_show_price
             || (self.tick_candle_bar_width - prev_tick_candle_bar_width).abs() > 1e-4
             || self.tick_candle_show_current_price != prev_tick_candle_show_price
             || self.candle_price_scale != prev_candle_scale

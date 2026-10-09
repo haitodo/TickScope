@@ -171,6 +171,8 @@ pub fn draw_candlestick_chart_for_brokers_with_trades(
         price_mode,
         theme,
         trade_items,
+        None,
+        false,
     );
 }
 
@@ -193,6 +195,8 @@ pub fn draw_candlestick_chart_for_brokers_with_trades_interactive(
     price_mode: PriceMode,
     theme: &ChartTheme,
     trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
+    selected_broker: Option<BrokerId>,
+    show_current_price: bool,
 ) {
     draw_candlestick_chart_for_brokers_with_trades_impl(
         Some(ui),
@@ -213,6 +217,8 @@ pub fn draw_candlestick_chart_for_brokers_with_trades_interactive(
         price_mode,
         theme,
         trade_items,
+        selected_broker,
+        show_current_price,
     );
 }
 
@@ -235,6 +241,8 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     price_mode: PriceMode,
     theme: &ChartTheme,
     trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
+    selected_broker: Option<BrokerId>,
+    show_current_price: bool,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
     let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
@@ -584,6 +592,74 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             price_decimals,
             live_market_price,
         );
+    }
+
+    // Draw current price line and price axis badge for selected broker
+    if show_current_price {
+        let target_broker_id = selected_broker.or_else(|| broker_ids.first().copied());
+        if let Some(target_id) = target_broker_id {
+            let target_overview = broker_overviews.iter().find(|b| b.broker_id == target_id);
+            let cur_price = target_overview
+                .and_then(|b| b.latest_quote.as_ref())
+                .map(|q| match price_mode {
+                    PriceMode::Bid => q.bid,
+                    PriceMode::Ask => q.ask,
+                    PriceMode::Mid => q.mid,
+                })
+                .or_else(|| {
+                    view.slots_by_broker
+                        .get(&target_id)
+                        .and_then(|slots| slots.iter().rev().find_map(|s| s.ohlc.as_ref().map(|o| o.close)))
+                })
+                .or(fallback_price);
+
+            if let Some(price) = cur_price {
+                let cur_y = price_to_y(price);
+                if cur_y >= plot_rect.top() && cur_y <= plot_rect.bottom() {
+                    let broker_index = broker_ids.iter().position(|&id| id == target_id).unwrap_or(0);
+                    let color_index = crate::ui::shared::broker_index(broker_overviews, target_id, broker_index);
+                    let target_name = target_overview.map(|b| b.name.as_str());
+                    let broker_color = broker_color_for_name(theme, target_name, color_index);
+
+                    // 1. Current price horizontal line across the plot
+                    painter.line_segment(
+                        [
+                            Pos2::new(plot_rect.left(), cur_y),
+                            Pos2::new(plot_rect.right() + 4.0, cur_y),
+                        ],
+                        Stroke::new(1.0_f32, broker_color.gamma_multiply(0.85)),
+                    );
+
+                    // 2. Current price badge on the right price axis
+                    let axis_left = plot_rect.right();
+                    let axis_right = rect.right();
+                    if axis_right > axis_left + 24.0 {
+                        let full_price = format!("{price:.price_decimals$}");
+                        let font_id = egui::FontId::monospace(10.0);
+                        let galley = painter.layout_no_wrap(full_price, font_id, Color32::WHITE);
+                        let text_w = galley.size().x;
+                        let badge_w = (text_w + 8.0).clamp(54.0, 84.0);
+                        let badge_h = 15.0;
+
+                        let badge_rect = Rect::from_center_size(
+                            Pos2::new(axis_left + badge_w * 0.5 + 4.0, cur_y),
+                            egui::vec2(badge_w, badge_h),
+                        );
+
+                        painter.rect_filled(badge_rect, 2.0, Color32::from_rgb(30, 40, 55));
+                        painter.rect_stroke(badge_rect, 2.0, Stroke::new(1.0_f32, broker_color));
+                        painter.galley(
+                            Pos2::new(
+                                badge_rect.center().x - text_w * 0.5,
+                                badge_rect.center().y - galley.size().y * 0.5,
+                            ),
+                            galley,
+                            Color32::WHITE,
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 

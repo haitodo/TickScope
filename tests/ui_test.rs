@@ -678,7 +678,9 @@ fn test_ui_settings_persistence_lifecycle() {
         app.set_bottom_metric(BottomMetric::SpreadDiff);
         app.set_show_broker_overview(true);
         app.set_candle_bar_width(6.0);
+        app.set_candle_show_current_price(false);
         app.set_tick_candle_bar_width(8.0);
+        app.set_tick_candle_show_current_price(false);
 
         let ctx = egui::Context::default();
         app.set_always_on_top(&ctx, true);
@@ -712,6 +714,8 @@ fn test_ui_settings_persistence_lifecycle() {
     assert!(loaded.show_broker_overview);
     assert_eq!(loaded.candle_bar_width, 6.0);
     assert_eq!(loaded.tick_candle_bar_width, 8.0);
+    assert!(!loaded.candle_show_current_price);
+    assert!(!loaded.tick_candle_show_current_price);
     assert!(loaded.always_on_top);
 
     // 3. Second session: reconcile with brokers and restore into new app instance
@@ -744,6 +748,8 @@ fn test_ui_settings_persistence_lifecycle() {
         assert!(app.show_broker_overview());
         assert_eq!(app.candle_bar_width(), 6.0);
         assert_eq!(app.tick_candle_bar_width(), 8.0);
+        assert!(!app.candle_show_current_price());
+        assert!(!app.tick_candle_show_current_price());
         assert!(app.always_on_top());
     }
 
@@ -1395,3 +1401,173 @@ fn test_candlestick_5_brokers_hiding_broker_4_tradeview_remains() {
 
     println!("Output shapes count: {}", output.shapes.len());
 }
+
+#[test]
+fn test_candlestick_chart_current_price_line_toggle() {
+    use tick_scope::core::models::{
+        BrokerOverview, CandleSlot, CandleView, Ohlc, SlotCoverage, SlotState,
+    };
+    use tick_scope::core::types::{MonoNs, Quote, TickId, UtcMs};
+    use tick_scope::ui::chart::{
+        draw_candlestick_chart_for_brokers_with_trades_interactive, ChartTheme,
+    };
+    use tick_scope::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+
+    let utc1 = UtcMs(1000);
+    let utc2 = UtcMs(2000);
+    let mut slots_by_broker = std::collections::HashMap::new();
+    slots_by_broker.insert(
+        1,
+        vec![
+            CandleSlot {
+                broker_id: 1,
+                segment_id: 1,
+                period_ms: 1000,
+                start_utc_ms: utc1,
+                state: SlotState::Closed,
+                ohlc: Some(Ohlc {
+                    open: 150.10,
+                    high: 150.25,
+                    low: 150.05,
+                    close: 150.20,
+                    open_key: (utc1, 1),
+                    close_key: (utc1, 2),
+                }),
+                tick_count: 10,
+                revision: 1,
+                coverage: SlotCoverage::Full,
+            },
+            CandleSlot {
+                broker_id: 1,
+                segment_id: 1,
+                period_ms: 1000,
+                start_utc_ms: utc2,
+                state: SlotState::Active,
+                ohlc: Some(Ohlc {
+                    open: 150.20,
+                    high: 150.30,
+                    low: 150.15,
+                    close: 150.25,
+                    open_key: (utc2, 1),
+                    close_key: (utc2, 2),
+                }),
+                tick_count: 5,
+                revision: 1,
+                coverage: SlotCoverage::Partial,
+            },
+        ],
+    );
+
+    let view = CandleView {
+        period_ms: 1000,
+        slot_starts: vec![utc1, utc2],
+        slots_by_broker,
+    };
+
+    let overviews = vec![BrokerOverview {
+        broker_id: 1,
+        name: "Broker A".to_string(),
+        latest_quote: Some(Quote {
+            tick_id: TickId {
+                broker_id: 1,
+                session_id: 1,
+                sequence: 1,
+            },
+            bid: 150.25,
+            ask: 150.27,
+            mid: 150.26,
+            spread: 0.02,
+            rx_mono_ns: MonoNs(100),
+            utc_ms: Some(utc2),
+            is_warmup: false,
+            is_valid: true,
+        }),
+        ..Default::default()
+    }];
+
+    let ctx = egui::Context::default();
+
+    // 1. Render with show_current_price = false
+    let shapes_without_price = ctx
+        .run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let theme = ChartTheme::default();
+                let rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(0.0, 0.0),
+                    egui::Vec2::new(800.0, 400.0),
+                );
+                let painter = ui.painter_at(rect);
+                let mut anchor = None;
+                let mut latch = None;
+                draw_candlestick_chart_for_brokers_with_trades_interactive(
+                    ui,
+                    &painter,
+                    rect,
+                    Some(&view),
+                    &[1],
+                    &overviews,
+                    5.0,
+                    CandlePriceScaleMode::Auto,
+                    CandleFollowCriteria::Median,
+                    0.01,
+                    &mut anchor,
+                    &mut latch,
+                    Some(150.25),
+                    1000,
+                    MonoNs(100_000_000),
+                    PriceMode::Bid,
+                    &theme,
+                    None,
+                    Some(1),
+                    false,
+                );
+            });
+        })
+        .shapes
+        .len();
+
+    // 2. Render with show_current_price = true
+    let shapes_with_price = ctx
+        .run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let theme = ChartTheme::default();
+                let rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(0.0, 0.0),
+                    egui::Vec2::new(800.0, 400.0),
+                );
+                let painter = ui.painter_at(rect);
+                let mut anchor = None;
+                let mut latch = None;
+                draw_candlestick_chart_for_brokers_with_trades_interactive(
+                    ui,
+                    &painter,
+                    rect,
+                    Some(&view),
+                    &[1],
+                    &overviews,
+                    5.0,
+                    CandlePriceScaleMode::Auto,
+                    CandleFollowCriteria::Median,
+                    0.01,
+                    &mut anchor,
+                    &mut latch,
+                    Some(150.25),
+                    1000,
+                    MonoNs(100_000_000),
+                    PriceMode::Bid,
+                    &theme,
+                    None,
+                    Some(1),
+                    true,
+                );
+            });
+        })
+        .shapes
+        .len();
+
+    assert!(
+        shapes_with_price > shapes_without_price,
+        "Enabling show_current_price should produce additional shapes: with={shapes_with_price}, without={shapes_without_price}"
+    );
+}
+

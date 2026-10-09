@@ -270,6 +270,24 @@ pub fn render_top_header(
                                 }
                             }
                         });
+
+                    let is_price_line = app.candle_show_current_price;
+                    let price_line_btn = ui.selectable_label(
+                        is_price_line,
+                        RichText::new("Price Line")
+                            .color(if is_price_line {
+                                crate::ui::style::HIGHLIGHT
+                            } else {
+                                crate::ui::style::MUTED
+                            })
+                            .strong(),
+                    );
+                    if price_line_btn
+                        .on_hover_text("選択ブローカーの現在値ラインと価格バッジの表示/非表示 [Click]")
+                        .clicked()
+                    {
+                        app.set_candle_show_current_price(!is_price_line);
+                    }
                 } else {
                     let x_label = match app.top_x_axis_mode {
                         ChartXAxisMode::ReceiveTime => "Time",
