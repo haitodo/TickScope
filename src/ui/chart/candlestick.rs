@@ -721,11 +721,28 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                 if slot_idx >= start_idx && slot_idx < total_slots {
                     let hovered_slot_cx = (right_slot_center_x - (idx_from_latest as f32) * slot_width).round();
 
-                    // Vertical crosshair line at hovered slot center
+                    // Find closest broker candle within this slot
+                    let group_left = hovered_slot_cx - candle_group_width * 0.5;
+                    let mut closest_broker = None;
+                    let mut min_dist = f32::MAX;
+
+                    for (b_idx, &b_id) in broker_ids.iter().enumerate() {
+                        let bcx = (group_left + (b_idx as f32) * (bar_width + candle_gap) + bar_width * 0.5).round();
+                        let dist = (pos.x - bcx).abs();
+                        if dist < min_dist {
+                            min_dist = dist;
+                            closest_broker = Some((b_id, bcx));
+                        }
+                    }
+
+                    let (target_id, target_cx) = closest_broker
+                        .unwrap_or_else(|| (selected_broker.unwrap_or(1), hovered_slot_cx));
+
+                    // Vertical crosshair line at hovered broker candle center
                     painter.line_segment(
                         [
-                            Pos2::new(hovered_slot_cx, plot_rect.top()),
-                            Pos2::new(hovered_slot_cx, plot_rect.bottom()),
+                            Pos2::new(target_cx, plot_rect.top()),
+                            Pos2::new(target_cx, plot_rect.bottom()),
                         ],
                         Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(180, 210, 255, 90)),
                     );
@@ -738,7 +755,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                         let secs = (day_ms % 60_000) / 1_000;
                         let time_str = format!("{hrs:02}:{mins:02}:{secs:02}");
 
-                        let badge_cx = hovered_slot_cx.clamp(rect.left() + 28.0, plot_rect.right() - 28.0);
+                        let badge_cx = target_cx.clamp(rect.left() + 28.0, plot_rect.right() - 28.0);
                         let time_badge_rect = Rect::from_center_size(
                             Pos2::new(badge_cx, plot_rect.bottom() + 9.0),
                             egui::vec2(52.0, 14.0),
@@ -757,40 +774,36 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                             Color32::from_rgb(180, 220, 255),
                         );
 
-                        // 4. Header inspection info (OHLC for target broker)
-                        let inspect_broker_id = selected_broker.or_else(|| broker_ids.first().copied());
-                        if let Some(target_id) = inspect_broker_id {
-                            let b_name = broker_name(broker_overviews, target_id, "Broker");
-                            if let Some(slot) = view.slots_by_broker.get(&target_id).and_then(|slots| slots.get(slot_idx)) {
-                                if let Some(ohlc) = &slot.ohlc {
-                                    let diff_pips = (ohlc.close - ohlc.open) / pip_size;
-                                    let header_info = format!(
-                                        "{b_name} | HOVER [{hrs:02}:{mins:02}:{secs:02}] | O: {:.prec$} H: {:.prec$} L: {:.prec$} C: {:.prec$} ({diff_pips:+.1}p)",
-                                        ohlc.open, ohlc.high, ohlc.low, ohlc.close,
-                                        prec = price_decimals,
-                                    );
+                        // 4. Header inspection info (OHLC for closest broker)
+                        let b_name = broker_name(broker_overviews, target_id, "Broker");
+                        let slot_opt = view.slots_by_broker.get(&target_id).and_then(|slots| slots.get(slot_idx));
+                        if let Some(ohlc) = slot_opt.and_then(|s| s.ohlc.as_ref()) {
+                            let diff_pips = (ohlc.close - ohlc.open) / pip_size;
+                            let header_info = format!(
+                                "{b_name} | HOVER [{hrs:02}:{mins:02}:{secs:02}] | O: {:.prec$} H: {:.prec$} L: {:.prec$} C: {:.prec$} ({diff_pips:+.1}p)",
+                                ohlc.open, ohlc.high, ohlc.low, ohlc.close,
+                                prec = price_decimals,
+                            );
 
-                                    let galley = painter.layout_no_wrap(
-                                        header_info,
-                                        egui::FontId::monospace(11.0),
-                                        Color32::from_rgb(255, 215, 100), // Gold
-                                    );
-                                    let bg_rect = Rect::from_min_size(
-                                        Pos2::new(plot_rect.left() + 4.0, rect.top() + 21.0),
-                                        egui::vec2(galley.size().x + 8.0, 16.0),
-                                    );
-                                    painter.rect_filled(
-                                        bg_rect,
-                                        2.0,
-                                        Color32::from_rgba_unmultiplied(20, 30, 45, 220),
-                                    );
-                                    painter.galley(
-                                        Pos2::new(bg_rect.left() + 4.0, bg_rect.top() + 1.0),
-                                        galley,
-                                        Color32::from_rgb(255, 215, 100),
-                                    );
-                                }
-                            }
+                            let galley = painter.layout_no_wrap(
+                                header_info,
+                                egui::FontId::monospace(11.0),
+                                Color32::from_rgb(255, 215, 100), // Gold
+                            );
+                            let bg_rect = Rect::from_min_size(
+                                Pos2::new(plot_rect.left() + 4.0, rect.top() + 21.0),
+                                egui::vec2(galley.size().x + 8.0, 16.0),
+                            );
+                            painter.rect_filled(
+                                bg_rect,
+                                2.0,
+                                Color32::from_rgba_unmultiplied(20, 30, 45, 220),
+                            );
+                            painter.galley(
+                                Pos2::new(bg_rect.left() + 4.0, bg_rect.top() + 1.0),
+                                galley,
+                                Color32::from_rgb(255, 215, 100),
+                            );
                         }
                     }
                 }

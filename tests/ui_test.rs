@@ -1762,5 +1762,135 @@ fn test_candlestick_chart_crosshair_render() {
     );
 }
 
+#[test]
+fn test_candlestick_chart_crosshair_closest_broker_multi() {
+    use tick_scope::ui::chart::{
+        draw_candlestick_chart_for_brokers_with_trades_interactive, ChartTheme,
+    };
+    use tick_scope::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+
+    let utc = UtcMs(1000);
+    let mut slots_by_broker = std::collections::HashMap::new();
+    slots_by_broker.insert(
+        1,
+        vec![CandleSlot {
+            broker_id: 1,
+            segment_id: 1,
+            period_ms: 1000,
+            start_utc_ms: utc,
+            state: SlotState::Closed,
+            ohlc: Some(Ohlc {
+                open: 150.10,
+                high: 150.30,
+                low: 150.05,
+                close: 150.25,
+                open_key: (utc, 1),
+                close_key: (utc, 2),
+            }),
+            tick_count: 10,
+            revision: 1,
+            coverage: SlotCoverage::Full,
+        }],
+    );
+    slots_by_broker.insert(
+        2,
+        vec![CandleSlot {
+            broker_id: 2,
+            segment_id: 1,
+            period_ms: 1000,
+            start_utc_ms: utc,
+            state: SlotState::Closed,
+            ohlc: Some(Ohlc {
+                open: 150.12,
+                high: 150.32,
+                low: 150.08,
+                close: 150.28,
+                open_key: (utc, 1),
+                close_key: (utc, 2),
+            }),
+            tick_count: 15,
+            revision: 1,
+            coverage: SlotCoverage::Full,
+        }],
+    );
+
+    let view = CandleView {
+        period_ms: 1000,
+        slot_starts: vec![utc],
+        slots_by_broker,
+    };
+
+    let overviews = vec![
+        BrokerOverview {
+            broker_id: 1,
+            name: "BrokerA".to_string(),
+            symbol: "USDJPY".to_string(),
+            latest_quote: None,
+            min_spread: None,
+            max_spread: None,
+            health: HealthState::default(),
+            tick_rate_1s: 1.0,
+            active_utc_offset_sec: 0,
+            is_auto_offset: true,
+        },
+        BrokerOverview {
+            broker_id: 2,
+            name: "BrokerB".to_string(),
+            symbol: "USDJPY".to_string(),
+            latest_quote: None,
+            min_spread: None,
+            max_spread: None,
+            health: HealthState::default(),
+            tick_rate_1s: 1.0,
+            active_utc_offset_sec: 0,
+            is_auto_offset: true,
+        },
+    ];
+
+    let theme = ChartTheme::default();
+    let mut anchor = None;
+    let mut latch = None;
+    let rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::vec2(600.0, 300.0));
+
+    // Hover closer to broker 1 vs broker 2: both render successfully without panics
+    let ctx = egui::Context::default();
+    for hover_x in [500.0_f32, 510.0_f32] {
+        let mut raw_input = egui::RawInput::default();
+        raw_input.events.push(egui::Event::PointerMoved(egui::Pos2::new(hover_x, 150.0)));
+        let shapes = ctx
+            .run(raw_input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let painter = ui.painter_at(rect);
+                    draw_candlestick_chart_for_brokers_with_trades_interactive(
+                        ui,
+                        &painter,
+                        rect,
+                        Some(&view),
+                        &[1, 2],
+                        &overviews,
+                        5.0,
+                        CandlePriceScaleMode::Auto,
+                        CandleFollowCriteria::Median,
+                        0.01,
+                        &mut anchor,
+                        &mut latch,
+                        Some(150.25),
+                        1000,
+                        MonoNs(100_000_000),
+                        PriceMode::Bid,
+                        &theme,
+                        None,
+                        None,
+                        false,
+                    );
+                });
+            })
+            .shapes
+            .len();
+        assert!(shapes > 0);
+    }
+}
+
+
 
 
