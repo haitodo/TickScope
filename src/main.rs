@@ -121,9 +121,14 @@ fn main() -> eframe::Result<()> {
     // Deploy the connection map only after each listener has reserved its
     // actual OS-selected port. Every terminal then receives usable endpoints.
     if coordinator.config.mt5.auto_deploy {
+        let session_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         let deploy_report = tick_scope::deploy::deploy_mt5_files_for_brokers(
             &coordinator.config.mt5,
             &coordinator.deployment_brokers,
+            coordinator.config.history.warmup_seconds,
+            session_epoch,
         );
         tick_scope::deploy::print_deploy_report(&deploy_report);
     }

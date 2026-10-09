@@ -33,6 +33,8 @@ use crate::config::{BrokerConfig, Mt5DeployConfig};
 pub fn deploy_mt5_files_for_brokers(
     config: &Mt5DeployConfig,
     brokers: &[BrokerConfig],
+    warmup_seconds: u32,
+    session_epoch: u64,
 ) -> DeployReport {
     if !config.auto_deploy {
         return DeployReport {
@@ -65,7 +67,7 @@ pub fn deploy_mt5_files_for_brokers(
                 .join("connection.tsv");
             rep.results.push(deploy_file_idempotent(
                 &connection_map,
-                &connection_map_contents(brokers),
+                &connection_map_contents(brokers, warmup_seconds, session_epoch),
             ));
         }
         rep.compile_status = Some(compile_deployed_ea(
@@ -164,7 +166,7 @@ mod tests {
 
         // Deploy connection map
         let map_path = terminal.mql5_dir.join("Files/TickScope/connection.tsv");
-        let map_content = connection_map_contents(&brokers);
+        let map_content = connection_map_contents(&brokers, 7200, 1);
         let map_res = deploy_file_idempotent(&map_path, &map_content);
         assert_eq!(map_res.status, DeployFileStatus::Created);
 

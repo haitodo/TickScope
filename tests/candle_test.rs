@@ -1,5 +1,4 @@
-//! Candle tests: T-C01, T-C02, T-C03.
-
+use tick_scope::config::AppConfig;
 use tick_scope::core::models::*;
 use tick_scope::core::types::*;
 use tick_scope::tick::candle::{calculate_slot_start, CandleBook};
@@ -247,5 +246,89 @@ fn test_future_tick_breaks_subsequent_present_candles() {
     assert!(
         present_slot.ohlc.is_some(),
         "Present slot must have OHLC even if a future tick arrived previously"
+    );
+}
+
+#[test]
+fn test_warmup_fills_full_candle_and_tick_candle_viewport() {
+    let mut config = AppConfig::default();
+    config.history.warmup_seconds = 7200;
+    config.history.retentions = vec![
+        tick_scope::config::SlotRetention {
+            period_ms: 1000,
+            slots: 120,
+        },
+        tick_scope::config::SlotRetention {
+            period_ms: 5000,
+            slots: 120,
+        },
+        tick_scope::config::SlotRetention {
+            period_ms: 10000,
+            slots: 120,
+        },
+        tick_scope::config::SlotRetention {
+            period_ms: 60000,
+            slots: 120,
+        },
+    ];
+
+    let mut book = CandleBook::with_retentions(&config.history.retentions);
+
+    // Simulate 7200 seconds of warmup ticks (e.g. 1 tick every 2 seconds = 3600 ticks)
+    let start_time_ms = 10_000_000_i64;
+    let end_time_ms = start_time_ms + 7_200_000; // +7200 seconds
+    let broker_id = 1;
+
+    let mut tct = tick_scope::tick::tick_candle::TickCandleTracker::new(broker_id, 600, 0.2, 0.01);
+
+    let mut cur_ms = start_time_ms;
+    let mut seq = 0u64;
+    let mut price = 150.0;
+    while cur_ms <= end_time_ms {
+        // Price oscillates and drifts
+        let delta = if seq % 4 == 0 {
+            0.03
+        } else if seq % 4 == 1 {
+            -0.01
+        } else if seq % 4 == 2 {
+            0.04
+        } else {
+            -0.02
+        };
+        price += delta;
+
+        let mut tick = make_test_tick(broker_id, seq, cur_ms, price, price + 0.003);
+        tick.observed.is_warmup = true;
+
+        let rx_utc_now = UtcMs(cur_ms);
+        book.on_tick(&tick, PriceMode::Bid, rx_utc_now);
+
+        tct.on_tick(price + 0.0015, cur_ms / 1000);
+
+        cur_ms += 1000; // Every 1 second
+        seq += 1;
+    }
+
+    // Verify all timeframes (M1, S10, S5, S1) have full 120 slots populated
+    for &period in &[1000, 5000, 10000, 60000] {
+        let cv = book.get_candle_view(period, &[broker_id], 120, UtcMs(end_time_ms));
+        assert_eq!(
+            cv.slot_starts.len(),
+            120,
+            "Period {period}ms must have full 120 visible slots"
+        );
+        let broker_slots = &cv.slots_by_broker[&broker_id];
+        let filled_slots = broker_slots.iter().filter(|s| s.ohlc.is_some()).count();
+        assert_eq!(
+            filled_slots, 120,
+            "Period {period}ms must have all 120 slots populated with OHLC"
+        );
+    }
+
+    // Verify TickCandle ring buffer reached full capacity (600 candles) across the 7200-second warmup
+    assert_eq!(
+        tct.candles.len(),
+        600,
+        "TickCandle ring buffer must be fully saturated across 2-hour warmup"
     );
 }

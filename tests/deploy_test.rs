@@ -18,7 +18,7 @@ fn test_live_mt5_discovery_and_deployment_idempotency() {
     }
 
     // 1. First run: should create or match existing
-    let report1 = deploy_mt5_files_for_brokers(&config, &app_config.brokers);
+    let report1 = deploy_mt5_files_for_brokers(&config, &app_config.brokers, app_config.history.warmup_seconds, 1);
     assert!(report1.enabled);
     assert!(
         !report1.terminals.is_empty(),
@@ -40,7 +40,7 @@ fn test_live_mt5_discovery_and_deployment_idempotency() {
     }
 
     // 2. Second run: MUST all be SkippedIdentical (user requirement: skip if unchanged)
-    let report2 = deploy_mt5_files_for_brokers(&config, &app_config.brokers);
+    let report2 = deploy_mt5_files_for_brokers(&config, &app_config.brokers, app_config.history.warmup_seconds, 1);
     for term in &report2.terminals {
         for res in &term.results {
             println!("Run 2 file: {} -> {:?}", res.rel_name, res.status);
@@ -90,4 +90,27 @@ fn test_live_mt5_terminal_path_resolution() {
         resolved_count > 0,
         "At least one broker terminal should be resolved on this system"
     );
+}
+
+#[test]
+fn test_connection_map_contents_with_session_epoch_and_warmup() {
+    let brokers = vec![tick_scope::config::BrokerConfig {
+        id: 1,
+        name: "Axiory".to_string(),
+        host: "127.0.0.1".to_string(),
+        port: 39001,
+        symbol: "USDJPY".to_string(),
+        pip_size: 0.01,
+        point_size: 0.001,
+        timezone_rule: tick_scope::config::TimezoneRule::NyClose,
+        utc_offset_sec: 10800,
+        utc_verified: true,
+        auto_utc_offset: false,
+        terminal_path: None,
+        receive_delay_ms: None,
+    }];
+    let contents = tick_scope::deploy::connection_map_contents(&brokers, 7200, 1760000000);
+    assert!(contents.starts_with("TICKSCOPE\t1\t1760000000\n"));
+    assert!(contents.contains("1\tAxiory\tUSDJPY\t39001\t7200\n"));
+    assert!(contents.ends_with("END\n"));
 }

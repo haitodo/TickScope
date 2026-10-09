@@ -115,6 +115,7 @@ chart_max_quote_age_ms = 1000
 
 [history]
 ledger_capacity = 16384
+warmup_seconds = 7200
 retentions = [
     { period_ms = 1000, slots = 120 },
     { period_ms = 5000, slots = 120 },

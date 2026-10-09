@@ -52,15 +52,19 @@ pub fn tsv_safe(value: &str) -> String {
 }
 
 #[must_use]
-pub fn connection_map_contents(brokers: &[BrokerConfig]) -> String {
-    let mut contents = String::from("TICKSCOPE\t1\n");
+pub fn connection_map_contents(
+    brokers: &[BrokerConfig],
+    warmup_seconds: u32,
+    session_epoch: u64,
+) -> String {
+    let mut contents = format!("TICKSCOPE\t1\t{session_epoch}\n");
     for broker in brokers {
         let server_hint = tsv_safe(&broker.name);
         let symbol = tsv_safe(&broker.symbol);
         let _ = writeln!(
             contents,
-            "{}\t{}\t{}\t{}",
-            broker.id, server_hint, symbol, broker.port
+            "{}\t{}\t{}\t{}\t{}",
+            broker.id, server_hint, symbol, broker.port, warmup_seconds
         );
     }
     contents.push_str("END\n");

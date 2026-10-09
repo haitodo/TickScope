@@ -328,6 +328,12 @@ pub struct HistoryConfig {
     pub retentions: Vec<SlotRetention>,
     #[serde(default = "default_ledger_cap")]
     pub ledger_capacity: usize,
+    #[serde(default = "default_warmup_seconds")]
+    pub warmup_seconds: u32,
+}
+
+const fn default_warmup_seconds() -> u32 {
+    7200
 }
 
 fn default_slots() -> Vec<SlotRetention> {
@@ -359,6 +365,7 @@ impl Default for HistoryConfig {
         Self {
             retentions: default_slots(),
             ledger_capacity: default_ledger_cap(),
+            warmup_seconds: default_warmup_seconds(),
         }
     }
 }

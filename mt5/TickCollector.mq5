@@ -13,8 +13,9 @@
 
 //--- Collection settings. Broker, host, and port are loaded automatically
 //    from MQL5/Files/TickScope/connection.tsv.
-input uint   InpWarmupSeconds       = 60;             // Warmup history duration (seconds)
-input uint   InpBatchCount          = 256;            // CopyTicks batch size
+input uint   InpWarmupSeconds       = 7200;           // Warmup history duration (seconds, default 2 hours)
+input uint   InpBatchCount          = 256;            // Live CopyTicks batch size
+input uint   InpWarmupBatchCount    = 2048;           // Warmup CopyTicks batch size (high throughput)
 input uint   InpMaxSameMsScanTicks  = 65536;          // Max scan ticks in single millisecond
 input uint   InpSocketTimeoutMs     = 10;             // Socket timeout (ms)
 input uint   InpHeartbeatIntervalMs = 250;            // Heartbeat interval (ms)
@@ -36,6 +37,9 @@ uint          g_server_port            = 0;
 bool          g_connection_ready       = false;
 ulong         g_last_config_log_us     = 0;
 ulong         g_last_config_check_us   = 0;
+uint          g_configured_warmup_seconds = 0;
+string        g_session_epoch          = "";
+uint          g_warmup_zero_retry_count = 0;
 
 // Cursor tracking
 long          g_cursor_time_msc        = 0;
@@ -206,7 +210,8 @@ bool CollectAndStreamTicks(bool is_warmup)
    }
 
    // Invariant: Bounded request count to avoid infinite loop on same millisecond
-   uint request_count = g_cursor_same_ms_count + InpBatchCount;
+   uint active_batch_count = is_warmup ? InpWarmupBatchCount : InpBatchCount;
+   uint request_count = g_cursor_same_ms_count + active_batch_count;
    if(request_count > InpMaxSameMsScanTicks)
    {
       PrintFormat("CURSOR_BLOCKED: same ms count %d exceeds limit %d",
@@ -227,9 +232,19 @@ bool CollectAndStreamTicks(bool is_warmup)
    }
    if(copied == 0)
    {
+      // If warming up and cursor is still far behind TimeCurrent(), MT5 might be downloading tick history.
+      if(is_warmup && ((long)TimeCurrent() * 1000 - g_cursor_time_msc) > 10000)
+      {
+         g_warmup_zero_retry_count++;
+         if(g_warmup_zero_retry_count < 10)
+         {
+            return false; // Retry on next timer tick, don't abort warmup prematurely
+         }
+      }
       g_collection_caught_up = true;
       return false;
    }
+   g_warmup_zero_retry_count = 0;
 
    // Skip already-processed prefix in the current millisecond
    int start_index = 0;
@@ -247,10 +262,10 @@ bool CollectAndStreamTicks(bool is_warmup)
    int new_tick_count = copied - start_index;
    if(new_tick_count <= 0) return false;
 
-   // Cap packet size to InpBatchCount
-   if(new_tick_count > (int)InpBatchCount)
+   // Cap packet size to active_batch_count
+   if(new_tick_count > (int)active_batch_count)
    {
-      new_tick_count = (int)InpBatchCount;
+      new_tick_count = (int)active_batch_count;
    }
 
    // Construct an immutable candidate TICK_BATCH packet.  All cursor and
@@ -321,11 +336,13 @@ bool CollectAndStreamTicks(bool is_warmup)
 //+------------------------------------------------------------------+
 void PerformWarmup()
 {
-   Print("Performing warmup tick collection...");
+   uint warmup_sec = (g_configured_warmup_seconds > 0) ? g_configured_warmup_seconds : InpWarmupSeconds;
+   PrintFormat("[TickCollector] Performing warmup tick collection for %u seconds (%d minutes)...",
+               warmup_sec, (int)(warmup_sec / 60));
    g_current_phase = PHASE_WARMING;
    
-   // Set cursor to (TimeCurrent - InpWarmupSeconds)
-   datetime from_time = TimeCurrent() - InpWarmupSeconds;
+   // Set cursor to (TimeCurrent - warmup_sec)
+   datetime from_time = TimeCurrent() - warmup_sec;
    g_cursor_time_msc = ((long)from_time) * 1000;
    g_cursor_same_ms_count = 0;
    g_current_sequence = 0;
@@ -334,14 +351,12 @@ void PerformWarmup()
    g_pending_batch = false;
    g_pending_queued = false;
    g_pending_batch_time_us = 0;
+   g_warmup_zero_retry_count = 0;
    ArrayResize(g_pending_packet, 0);
    g_warmup_started = true;
 
    // Send initial STATUS (WARMING)
    SendStatus(STATUS_CODE_PHASE, PHASE_WARMING, 0, 0, 0, 0, 0);
-
-   // The timer/OnTick driver sends one bounded batch at a time and waits for
-   // its ACK before asking CopyTicks for the next one.
 }
 
 //+------------------------------------------------------------------+
@@ -390,6 +405,7 @@ bool LoadConnectionSettings()
    int best_server_hint_length = 0;
    uint server_broker_id = 0;
    uint server_port = 0;
+   uint server_warmup_sec = 0;
 
    while(!FileIsEnding(handle))
    {
@@ -399,8 +415,22 @@ bool LoadConnectionSettings()
 
       if(!saw_header)
       {
-         if(field_count == 2 && fields[0] == "TICKSCOPE" && fields[1] == "1")
+         if(field_count >= 2 && fields[0] == "TICKSCOPE" && fields[1] == "1")
+         {
             saw_header = true;
+            if(field_count >= 3)
+            {
+               string new_session_epoch = fields[2];
+               if(StringLen(g_session_epoch) > 0 && g_session_epoch != new_session_epoch)
+               {
+                  PrintFormat("[TickCollector] TickScope session epoch changed (%s -> %s). Resetting for fresh warmup.",
+                              g_session_epoch, new_session_epoch);
+                  g_warmup_started = false;
+                  g_warmup_done = false;
+               }
+               g_session_epoch = new_session_epoch;
+            }
+         }
          continue;
       }
 
@@ -417,6 +447,12 @@ bool LoadConnectionSettings()
       if(broker_id <= 0 || port <= 0 || port > 65535)
          continue;
 
+      uint broker_warmup_sec = 0;
+      if(field_count >= 5)
+      {
+         broker_warmup_sec = (uint)StringToInteger(fields[4]);
+      }
+
       symbol_matches++;
 
       string server_hint = fields[1];
@@ -430,6 +466,7 @@ bool LoadConnectionSettings()
             server_matches = 1;
             server_broker_id = (uint)broker_id;
             server_port = (uint)port;
+            server_warmup_sec = broker_warmup_sec;
          }
          else if(hint_length == best_server_hint_length)
          {
@@ -447,10 +484,12 @@ bool LoadConnectionSettings()
 
    uint selected_broker_id = 0;
    uint selected_port = 0;
+   uint selected_warmup_sec = 0;
    if(server_matches == 1)
    {
       selected_broker_id = server_broker_id;
       selected_port = server_port;
+      selected_warmup_sec = server_warmup_sec;
    }
    else
    {
@@ -458,6 +497,11 @@ bool LoadConnectionSettings()
          "Cannot uniquely map chart %s on account server '%s' (symbol matches: %d, server matches: %d). Set each broker name to include its MT5 server name and use the matching symbol.",
          chart_symbol, AccountInfoString(ACCOUNT_SERVER), symbol_matches, server_matches));
       return false;
+   }
+
+   if(selected_warmup_sec > 0)
+   {
+      g_configured_warmup_seconds = selected_warmup_sec;
    }
 
    bool changed = !previous_config_ready || previous_broker_id != selected_broker_id ||
@@ -556,11 +600,44 @@ void SlowPathSupervisor()
    if(!g_warmup_started)
    {
       PerformWarmup();
-      return;
    }
 
    // 3. Fallback ACK collection, pending batch replay, and tick streaming
-   TryCollectAndStream(g_current_phase == PHASE_WARMING);
+   if(g_current_phase == PHASE_WARMING)
+   {
+      ulong start_us = GetMicrosecondCount();
+      uint batches_sent = 0;
+      while(g_current_phase == PHASE_WARMING)
+      {
+         if(!TryCollectAndStream(true))
+            break;
+
+         if(g_current_phase == PHASE_LIVE)
+            break;
+
+         batches_sent++;
+
+         // If batch was sent, attempt cooperative yield and immediate ACK poll
+         if(g_pending_batch)
+         {
+            Sleep(0); // Cooperative yield to allow TickScope receiver thread to reply
+            PollAndCommitAck();
+            if(g_pending_batch)
+            {
+               // Still awaiting ACK from TickScope; yield to next timer call
+               break;
+            }
+         }
+
+         // Keep MT5 UI completely smooth: max 20 batches or 25ms per timer interval
+         if(batches_sent >= 20 || (GetMicrosecondCount() - start_us) >= 25000)
+            break;
+      }
+   }
+   else
+   {
+      TryCollectAndStream(false);
+   }
 
    // 4. Periodic Heartbeat
    if(!g_connection_ready || !g_socket.IsConnected())
@@ -588,6 +665,7 @@ int OnInit()
    g_last_heartbeat_us = 0;
    g_warmup_done = false;
    g_warmup_started = false;
+   g_warmup_zero_retry_count = 0;
 
    // Disable chart rendering to drastically reduce MT5 UI and GPU load
    if(InpDisableChartRendering)
