@@ -1597,4 +1597,154 @@ fn test_candlestick_price_line_broker_independent_from_indicator() {
     assert_eq!(app.candle_price_line_broker(), Some(3));
 }
 
+#[test]
+fn test_candlestick_chart_crosshair_render() {
+    use tick_scope::ui::chart::{
+        draw_candlestick_chart_for_brokers_with_trades_interactive, ChartTheme,
+    };
+    use tick_scope::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+
+    let utc1 = UtcMs(1000);
+    let utc2 = UtcMs(2000);
+    let mut slots_by_broker = std::collections::HashMap::new();
+    slots_by_broker.insert(
+        1,
+        vec![
+            CandleSlot {
+                broker_id: 1,
+                segment_id: 1,
+                period_ms: 1000,
+                start_utc_ms: utc1,
+                state: SlotState::Closed,
+                ohlc: Some(Ohlc {
+                    open: 150.10,
+                    high: 150.30,
+                    low: 150.05,
+                    close: 150.25,
+                    open_key: (utc1, 1),
+                    close_key: (utc1, 2),
+                }),
+                tick_count: 10,
+                revision: 1,
+                coverage: SlotCoverage::Full,
+            },
+            CandleSlot {
+                broker_id: 1,
+                segment_id: 1,
+                period_ms: 1000,
+                start_utc_ms: utc2,
+                state: SlotState::Active,
+                ohlc: Some(Ohlc {
+                    open: 150.25,
+                    high: 150.40,
+                    low: 150.20,
+                    close: 150.35,
+                    open_key: (utc2, 1),
+                    close_key: (utc2, 2),
+                }),
+                tick_count: 12,
+                revision: 1,
+                coverage: SlotCoverage::Full,
+            },
+        ],
+    );
+
+    let view = CandleView {
+        period_ms: 1000,
+        slot_starts: vec![utc1, utc2],
+        slots_by_broker,
+    };
+
+    let overviews = vec![BrokerOverview {
+        broker_id: 1,
+        name: "TestBroker".to_string(),
+        symbol: "USDJPY".to_string(),
+        latest_quote: None,
+        min_spread: None,
+        max_spread: None,
+        health: HealthState::default(),
+        tick_rate_1s: 1.0,
+        active_utc_offset_sec: 0,
+        is_auto_offset: true,
+    }];
+
+    let theme = ChartTheme::default();
+    let mut anchor = None;
+    let mut latch = None;
+    let rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::vec2(600.0, 300.0));
+
+    // 1. Without pointer hover
+    let ctx = egui::Context::default();
+    let shapes_without_hover = ctx
+        .run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let painter = ui.painter_at(rect);
+                draw_candlestick_chart_for_brokers_with_trades_interactive(
+                    ui,
+                    &painter,
+                    rect,
+                    Some(&view),
+                    &[1],
+                    &overviews,
+                    5.0,
+                    CandlePriceScaleMode::Auto,
+                    CandleFollowCriteria::Median,
+                    0.01,
+                    &mut anchor,
+                    &mut latch,
+                    Some(150.25),
+                    1000,
+                    MonoNs(100_000_000),
+                    PriceMode::Bid,
+                    &theme,
+                    None,
+                    Some(1),
+                    false,
+                );
+            });
+        })
+        .shapes
+        .len();
+
+    // 2. With pointer hover over plot area
+    let mut raw_input = egui::RawInput::default();
+    raw_input.events.push(egui::Event::PointerMoved(egui::Pos2::new(300.0, 150.0)));
+    let shapes_with_hover = ctx
+        .run(raw_input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let painter = ui.painter_at(rect);
+                draw_candlestick_chart_for_brokers_with_trades_interactive(
+                    ui,
+                    &painter,
+                    rect,
+                    Some(&view),
+                    &[1],
+                    &overviews,
+                    5.0,
+                    CandlePriceScaleMode::Auto,
+                    CandleFollowCriteria::Median,
+                    0.01,
+                    &mut anchor,
+                    &mut latch,
+                    Some(150.25),
+                    1000,
+                    MonoNs(100_000_000),
+                    PriceMode::Bid,
+                    &theme,
+                    None,
+                    Some(1),
+                    false,
+                );
+            });
+        })
+        .shapes
+        .len();
+
+    assert!(
+        shapes_with_hover > shapes_without_hover,
+        "Hovering over candlestick chart should render crosshairs and inspection badges: with={shapes_with_hover}, without={shapes_without_hover}"
+    );
+}
+
+
 

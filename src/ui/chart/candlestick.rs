@@ -246,6 +246,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
     let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
+    let pointer_pos = ui.as_ref().and_then(|u| u.input(|i| i.pointer.hover_pos()));
 
     let view = match candle_view {
         Some(v) if !v.slot_starts.is_empty() => v,
@@ -656,6 +657,141 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                             galley,
                             Color32::WHITE,
                         );
+                    }
+                }
+            }
+        }
+    }
+
+    // Mouse hover crosshair and price/slot inspection
+    if let Some(pos) = pointer_pos {
+        if plot_rect.contains(pos) {
+            // 1. Horizontal crosshair at pointer Y
+            painter.line_segment(
+                [Pos2::new(plot_rect.left(), pos.y), Pos2::new(plot_rect.right(), pos.y)],
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(180, 210, 255, 70)),
+            );
+
+            // 2. Hovered price badge on the right price axis
+            let norm_y = (pos.y - plot_rect.top()) / plot_rect.height();
+            let hover_price = chart_max - (norm_y as f64) * price_range;
+            let axis_left = plot_rect.right();
+            let axis_right = rect.right();
+            if axis_right > axis_left + 24.0 {
+                let full_price = format!("{hover_price:.price_decimals$}");
+                let font_id = egui::FontId::monospace(10.0);
+                let galley = painter.layout_no_wrap(full_price, font_id, Color32::WHITE);
+                let text_w = galley.size().x;
+                let badge_w = (text_w + 8.0).clamp(54.0, 84.0);
+                let badge_h = 15.0;
+
+                let badge_cy = pos.y.clamp(plot_rect.top() + 8.0, plot_rect.bottom() - 8.0);
+                let badge_rect = Rect::from_center_size(
+                    Pos2::new(axis_left + badge_w * 0.5 + 4.0, badge_cy),
+                    egui::vec2(badge_w, badge_h),
+                );
+
+                painter.rect_filled(badge_rect, 2.0, Color32::from_rgb(30, 45, 65));
+                painter.rect_stroke(
+                    badge_rect,
+                    2.0,
+                    Stroke::new(1.0_f32, Color32::from_rgb(100, 180, 255)),
+                );
+                painter.galley(
+                    Pos2::new(
+                        badge_rect.center().x - text_w * 0.5,
+                        badge_rect.center().y - galley.size().y * 0.5,
+                    ),
+                    galley,
+                    Color32::from_rgb(180, 220, 255),
+                );
+            }
+
+            // 3. Find closest slot in visible viewport
+            let offset_f = (right_slot_center_x - pos.x) / slot_width;
+            let offset_round = offset_f.round();
+            let idx_from_latest = if offset_round <= 0.0 {
+                0usize
+            } else {
+                offset_round as usize
+            };
+
+            if idx_from_latest < total_slots {
+                let slot_idx = (total_slots - 1) - idx_from_latest;
+                if slot_idx >= start_idx && slot_idx < total_slots {
+                    let hovered_slot_cx = (right_slot_center_x - (idx_from_latest as f32) * slot_width).round();
+
+                    // Vertical crosshair line at hovered slot center
+                    painter.line_segment(
+                        [
+                            Pos2::new(hovered_slot_cx, plot_rect.top()),
+                            Pos2::new(hovered_slot_cx, plot_rect.bottom()),
+                        ],
+                        Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(180, 210, 255, 90)),
+                    );
+
+                    // Time label on footer at vertical crosshair
+                    if let Some(utc_ms) = view.slot_starts.get(slot_idx) {
+                        let day_ms = utc_ms.0.rem_euclid(86_400_000);
+                        let hrs = day_ms / 3_600_000;
+                        let mins = (day_ms % 3_600_000) / 60_000;
+                        let secs = (day_ms % 60_000) / 1_000;
+                        let time_str = format!("{hrs:02}:{mins:02}:{secs:02}");
+
+                        let badge_cx = hovered_slot_cx.clamp(rect.left() + 28.0, plot_rect.right() - 28.0);
+                        let time_badge_rect = Rect::from_center_size(
+                            Pos2::new(badge_cx, plot_rect.bottom() + 9.0),
+                            egui::vec2(52.0, 14.0),
+                        );
+                        painter.rect_filled(time_badge_rect, 2.0, Color32::from_rgb(25, 35, 50));
+                        painter.rect_stroke(
+                            time_badge_rect,
+                            1.0,
+                            Stroke::new(1.0_f32, Color32::from_rgb(100, 180, 255)),
+                        );
+                        painter.text(
+                            time_badge_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            time_str,
+                            egui::FontId::monospace(9.5),
+                            Color32::from_rgb(180, 220, 255),
+                        );
+
+                        // 4. Header inspection info (OHLC for target broker)
+                        let inspect_broker_id = selected_broker.or_else(|| broker_ids.first().copied());
+                        if let Some(target_id) = inspect_broker_id {
+                            let b_name = broker_name(broker_overviews, target_id, "Broker");
+                            if let Some(slot) = view.slots_by_broker.get(&target_id).and_then(|slots| slots.get(slot_idx)) {
+                                if let Some(ohlc) = &slot.ohlc {
+                                    let diff_pips = (ohlc.close - ohlc.open) / pip_size;
+                                    let header_info = format!(
+                                        "{b_name} | HOVER [{hrs:02}:{mins:02}:{secs:02}] | O: {:.prec$} H: {:.prec$} L: {:.prec$} C: {:.prec$} ({diff_pips:+.1}p)",
+                                        ohlc.open, ohlc.high, ohlc.low, ohlc.close,
+                                        prec = price_decimals,
+                                    );
+
+                                    let galley = painter.layout_no_wrap(
+                                        header_info,
+                                        egui::FontId::monospace(11.0),
+                                        Color32::from_rgb(255, 215, 100), // Gold
+                                    );
+                                    let bg_rect = Rect::from_min_size(
+                                        Pos2::new(plot_rect.left() + 4.0, rect.top() + 21.0),
+                                        egui::vec2(galley.size().x + 8.0, 16.0),
+                                    );
+                                    painter.rect_filled(
+                                        bg_rect,
+                                        2.0,
+                                        Color32::from_rgba_unmultiplied(20, 30, 45, 220),
+                                    );
+                                    painter.galley(
+                                        Pos2::new(bg_rect.left() + 4.0, bg_rect.top() + 1.0),
+                                        galley,
+                                        Color32::from_rgb(255, 215, 100),
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }
