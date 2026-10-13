@@ -1540,6 +1540,9 @@ fn test_candlestick_chart_current_price_line_toggle() {
                     None,
                     Some(1),
                     false,
+                    UtcMs::ZERO,
+                    false,
+                    &mut tick_scope::ui::settings::ChartTimeZone::default(),
                 );
             });
         })
@@ -1579,6 +1582,9 @@ fn test_candlestick_chart_current_price_line_toggle() {
                     None,
                     Some(1),
                     true,
+                    UtcMs::ZERO,
+                    false,
+                    &mut tick_scope::ui::settings::ChartTimeZone::default(),
                 );
             });
         })
@@ -1716,6 +1722,9 @@ fn test_candlestick_chart_crosshair_render() {
                     None,
                     Some(1),
                     false,
+                    UtcMs::ZERO,
+                    false,
+                    &mut tick_scope::ui::settings::ChartTimeZone::default(),
                 );
             });
         })
@@ -1750,6 +1759,9 @@ fn test_candlestick_chart_crosshair_render() {
                     None,
                     Some(1),
                     false,
+                    UtcMs::ZERO,
+                    false,
+                    &mut tick_scope::ui::settings::ChartTimeZone::default(),
                 );
             });
         })
@@ -1882,6 +1894,9 @@ fn test_candlestick_chart_crosshair_closest_broker_multi() {
                         None,
                         None,
                         false,
+                        UtcMs::ZERO,
+                        false,
+                        &mut tick_scope::ui::settings::ChartTimeZone::default(),
                     );
                 });
             })
@@ -1890,6 +1905,232 @@ fn test_candlestick_chart_crosshair_closest_broker_multi() {
         assert!(shapes > 0);
     }
 }
+
+#[test]
+fn test_chart_clock_badge_renders_and_toggles_timezone() {
+    use tick_scope::core::models::BrokerOverview;
+    use tick_scope::core::types::UtcMs;
+    use tick_scope::ui::chart::draw_chart_clock_badge;
+    use tick_scope::ui::settings::ChartTimeDisplayMode;
+
+    let ctx = egui::Context::default();
+    let chart_rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::vec2(600.0, 300.0));
+    let plot_rect = egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::vec2(512.0, 282.0));
+
+    // UTC: 2026-10-14 06:30:52 -> JST: 15:30:52
+    let utc_time = UtcMs(23_452_000);
+    let overviews = vec![BrokerOverview {
+        broker_id: 1,
+        name: "BrokerA".to_string(),
+        symbol: "USDJPY".to_string(),
+        latest_quote: None,
+        min_spread: None,
+        max_spread: None,
+        health: HealthState::default(),
+        tick_rate_1s: 1.0,
+        active_utc_offset_sec: 7200, // UTC+2 (SERVER)
+        is_auto_offset: true,
+    }];
+
+    let badge_rect = egui::Rect::from_min_max(
+        egui::Pos2::new(plot_rect.right() + 2.0, plot_rect.bottom() + 1.0),
+        egui::Pos2::new(chart_rect.right() - 2.0, chart_rect.bottom() - 1.0),
+    );
+
+    // 1. Realtime mode: fixed to JST, clicking does NOT toggle
+    let mut realtime_mode = ChartTimeDisplayMode::Jst;
+    let shapes_jst = ctx
+        .run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let painter = ui.painter_at(chart_rect);
+                draw_chart_clock_badge(
+                    Some(ui),
+                    &painter,
+                    plot_rect,
+                    chart_rect,
+                    utc_time,
+                    false, // is_replay = false
+                    &mut realtime_mode,
+                    1,
+                    &overviews,
+                );
+            });
+        })
+        .shapes
+        .len();
+
+    assert!(shapes_jst > 0);
+    assert_eq!(realtime_mode, ChartTimeDisplayMode::Jst);
+
+    // Attempt click in realtime mode
+    let mut click_input = egui::RawInput::default();
+    click_input.events.push(egui::Event::PointerMoved(badge_rect.center()));
+    click_input.events.push(egui::Event::PointerButton {
+        pos: badge_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::default(),
+    });
+    let _ = ctx.run(click_input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let painter = ui.painter_at(chart_rect);
+            draw_chart_clock_badge(
+                Some(ui),
+                &painter,
+                plot_rect,
+                chart_rect,
+                utc_time,
+                false,
+                &mut realtime_mode,
+                1,
+                &overviews,
+            );
+        });
+    });
+    let mut release_input = egui::RawInput::default();
+    release_input.events.push(egui::Event::PointerButton {
+        pos: badge_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::default(),
+    });
+    let _ = ctx.run(release_input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let painter = ui.painter_at(chart_rect);
+            draw_chart_clock_badge(
+                Some(ui),
+                &painter,
+                plot_rect,
+                chart_rect,
+                utc_time,
+                false,
+                &mut realtime_mode,
+                1,
+                &overviews,
+            );
+        });
+    });
+    assert_eq!(realtime_mode, ChartTimeDisplayMode::Jst, "Realtime mode should remain JST even when clicked");
+
+    // 2. Replay mode: click toggles between JST and SERVER
+    let mut replay_mode = ChartTimeDisplayMode::Jst;
+    let _ = ctx.run(Default::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let painter = ui.painter_at(chart_rect);
+            draw_chart_clock_badge(
+                Some(ui),
+                &painter,
+                plot_rect,
+                chart_rect,
+                utc_time,
+                true, // is_replay = true
+                &mut replay_mode,
+                1,
+                &overviews,
+            );
+        });
+    });
+
+    let mut click_input_replay = egui::RawInput::default();
+    click_input_replay.events.push(egui::Event::PointerMoved(badge_rect.center()));
+    click_input_replay.events.push(egui::Event::PointerButton {
+        pos: badge_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::default(),
+    });
+    let _ = ctx.run(click_input_replay, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let painter = ui.painter_at(chart_rect);
+            draw_chart_clock_badge(
+                Some(ui),
+                &painter,
+                plot_rect,
+                chart_rect,
+                utc_time,
+                true,
+                &mut replay_mode,
+                1,
+                &overviews,
+            );
+        });
+    });
+    let mut release_input_replay = egui::RawInput::default();
+    release_input_replay.events.push(egui::Event::PointerButton {
+        pos: badge_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::default(),
+    });
+    let _ = ctx.run(release_input_replay, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let painter = ui.painter_at(chart_rect);
+            draw_chart_clock_badge(
+                Some(ui),
+                &painter,
+                plot_rect,
+                chart_rect,
+                utc_time,
+                true,
+                &mut replay_mode,
+                1,
+                &overviews,
+            );
+        });
+    });
+    assert_eq!(replay_mode, ChartTimeDisplayMode::Server, "Replay mode should toggle to Server when clicked");
+
+    // Click again to toggle back to JST
+    let mut click2 = egui::RawInput::default();
+    click2.events.push(egui::Event::PointerMoved(badge_rect.center()));
+    click2.events.push(egui::Event::PointerButton {
+        pos: badge_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::default(),
+    });
+    let _ = ctx.run(click2, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let painter = ui.painter_at(chart_rect);
+            draw_chart_clock_badge(
+                Some(ui),
+                &painter,
+                plot_rect,
+                chart_rect,
+                utc_time,
+                true,
+                &mut replay_mode,
+                1,
+                &overviews,
+            );
+        });
+    });
+    let mut release2 = egui::RawInput::default();
+    release2.events.push(egui::Event::PointerButton {
+        pos: badge_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::default(),
+    });
+    let _ = ctx.run(release2, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let painter = ui.painter_at(chart_rect);
+            draw_chart_clock_badge(
+                Some(ui),
+                &painter,
+                plot_rect,
+                chart_rect,
+                utc_time,
+                true,
+                &mut replay_mode,
+                1,
+                &overviews,
+            );
+        });
+    });
+    assert_eq!(replay_mode, ChartTimeDisplayMode::Jst, "Replay mode should toggle back to JST on second click");
+}
+
 
 
 

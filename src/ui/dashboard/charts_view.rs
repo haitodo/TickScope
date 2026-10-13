@@ -4,12 +4,13 @@ use super::quick_settings;
 use super::DashboardApp;
 use crate::core::models::UiSnapshot;
 use crate::ui::chart::{
-    draw_bid_ask_diff_chart, draw_candlestick_chart_for_brokers_with_trades_interactive,
+    chart_plot_rect, draw_bid_ask_diff_chart,
+    draw_candlestick_chart_for_brokers_with_trades_interactive, draw_chart_clock_badge,
     draw_lead_lag_view, draw_mid_diff_chart, draw_mid_dispersion_view_with_visibility,
     draw_move_breadth_view, draw_quote_persistence_view_with_visibility,
     draw_realtime_quote_path_chart_with_visibility, draw_spread_diff_chart,
-    draw_tick_candle_view, BottomMetric, BottomMetricCategory,
-    ChartXAxisMode,
+    draw_tick_candle_view, BottomMetric, BottomMetricCategory, ChartXAxisMode,
+    CHART_HEADER_HEIGHT,
 };
 use crate::ui::settings::CandlePriceMode;
 use eframe::egui;
@@ -99,6 +100,9 @@ pub fn render_charts_view(
                 trade_slices,
                 Some(price_line_broker),
                 app.candle_show_current_price,
+                snapshot.display_now_utc,
+                app.is_replay,
+                &mut app.chart_timezone,
             );
         } else {
             draw_realtime_quote_path_chart_with_visibility(
@@ -117,6 +121,17 @@ pub fn render_charts_view(
                 0.4,
                 &mut app.chart_anchor,
                 &app.theme,
+            );
+            draw_chart_clock_badge(
+                Some(&mut *ui),
+                &painter,
+                chart_plot_rect(candle_rect, CHART_HEADER_HEIGHT),
+                candle_rect,
+                snapshot.display_now_utc,
+                app.is_replay,
+                &mut app.chart_timezone,
+                app.selected_broker_a,
+                &snapshot.broker_overviews,
             );
         }
         drop(trade_guard);

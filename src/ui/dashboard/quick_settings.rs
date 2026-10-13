@@ -2,8 +2,8 @@ use super::DashboardApp;
 use crate::core::models::UiSnapshot;
 use crate::ui::chart::ChartXAxisMode;
 use crate::ui::settings::{
-    CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, VALID_CANDLE_BAR_WIDTHS,
-    VALID_CANDLE_FIXED_PIPS,
+    CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, ChartTimeZone,
+    VALID_CANDLE_BAR_WIDTHS, VALID_CANDLE_FIXED_PIPS,
 };
 use crate::ui::shared::format_pips;
 use eframe::egui;
@@ -263,6 +263,27 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
                 }
             });
 
+            ui.horizontal(|ui| {
+                ui.label("Timezone (時間軸):");
+                if app.is_replay {
+                    let is_jst = app.chart_timezone == ChartTimeZone::Jst;
+                    if ui.selectable_label(is_jst, "JST (日本時間)").clicked() {
+                        app.chart_timezone = ChartTimeZone::Jst;
+                        app.state_dirty = true;
+                    }
+                    let is_server = app.chart_timezone == ChartTimeZone::Server;
+                    if ui.selectable_label(is_server, "SERVER (MT5時間)").clicked() {
+                        app.chart_timezone = ChartTimeZone::Server;
+                        app.state_dirty = true;
+                    }
+                } else {
+                    ui.label(
+                        RichText::new("JST (日本時間固定)")
+                            .color(crate::ui::style::TEXT_HINT),
+                    );
+                }
+            });
+
             ui.separator();
 
             // 4. MT5 Process Management
@@ -346,6 +367,8 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
             {
                 app.set_always_on_top(ctx, pin_checked);
             }
+
+
 
             ui.horizontal(|ui| {
                 let size_str = format!(

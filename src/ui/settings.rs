@@ -85,6 +85,36 @@ impl CandleFollowCriteria {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChartTimeDisplayMode {
+    #[default]
+    #[serde(alias = "jst")]
+    Jst,
+    #[serde(alias = "server", alias = "utc")]
+    Server,
+}
+
+pub type ChartTimeZone = ChartTimeDisplayMode;
+
+impl ChartTimeDisplayMode {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Jst => "JST",
+            Self::Server => "SERVER",
+        }
+    }
+
+    #[must_use]
+    pub const fn full_name(self) -> &'static str {
+        match self {
+            Self::Jst => "JST (日本時間 +9)",
+            Self::Server => "SERVER (MT5サーバー時間)",
+        }
+    }
+}
+
 const fn default_active_pair() -> (BrokerId, BrokerId) {
     (2, 5)
 }
@@ -216,6 +246,8 @@ pub struct UiState {
     #[serde(default = "default_true")]
     pub always_on_top: bool,
     #[serde(default)]
+    pub chart_timezone: ChartTimeZone,
+    #[serde(default)]
     pub window: WindowGeometryState,
 }
 
@@ -245,6 +277,7 @@ impl Default for UiState {
             mt5_auto_close: false,
             mt5_non_minimized_broker: default_non_minimized_broker_id(),
             always_on_top: true,
+            chart_timezone: ChartTimeZone::default(),
             window: WindowGeometryState::default(),
         }
     }
@@ -564,6 +597,7 @@ mod tests {
             mt5_auto_close: false,
             mt5_non_minimized_broker: Some(1),
             always_on_top: true,
+            chart_timezone: ChartTimeZone::Jst,
             window: WindowGeometryState {
                 inner_size: [1280.0, 800.0],
                 physical_inner_size: None,
@@ -713,6 +747,7 @@ mod tests {
             mt5_auto_close: false,
             mt5_non_minimized_broker: Some(99), // Non-existent broker ID, should reconcile
             always_on_top: false,
+            chart_timezone: ChartTimeZone::Jst,
             window: WindowGeometryState {
                 inner_size: [200.0, 100.0], // Too small
                 physical_inner_size: None,

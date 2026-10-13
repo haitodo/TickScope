@@ -163,7 +163,8 @@ fn main() -> eframe::Result<()> {
         .with_ui_state(&ui_state)
         .with_ui_state_path(ui_state_path)
         .with_pair_selection_handler(coordinator.pair_selection_handler())
-        .with_trade_store(coordinator.trade_store.clone());
+        .with_trade_store(coordinator.trade_store.clone())
+        .with_is_replay(true);
 
     let title = format!(
         "TickScope [REPLAY] - Multi-Broker FX Historical Replay Scope ({})",

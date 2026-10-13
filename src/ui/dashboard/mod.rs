@@ -12,8 +12,8 @@ use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
 use crate::ui::chart::{BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatchSide};
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
-    save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, UiState,
-    WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_TICK_CANDLE_BAR_WIDTH,
+    save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, ChartTimeZone,
+    UiState, WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_TICK_CANDLE_BAR_WIDTH,
     DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
 };
 use crate::ui::shared::broker_name;
@@ -54,6 +54,7 @@ pub struct DashboardApp {
     pub(crate) chart_max_quote_age_ms: u64,
     pub(crate) top_x_axis_mode: ChartXAxisMode,
     pub(crate) bottom_x_axis_mode: ChartXAxisMode,
+    pub(crate) chart_timezone: ChartTimeZone,
     pub(crate) pair_selection_handler: Option<PairSelectionHandler>,
     pub(crate) diagnostics: Option<DiagnosticsHandle>,
     pub(crate) diagnostics_clock: Option<Arc<dyn ClockPort>>,
@@ -84,6 +85,7 @@ pub struct DashboardApp {
     pub(crate) trade_store: Option<Arc<parking_lot::RwLock<crate::core::models::ReplayTradeStore>>>,
     pub(crate) show_trade_overlay: bool,
     pub(crate) show_trade_history: bool,
+    pub(crate) is_replay: bool,
 }
 
 impl DashboardApp {
@@ -118,6 +120,7 @@ impl DashboardApp {
             chart_max_quote_age_ms: 500,
             top_x_axis_mode: ChartXAxisMode::ReceiveTime,
             bottom_x_axis_mode: ChartXAxisMode::ReceiveTime,
+            chart_timezone: ChartTimeZone::default(),
             pair_selection_handler: None,
             diagnostics: None,
             diagnostics_clock: None,
@@ -148,7 +151,14 @@ impl DashboardApp {
             trade_store: None,
             show_trade_overlay: true,
             show_trade_history: false,
+            is_replay: false,
         }
+    }
+
+    #[must_use]
+    pub const fn with_is_replay(mut self, is_replay: bool) -> Self {
+        self.is_replay = is_replay;
+        self
     }
 
     #[must_use]
@@ -157,6 +167,7 @@ impl DashboardApp {
         store: Arc<parking_lot::RwLock<crate::core::models::ReplayTradeStore>>,
     ) -> Self {
         self.trade_store = Some(store);
+        self.is_replay = true;
         self
     }
 
@@ -188,6 +199,7 @@ impl DashboardApp {
         self.mt5_auto_close = state.mt5_auto_close;
         self.mt5_non_minimized_broker = state.mt5_non_minimized_broker;
         self.always_on_top = state.always_on_top;
+        self.chart_timezone = state.chart_timezone;
         self
     }
 
@@ -274,6 +286,7 @@ impl DashboardApp {
             mt5_auto_close: self.mt5_auto_close,
             mt5_non_minimized_broker: self.mt5_non_minimized_broker,
             always_on_top: self.always_on_top,
+            chart_timezone: self.chart_timezone,
             window: self.window_geometry.clone(),
         }
     }

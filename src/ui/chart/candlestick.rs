@@ -1,5 +1,6 @@
 use super::common::{
-    chart_plot_rect, price_decimals_for_pip, CHART_HEADER_HEIGHT, PRICE_AXIS_WIDTH,
+    chart_plot_rect, draw_chart_clock_badge, price_decimals_for_pip, resolve_chart_offset_ms,
+    CHART_HEADER_HEIGHT, PRICE_AXIS_WIDTH,
 };
 use super::scale::{
     draw_clip_marker, extract_valid_quote_candidates_for_mode, resolve_candle_follow_scale,
@@ -7,8 +8,8 @@ use super::scale::{
 };
 use super::theme::{broker_color_for_name, dim_candle_color, ChartTheme};
 use crate::core::models::{BrokerOverview, CandleView, Ohlc, PriceMode, ReplayTrade, SlotState};
-use crate::core::types::{BrokerId, MonoNs};
-use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+use crate::core::types::{BrokerId, MonoNs, UtcMs};
+use crate::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode, ChartTimeZone};
 use crate::ui::shared::broker_name;
 use egui::{Color32, Pos2, Rect, Stroke};
 
@@ -173,6 +174,9 @@ pub fn draw_candlestick_chart_for_brokers_with_trades(
         trade_items,
         None,
         false,
+        UtcMs::ZERO,
+        false,
+        &mut ChartTimeZone::default(),
     );
 }
 
@@ -197,6 +201,9 @@ pub fn draw_candlestick_chart_for_brokers_with_trades_interactive(
     trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
     selected_broker: Option<BrokerId>,
     show_current_price: bool,
+    display_now_utc: UtcMs,
+    is_replay: bool,
+    chart_timezone: &mut ChartTimeZone,
 ) {
     draw_candlestick_chart_for_brokers_with_trades_impl(
         Some(ui),
@@ -219,11 +226,14 @@ pub fn draw_candlestick_chart_for_brokers_with_trades_interactive(
         trade_items,
         selected_broker,
         show_current_price,
+        display_now_utc,
+        is_replay,
+        chart_timezone,
     );
 }
 
 fn draw_candlestick_chart_for_brokers_with_trades_impl(
-    ui: Option<&mut egui::Ui>,
+    mut ui: Option<&mut egui::Ui>,
     painter: &egui::Painter,
     rect: Rect,
     candle_view: Option<&CandleView>,
@@ -243,10 +253,14 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
     selected_broker: Option<BrokerId>,
     show_current_price: bool,
+    display_now_utc: UtcMs,
+    is_replay: bool,
+    chart_timezone: &mut ChartTimeZone,
 ) {
     painter.rect_filled(rect, 4.0, theme.bg_color);
     let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
     let pointer_pos = ui.as_ref().and_then(|u| u.input(|i| i.pointer.hover_pos()));
+    let target_broker_id = selected_broker.or_else(|| broker_ids.first().copied()).unwrap_or(1);
 
     let view = match candle_view {
         Some(v) if !v.slot_starts.is_empty() => v,
@@ -257,6 +271,17 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                 "Waiting for Candle Data...",
                 egui::FontId::proportional(14.0),
                 Color32::GRAY,
+            );
+            draw_chart_clock_badge(
+                ui,
+                painter,
+                plot_rect,
+                rect,
+                display_now_utc,
+                is_replay,
+                chart_timezone,
+                target_broker_id,
+                broker_overviews,
             );
             return;
         }
@@ -274,6 +299,17 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             "Waiting for Broker Candle Data...",
             egui::FontId::proportional(14.0),
             Color32::GRAY,
+        );
+        draw_chart_clock_badge(
+            ui,
+            painter,
+            plot_rect,
+            rect,
+            display_now_utc,
+            is_replay,
+            chart_timezone,
+            target_broker_id,
+            broker_overviews,
         );
         return;
     }
@@ -469,6 +505,67 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     // Draw candles with user-specified bar_width and pixel-aligned layout
     let plot_painter = painter.with_clip_rect(plot_rect);
 
+    // Draw minute-boundary vertical grid lines and timestamp markers
+    for i in start_idx..total_slots {
+        let Some(slot_utc) = view.slot_starts.get(i) else {
+            continue;
+        };
+        let slot_utc_ms = slot_utc.0;
+        let is_minute_boundary = if view.period_ms < 60_000 {
+            slot_utc_ms % 60_000 == 0
+        } else {
+            slot_utc_ms % 300_000 == 0
+        };
+
+        if !is_minute_boundary {
+            continue;
+        }
+
+        let offset_from_latest = (total_slots - 1).saturating_sub(i) as f32;
+        let slot_center_x = (right_slot_center_x - offset_from_latest * slot_width).round();
+        let slot_boundary_x = (slot_center_x - slot_width * 0.5).round();
+
+        if slot_boundary_x < plot_rect.left() || slot_boundary_x > plot_rect.right() {
+            continue;
+        }
+
+        let is_hour_boundary = slot_utc_ms % 3_600_000 == 0;
+        let line_color = if is_hour_boundary {
+            Color32::from_rgba_unmultiplied(130, 200, 255, 80)
+        } else {
+            Color32::from_rgba_unmultiplied(90, 160, 240, 45)
+        };
+
+        plot_painter.line_segment(
+            [
+                Pos2::new(slot_boundary_x, plot_rect.top()),
+                Pos2::new(slot_boundary_x, plot_rect.bottom()),
+            ],
+            Stroke::new(1.0_f32, line_color),
+        );
+
+        // Footer time caption if not too close to the borders
+        if slot_boundary_x >= plot_rect.left() + 24.0 && slot_boundary_x <= plot_rect.right() - 24.0 {
+            let (offset_ms, _) = resolve_chart_offset_ms(*chart_timezone, is_replay, target_broker_id, broker_overviews);
+            let local_ms = slot_utc_ms + offset_ms;
+            let day_ms = local_ms.rem_euclid(86_400_000);
+            let hrs = day_ms / 3_600_000;
+            let mins = (day_ms % 3_600_000) / 60_000;
+            let label = if is_hour_boundary {
+                format!("{hrs:02}:00")
+            } else {
+                format!("{mins:02}:00")
+            };
+            painter.text(
+                Pos2::new(slot_boundary_x, plot_rect.bottom() + 9.0),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::monospace(9.0),
+                Color32::from_rgba_unmultiplied(140, 175, 210, 110),
+            );
+        }
+    }
+
     for i in start_idx..total_slots {
         let offset_from_latest = (total_slots - 1).saturating_sub(i) as f32;
         let slot_center_x = (right_slot_center_x - offset_from_latest * slot_width).round();
@@ -578,7 +675,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
     if let Some((open_pos, hist)) = trade_items {
         draw_trade_overlays_impl(
-            ui,
+            ui.as_deref_mut(),
             painter,
             rect,
             plot_rect,
@@ -749,7 +846,9 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
                     // Time label on footer at vertical crosshair
                     if let Some(utc_ms) = view.slot_starts.get(slot_idx) {
-                        let day_ms = utc_ms.0.rem_euclid(86_400_000);
+                        let (offset_ms, _) = resolve_chart_offset_ms(*chart_timezone, is_replay, target_id, broker_overviews);
+                        let local_ms = utc_ms.0 + offset_ms;
+                        let day_ms = local_ms.rem_euclid(86_400_000);
                         let hrs = day_ms / 3_600_000;
                         let mins = (day_ms % 3_600_000) / 60_000;
                         let secs = (day_ms % 60_000) / 1_000;
@@ -810,6 +909,18 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             }
         }
     }
+
+    draw_chart_clock_badge(
+        ui,
+        painter,
+        plot_rect,
+        rect,
+        display_now_utc,
+        is_replay,
+        chart_timezone,
+        target_broker_id,
+        broker_overviews,
+    );
 }
 
 fn draw_trade_overlays_impl(
