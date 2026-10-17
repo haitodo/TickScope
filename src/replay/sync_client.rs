@@ -81,6 +81,7 @@ impl WsSyncClient {
                             }
 
                             *cmd_tx_holder.lock() = None;
+                            on_message(r#"{"status":"DISCONNECTED","is_playing":false}"#);
                         }
                         Err(e) => {
                             log::debug!("[WsSyncClient] WS connect failed ({e}), retrying in 1s...");

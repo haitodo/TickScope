@@ -35,6 +35,7 @@ pub struct SyncArbiter {
     mt5_ms: i64,
     seek_epoch: u64,
     trade_revision: u64,
+    was_playing: bool,
 }
 
 impl Default for SyncArbiter {
@@ -50,6 +51,7 @@ impl SyncArbiter {
             mt5_ms: 0,
             seek_epoch: 0,
             trade_revision: 0,
+            was_playing: false,
         }
     }
 
@@ -58,6 +60,7 @@ impl SyncArbiter {
         self.mt5_ms = 0;
         self.seek_epoch = 0;
         self.trade_revision = 0;
+        self.was_playing = false;
     }
 
     /// Evaluates raw JSON or typed status and returns the appropriate action.
@@ -69,11 +72,28 @@ impl SyncArbiter {
         clock: &VirtualClock,
         trade_store: &Arc<RwLock<ReplayTradeStore>>,
     ) -> (ArbiterAction, Option<(f64, f64, i64)>) {
+        if let Some(status) = val.get("status").and_then(serde_json::Value::as_str) {
+            if status == "TERMINATE" || status == "DISCONNECTED" {
+                clock.set_playing(false);
+                self.was_playing = false;
+                return (ArbiterAction::Ignore, None);
+            }
+        }
+        if val.get("command").and_then(serde_json::Value::as_str) == Some("TERMINATE") {
+            clock.set_playing(false);
+            self.was_playing = false;
+            return (ArbiterAction::Ignore, None);
+        }
+
         let virtual_time_msc = val
             .get("virtual_time_msc")
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
         if virtual_time_msc <= 0 {
+            if let Some(playing) = val.get("is_playing").and_then(serde_json::Value::as_bool) {
+                clock.set_playing(playing);
+                self.was_playing = playing;
+            }
             return (ArbiterAction::Ignore, None);
         }
 
@@ -165,7 +185,7 @@ impl SyncArbiter {
             true
         } else if self.mt5_ms == 0 {
             true
-        } else if !is_playing {
+        } else if !is_playing && !self.was_playing {
             (virtual_time_msc - self.mt5_ms).abs() > 200
         } else {
             let time_diff = virtual_time_msc - self.mt5_ms;
@@ -178,18 +198,22 @@ impl SyncArbiter {
             self.seek_epoch = seek_epoch;
         }
         self.mt5_ms = virtual_time_msc;
+        self.was_playing = is_playing;
 
         let action = if is_seek {
+            clock.set_playing(is_playing);
+            clock.set_multiplier(multiplier);
             ArbiterAction::Seek {
                 target_utc_ms,
                 is_playing,
                 multiplier,
             }
         } else {
-            // Apply PLL phase locking during regular playback
-            clock.sync_phase(target_utc_ms);
+            // Update play-state and multiplier BEFORE phase locking so pausing immediately
+            // freezes the clock and snaps virtual_utc_ms to target_utc_ms.
             clock.set_playing(is_playing);
             clock.set_multiplier(multiplier);
+            clock.sync_phase(target_utc_ms);
 
             ArbiterAction::PlaybackUpdate {
                 target_utc_ms,
@@ -399,5 +423,62 @@ mod tests {
             25,
             "Latest items must be preserved"
         );
+    }
+
+    #[test]
+    fn test_pause_from_high_speed_playback_freezes_clock_without_false_seek() {
+        let clock = VirtualClock::new(RunId::new_random(), 1_000_000);
+        let trade_store = Arc::new(RwLock::new(ReplayTradeStore::default()));
+        let mut arbiter = SyncArbiter::new();
+
+        // 1. Initial sync while playing at 60x
+        let v1 = serde_json::json!({
+            "virtual_time_msc": 100_000,
+            "is_playing": true,
+            "multiplier": 60.0,
+            "seek_epoch": 1
+        });
+        let (action1, _) = arbiter.evaluate(&v1, &clock, &trade_store);
+        assert!(matches!(action1, ArbiterAction::Seek { .. }));
+        assert!(clock.is_playing());
+
+        // 2. Pause after 1000ms of virtual playback (> 200ms threshold, same seek_epoch)
+        let v2 = serde_json::json!({
+            "virtual_time_msc": 101_000,
+            "is_playing": false,
+            "multiplier": 60.0,
+            "seek_epoch": 1
+        });
+        let (action2, _) = arbiter.evaluate(&v2, &clock, &trade_store);
+        assert!(
+            matches!(
+                action2,
+                ArbiterAction::PlaybackUpdate {
+                    is_playing: false,
+                    ..
+                }
+            ),
+            "Pausing from high-speed playback must not trigger a false Seek"
+        );
+        assert!(!clock.is_playing(), "Clock must be frozen immediately on pause");
+        assert_eq!(clock.current_utc_ms(), mt5_to_utc_ms(101_000));
+
+        // 3. Resume playing, then receive TERMINATE -> clock must pause
+        let v3 = serde_json::json!({
+            "virtual_time_msc": 101_500,
+            "is_playing": true,
+            "multiplier": 60.0,
+            "seek_epoch": 1
+        });
+        arbiter.evaluate(&v3, &clock, &trade_store);
+        assert!(clock.is_playing());
+
+        let v_term = serde_json::json!({
+            "status": "TERMINATE",
+            "command": "TERMINATE"
+        });
+        let (action_term, _) = arbiter.evaluate(&v_term, &clock, &trade_store);
+        assert!(matches!(action_term, ArbiterAction::Ignore));
+        assert!(!clock.is_playing(), "TERMINATE must freeze clock immediately");
     }
 }

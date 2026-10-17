@@ -269,8 +269,12 @@ impl ReplayDriver {
                     tick_wake,
                 );
             }
-            ArbiterAction::PlaybackUpdate { data_updated, .. } => {
-                if data_updated {
+            ArbiterAction::PlaybackUpdate {
+                data_updated,
+                is_playing,
+                ..
+            } => {
+                if data_updated || !is_playing {
                     let (lock, cvar) = &**tick_wake;
                     let mut pending = lock.lock();
                     *pending = true;

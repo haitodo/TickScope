@@ -32,6 +32,9 @@ impl StateRebuilder {
             "[StateRebuilder] Rebuilding state at target_utc: {target_utc_ms} (session: {session_id})"
         );
 
+        // Freeze clock immediately so PlaybackPump pauses during state reconstruction
+        clock.set_playing(false);
+
         // 1. Reset engine transient state
         let mut eng = engine.lock();
         eng.reset_state();
