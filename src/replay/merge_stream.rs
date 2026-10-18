@@ -75,7 +75,17 @@ impl MergeStream {
     /// Pop all ticks up to `max_utc_ms` (inclusive), limited to `max_count`.
     /// Performs a single pass per tick, automatically transitioning partition boundaries.
     pub fn pop_up_to(&mut self, max_utc_ms: i64, max_count: usize) -> Vec<ReplayTick> {
-        let mut result = Vec::with_capacity(max_count.min(256));
+        let mut result = Vec::with_capacity(max_count);
+        self.pop_up_to_buf(max_utc_ms, max_count, &mut result);
+        result
+    }
+
+    /// Pop ticks up to `max_utc_ms` directly into the supplied buffer to eliminate heap reallocations.
+    pub fn pop_up_to_buf(&mut self, max_utc_ms: i64, max_count: usize, result: &mut Vec<ReplayTick>) {
+        result.clear();
+        if result.capacity() < max_count {
+            result.reserve(max_count - result.capacity());
+        }
         while result.len() < max_count {
             let mut best_idx = None;
             let mut best_key = (i64::MAX, u32::MAX);
@@ -101,7 +111,6 @@ impl MergeStream {
                 _ => break,
             }
         }
-        result
     }
 
     /// Collect and merge warm-up ticks in `[from_utc_ms, to_utc_ms]` from all brokers.

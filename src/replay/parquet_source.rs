@@ -275,6 +275,19 @@ impl BrokerParquetSource {
         let ticks = read_parquet_ticks(self.broker_id, &p_meta.path)?;
         let arc_ticks = Arc::new(ticks);
 
+        const MAX_CACHED_PARTITIONS: usize = 3;
+        if self.partition_cache.len() >= MAX_CACHED_PARTITIONS {
+            let current = idx;
+            if let Some(&evict_idx) = self
+                .partition_cache
+                .keys()
+                .filter(|&&k| k != current && k != current.saturating_sub(1))
+                .max_by_key(|&&k| (k as isize - current as isize).abs())
+            {
+                self.partition_cache.remove(&evict_idx);
+            }
+        }
+
         self.partition_cache.insert(idx, arc_ticks.clone());
         self.current_partition_idx = Some(idx);
         self.current_ticks = arc_ticks;
@@ -318,6 +331,18 @@ impl BrokerParquetSource {
         }
         if self.partition_cache.contains_key(&idx) {
             return Ok(true);
+        }
+        const MAX_CACHED_PARTITIONS: usize = 3;
+        if self.partition_cache.len() >= MAX_CACHED_PARTITIONS {
+            let current = self.current_partition_idx.unwrap_or(idx);
+            if let Some(&evict_idx) = self
+                .partition_cache
+                .keys()
+                .filter(|&&k| k != current && k != current.saturating_sub(1))
+                .max_by_key(|&&k| (k as isize - current as isize).abs())
+            {
+                self.partition_cache.remove(&evict_idx);
+            }
         }
         let p_meta = &self.partitions[idx];
         let ticks = read_parquet_ticks(self.broker_id, &p_meta.path)?;

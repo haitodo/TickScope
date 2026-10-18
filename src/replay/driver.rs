@@ -372,7 +372,7 @@ pub fn make_ingress_tick_batch_with_mono(
 
     IngressItem::Frame(ReceivedFrame {
         frame,
-        raw_wire_bytes: Arc::new(Vec::new()),
+        raw_wire_bytes: Arc::default(),
         run_id,
         rx_mono_ns,
         rx_unix_ns,

@@ -486,6 +486,21 @@ impl TickEngine {
         }
     }
 
+    /// Advance watermarks for all connected channels to `watermark_ns` and drain the merge queue once.
+    /// Eliminates per-broker vector allocations and repeated merge calculations during high-throughput replay.
+    pub fn advance_connected_watermarks(&mut self, watermark_ns: MonoNs) {
+        let mut any_advanced = false;
+        for ch in self.channels.values_mut() {
+            if ch.is_connected && watermark_ns > ch.watermark {
+                ch.watermark = watermark_ns;
+                any_advanced = true;
+            }
+        }
+        if any_advanced {
+            self.drain_and_process_merge();
+        }
+    }
+
     fn calculate_global_watermark(&self) -> MonoNs {
         let mut min_wm = MonoNs(u64::MAX);
         let mut any_connected = false;

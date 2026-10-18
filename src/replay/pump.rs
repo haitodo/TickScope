@@ -5,7 +5,6 @@ use super::clock::VirtualClock;
 use super::driver::make_ingress_tick_batch;
 use super::merge_stream::MergeStream;
 use crate::core::types::{BrokerId, MonoNs, RunId};
-use crate::protocol::IngressItem;
 use crate::tick::engine::TickEngine;
 use parking_lot::{Condvar, Mutex, RwLock};
 use std::collections::HashMap;
@@ -97,6 +96,7 @@ impl PlaybackPump {
         let mut next_sequences: HashMap<BrokerId, u64> = HashMap::new();
         let mut last_session = session_epoch.load(Ordering::SeqCst);
         let mut current_batch_limit = MIN_BATCH_SIZE;
+        let mut tick_buf = Vec::with_capacity(MAX_BATCH_SIZE);
 
         while running.load(Ordering::SeqCst) {
             let current_session = session_epoch.load(Ordering::SeqCst);
@@ -112,10 +112,10 @@ impl PlaybackPump {
             }
 
             let current_utc = clock.current_utc_ms();
-            let ticks = {
+            {
                 let mut stream = merge_stream.write();
-                stream.pop_up_to(current_utc, current_batch_limit)
-            };
+                stream.pop_up_to_buf(current_utc, current_batch_limit, &mut tick_buf);
+            }
 
             let post_pop_session = session_epoch.load(Ordering::SeqCst);
             if post_pop_session != current_session {
@@ -123,7 +123,7 @@ impl PlaybackPump {
                 continue;
             }
 
-            let tick_count = ticks.len();
+            let tick_count = tick_buf.len();
             let has_more = tick_count >= current_batch_limit;
 
             // Dynamically scale batch limit: expand up to MAX_BATCH_SIZE when lagging,
@@ -142,31 +142,18 @@ impl PlaybackPump {
                 continue;
             }
 
-            if !ticks.is_empty() {
+            if !tick_buf.is_empty() {
                 Self::dispatch_replay_ticks(
                     &mut eng,
-                    &ticks,
+                    &tick_buf,
                     current_session,
                     run_id,
                     &mut next_sequences,
                 );
             }
 
-            // Advance watermark for all connected channels to current_mono so quiet brokers
-            // do not stall the global watermark merge
-            let active_broker_ids: Vec<BrokerId> = eng
-                .channels
-                .iter()
-                .filter(|(_, ch)| ch.is_connected)
-                .map(|(&id, _)| id)
-                .collect();
-
-            for b_id in active_broker_ids {
-                eng.on_ingress_item(IngressItem::Progress {
-                    broker_id: b_id,
-                    watermark_ns: current_mono,
-                });
-            }
+            // Advance watermark for all connected channels to current_mono and drain merge in a single pass
+            eng.advance_connected_watermarks(current_mono);
 
             drop(eng);
 
