@@ -151,7 +151,7 @@ pub fn draw_candlestick_chart_for_brokers_with_trades(
     now_mono: MonoNs,
     price_mode: PriceMode,
     theme: &ChartTheme,
-    trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
+    trade_items: Option<(&[ReplayTrade], &[ReplayTrade], u32)>,
 ) {
     draw_candlestick_chart_for_brokers_with_trades_impl(
         None,
@@ -198,7 +198,7 @@ pub fn draw_candlestick_chart_for_brokers_with_trades_interactive(
     now_mono: MonoNs,
     price_mode: PriceMode,
     theme: &ChartTheme,
-    trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
+    trade_items: Option<(&[ReplayTrade], &[ReplayTrade], u32)>,
     selected_broker: Option<BrokerId>,
     show_current_price: bool,
     display_now_utc: UtcMs,
@@ -250,7 +250,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     now_mono: MonoNs,
     price_mode: PriceMode,
     theme: &ChartTheme,
-    trade_items: Option<(&[ReplayTrade], &[ReplayTrade])>,
+    trade_items: Option<(&[ReplayTrade], &[ReplayTrade], u32)>,
     selected_broker: Option<BrokerId>,
     show_current_price: bool,
     display_now_utc: UtcMs,
@@ -673,7 +673,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             .find_map(|b| b.latest_quote.as_ref().map(|q| q.mid))
     });
 
-    if let Some((open_pos, hist)) = trade_items {
+    if let Some((open_pos, hist, time_stop_sec)) = trade_items {
         draw_trade_overlays_impl(
             ui.as_deref_mut(),
             painter,
@@ -689,6 +689,8 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             pip_size,
             price_decimals,
             live_market_price,
+            display_now_utc,
+            time_stop_sec,
         );
     }
 
@@ -938,6 +940,8 @@ fn draw_trade_overlays_impl(
     pip_size: f64,
     price_decimals: usize,
     live_market_price: Option<f64>,
+    display_now_utc: UtcMs,
+    time_stop_seconds: u32,
 ) {
     if view.slot_starts.is_empty() || view.period_ms <= 0 {
         return;
@@ -1086,6 +1090,8 @@ fn draw_trade_overlays_impl(
         }
     }
 
+    let now_utc_ms = display_now_utc.0;
+
     // 2. オープンポジション (建玉保有中)
     for trade in open_positions {
         let is_buy = trade.side.eq_ignore_ascii_case("BUY");
@@ -1101,6 +1107,47 @@ fn draw_trade_overlays_impl(
             crate::ui::chart::theme::TRADE_MARK_BUY
         } else {
             crate::ui::chart::theme::TRADE_MARK_SELL
+        };
+
+        // 保有時間およびプレッシャー（警告・タイムアップ）判定
+        let elapsed_ms = if now_utc_ms > 0 && trade.open_utc_ms > 0 {
+            (now_utc_ms - trade.open_utc_ms).max(0)
+        } else {
+            0
+        };
+
+        let (pressure, is_blink_on) = if time_stop_seconds > 0 {
+            let limit_ms = (time_stop_seconds as i64) * 1000;
+            let warn_ms = limit_ms * 7 / 10;
+            if elapsed_ms >= limit_ms {
+                // 100% 超過: 危険（点滅: 250ms ON / 250ms OFF）
+                let blink = (now_utc_ms / 250) % 2 == 0;
+                ("over", blink)
+            } else if elapsed_ms >= warn_ms {
+                ("warn", true)
+            } else {
+                ("normal", true)
+            }
+        } else {
+            ("normal", false)
+        };
+
+        if pressure == "over" {
+            if let Some(ref mut u) = ui {
+                u.ctx().request_repaint_after(std::time::Duration::from_millis(150));
+            }
+        }
+
+        let (badge_stroke_color, badge_stroke_width) = match pressure {
+            "over" => {
+                if is_blink_on {
+                    (Color32::from_rgb(239, 68, 68), 2.5_f32) // 赤 (太枠2.5)
+                } else {
+                    (entry_color.gamma_multiply(0.35), 1.0_f32)
+                }
+            }
+            "warn" => (Color32::from_rgb(255, 230, 0), 2.5_f32), // 蛍光ネオンイエロー (太枠2.5)
+            _ => (entry_color, 1.0_f32),
         };
 
         let entry_bar_rect = Rect::from_min_max(
@@ -1133,18 +1180,29 @@ fn draw_trade_overlays_impl(
             );
         }
 
-        // ② エントリー足の右端から最新足・価格軸への極薄ガイド線
+        // ② エントリー足の右端から最新足・価格軸への極薄ガイド線（超過・警告時は連動して視認性向上）
         let guide_start_x = bar_right.max(plot_rect.left());
         if plot_rect.right() > guide_start_x {
+            let (guide_color, guide_width) = match pressure {
+                "over" => {
+                    if is_blink_on {
+                        (Color32::from_rgb(239, 68, 68).gamma_multiply(0.9), 2.0_f32)
+                    } else {
+                        (entry_color.gamma_multiply(0.25), 0.8_f32)
+                    }
+                }
+                "warn" => (Color32::from_rgb(255, 230, 0).gamma_multiply(0.9), 2.0_f32),
+                _ => (
+                    entry_color.gamma_multiply(if hovered { 0.7 } else { 0.28 }),
+                    if hovered { 1.2_f32 } else { 0.8_f32 },
+                ),
+            };
             clip_painter.line_segment(
                 [
                     Pos2::new(guide_start_x, entry_y),
                     Pos2::new(plot_rect.right(), entry_y),
                 ],
-                Stroke::new(
-                    if hovered { 1.2_f32 } else { 0.8_f32 },
-                    entry_color.gamma_multiply(if hovered { 0.7 } else { 0.28 }),
-                ),
+                Stroke::new(guide_width, guide_color),
             );
         }
 
@@ -1172,7 +1230,8 @@ fn draw_trade_overlays_impl(
             trade.open_price,
             pips,
             price_decimals,
-            entry_color,
+            badge_stroke_color,
+            badge_stroke_width,
         );
     }
 }
@@ -1262,7 +1321,8 @@ fn draw_price_axis_position_badge(
     open_price: f64,
     pips: f64,
     price_decimals: usize,
-    color: Color32,
+    stroke_color: Color32,
+    stroke_width: f32,
 ) {
     let axis_left = plot_rect.right();
     let axis_right = chart_rect.right();
@@ -1301,7 +1361,7 @@ fn draw_price_axis_position_badge(
     );
 
     painter.rect_filled(badge_rect, 3.0, bg_color);
-    painter.rect_stroke(badge_rect, 3.0, Stroke::new(1.0_f32, color));
+    painter.rect_stroke(badge_rect, 3.0, Stroke::new(stroke_width, stroke_color));
     painter.galley(
         Pos2::new(
             badge_rect.center().x - text_w * 0.5,

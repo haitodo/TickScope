@@ -1,0 +1,6 @@
+[alias]
+# 開発起動: `cargo replay`（引数を渡す場合は `cargo replay -- <ARGS>`）
+replay = "run --features replay --bin tick-scope-replay"
+
+# リプレイのリリースビルド（単体）: `cargo build-replay`
+build-replay = "build --release --features replay --bin tick-scope-replay"

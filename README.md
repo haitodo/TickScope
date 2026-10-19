@@ -222,15 +222,18 @@ TickScope はリアルタイム取引用の本番バイナリ（`tick-scope.exe`
 4. **一時停止中のクォート凍結**:
    - 一時停止中は仮想時間クロック（`VirtualClock`）を完全凍結し、5社すべてのクォートが `Live` 状態（新鮮な状態）を維持します。
 
-### リプレイの起動方法
+### リプレイの起動・ビルド方法
 ```powershell
-# 開発起動（リプレイ）
-cargo run --features replay --bin tick-scope-replay
+# 開発起動（エイリアス）
+cargo replay
+# 引数を渡して起動
+cargo replay -- --tick-dir "D:\Drehis\tick" --ws "ws://127.0.0.1:49210"
 
-# リプレイのリリースビルド
-cargo build --release --features replay --bin tick-scope-replay
+# リプレイのリリースビルド（通常ビルドに -F replay を追加するだけ）
+cargo build --release -F replay
+# （または専用エイリアス: cargo build-replay）
 
-# 起動（カスタム設定やディレクトリ指定も可能）
+# 生成されたバイナリを直接起動
 .\target\release\tick-scope-replay.exe --tick-dir "D:\Drehis\tick" --ws "ws://127.0.0.1:49210"
 ```
 
@@ -250,9 +253,10 @@ cargo build --release
 # 生成物: target/release/tick-scope.exe
 
 # 2. リプレイバイナリ（Drenhis Parquet + TickReplay WS同期）
-cargo run --features replay --bin tick-scope-replay
-cargo build --release --features replay --bin tick-scope-replay
-# 生成物: target/release/tick-scope-replay.exe
+cargo replay                # 開発起動（エイリアス）
+cargo build --release -F replay # リリースビルド（通常ビルドに -F replay を付与）
+# （または cargo build-replay）
+# 生成物: target/release/tick-scope-replay.exe および target/release/tick-scope.exe
 
 # 3. テスト実行
 cargo test                                   # 通常テスト

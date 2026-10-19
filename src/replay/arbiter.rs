@@ -175,6 +175,15 @@ impl SyncArbiter {
             }
         }
 
+        if let Some(sec) = val.get("time_stop_seconds").and_then(serde_json::Value::as_u64) {
+            let sec_u32 = sec as u32;
+            let mut store = trade_store.write();
+            if store.time_stop_seconds != sec_u32 {
+                store.time_stop_seconds = sec_u32;
+                data_updated = true;
+            }
+        }
+
         // 3. Adaptive SEEK Detection with seek_epoch check & Hysteresis fallback
         let seek_epoch = val
             .get("seek_epoch")

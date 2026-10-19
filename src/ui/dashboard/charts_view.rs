@@ -72,7 +72,7 @@ pub fn render_charts_view(
             } else {
                 &[]
             };
-            (g.open_positions.as_slice(), history_slice)
+            (g.open_positions.as_slice(), history_slice, g.time_stop_seconds)
         });
 
         if app.show_candle_context {

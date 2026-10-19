@@ -319,4 +319,5 @@ pub struct ReplayTrade {
 pub struct ReplayTradeStore {
     pub open_positions: Vec<ReplayTrade>,
     pub history: Vec<ReplayTrade>,
+    pub time_stop_seconds: u32,
 }
