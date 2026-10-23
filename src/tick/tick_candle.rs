@@ -25,7 +25,12 @@ pub struct TickCandleTracker {
 
 impl TickCandleTracker {
     #[must_use]
-    pub fn new(broker_id: BrokerId, max_candles: usize, threshold_pips: f64, pip_size: f64) -> Self {
+    pub fn new(
+        broker_id: BrokerId,
+        max_candles: usize,
+        threshold_pips: f64,
+        pip_size: f64,
+    ) -> Self {
         Self {
             broker_id,
             max_candles,

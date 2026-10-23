@@ -1423,6 +1423,96 @@ fn test_candlestick_5_brokers_hiding_broker_4_tradeview_remains() {
 }
 
 #[test]
+fn test_candlestick_chart_with_more_than_16_brokers_heap_fallback() {
+    use tick_scope::ui::chart::{draw_candlestick_chart_for_brokers, ChartTheme};
+    use tick_scope::ui::settings::{CandleFollowCriteria, CandlePriceScaleMode};
+
+    let mut slots_by_broker = HashMap::new();
+    let mut slot_starts = Vec::new();
+
+    for i in 0..5 {
+        let utc = UtcMs(i * 1000);
+        slot_starts.push(utc);
+        for b_id in 1..=20 {
+            let slots = slots_by_broker.entry(b_id).or_insert_with(Vec::new);
+            slots.push(CandleSlot {
+                broker_id: b_id,
+                segment_id: 1,
+                period_ms: 1000,
+                start_utc_ms: utc,
+                state: SlotState::Closed,
+                ohlc: Some(Ohlc {
+                    open: 150.0 + f64::from(b_id) * 0.01,
+                    high: 150.1 + f64::from(b_id) * 0.01,
+                    low: 149.9 + f64::from(b_id) * 0.01,
+                    close: 150.05 + f64::from(b_id) * 0.01,
+                    open_key: (utc, 1),
+                    close_key: (utc, 1),
+                }),
+                tick_count: 5,
+                revision: 1,
+                coverage: SlotCoverage::Full,
+            });
+        }
+    }
+
+    let view = CandleView {
+        period_ms: 1000,
+        slot_starts,
+        slots_by_broker,
+    };
+
+    let mut overviews = Vec::new();
+    for b_id in 1..=20 {
+        overviews.push(BrokerOverview {
+            broker_id: b_id,
+            name: format!("Broker_{b_id}"),
+            ..Default::default()
+        });
+    }
+
+    // Configure 20 requested brokers, where broker 10 is filtered/hidden
+    let requested_brokers: Vec<u32> = (1..=20).filter(|&id| id != 10).collect();
+    assert_eq!(requested_brokers.len(), 19);
+
+    let ctx = egui::Context::default();
+    let output = ctx.run(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let theme = ChartTheme::default();
+            let rect =
+                egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
+            let painter = ui.painter_at(rect);
+            let mut anchor = None;
+            let mut latch = None;
+
+            draw_candlestick_chart_for_brokers(
+                &painter,
+                rect,
+                Some(&view),
+                &requested_brokers,
+                &overviews,
+                5.0,
+                CandlePriceScaleMode::Auto,
+                CandleFollowCriteria::Median,
+                0.01,
+                &mut anchor,
+                &mut latch,
+                Some(150.0),
+                1000,
+                MonoNs(100_000_000),
+                PriceMode::Bid,
+                &theme,
+            );
+        });
+    });
+
+    assert!(
+        !output.shapes.is_empty(),
+        "Chart with >16 brokers must render shapes without dropping brokers"
+    );
+}
+
+#[test]
 fn test_candlestick_chart_current_price_line_toggle() {
     use tick_scope::core::models::{
         BrokerOverview, CandleSlot, CandleView, Ohlc, SlotCoverage, SlotState,
@@ -1733,7 +1823,9 @@ fn test_candlestick_chart_crosshair_render() {
 
     // 2. With pointer hover over plot area
     let mut raw_input = egui::RawInput::default();
-    raw_input.events.push(egui::Event::PointerMoved(egui::Pos2::new(300.0, 150.0)));
+    raw_input
+        .events
+        .push(egui::Event::PointerMoved(egui::Pos2::new(300.0, 150.0)));
     let shapes_with_hover = ctx
         .run(raw_input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -1868,7 +1960,9 @@ fn test_candlestick_chart_crosshair_closest_broker_multi() {
     let ctx = egui::Context::default();
     for hover_x in [500.0_f32, 510.0_f32] {
         let mut raw_input = egui::RawInput::default();
-        raw_input.events.push(egui::Event::PointerMoved(egui::Pos2::new(hover_x, 150.0)));
+        raw_input
+            .events
+            .push(egui::Event::PointerMoved(egui::Pos2::new(hover_x, 150.0)));
         let shapes = ctx
             .run(raw_input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
@@ -1964,7 +2058,9 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
 
     // Attempt click in realtime mode
     let mut click_input = egui::RawInput::default();
-    click_input.events.push(egui::Event::PointerMoved(badge_rect.center()));
+    click_input
+        .events
+        .push(egui::Event::PointerMoved(badge_rect.center()));
     click_input.events.push(egui::Event::PointerButton {
         pos: badge_rect.center(),
         button: egui::PointerButton::Primary,
@@ -2010,7 +2106,11 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
             );
         });
     });
-    assert_eq!(realtime_mode, ChartTimeDisplayMode::Jst, "Realtime mode should remain JST even when clicked");
+    assert_eq!(
+        realtime_mode,
+        ChartTimeDisplayMode::Jst,
+        "Realtime mode should remain JST even when clicked"
+    );
 
     // 2. Replay mode: click toggles between JST and SERVER
     let mut replay_mode = ChartTimeDisplayMode::Jst;
@@ -2032,7 +2132,9 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
     });
 
     let mut click_input_replay = egui::RawInput::default();
-    click_input_replay.events.push(egui::Event::PointerMoved(badge_rect.center()));
+    click_input_replay
+        .events
+        .push(egui::Event::PointerMoved(badge_rect.center()));
     click_input_replay.events.push(egui::Event::PointerButton {
         pos: badge_rect.center(),
         button: egui::PointerButton::Primary,
@@ -2056,12 +2158,14 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
         });
     });
     let mut release_input_replay = egui::RawInput::default();
-    release_input_replay.events.push(egui::Event::PointerButton {
-        pos: badge_rect.center(),
-        button: egui::PointerButton::Primary,
-        pressed: false,
-        modifiers: egui::Modifiers::default(),
-    });
+    release_input_replay
+        .events
+        .push(egui::Event::PointerButton {
+            pos: badge_rect.center(),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        });
     let _ = ctx.run(release_input_replay, |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
             let painter = ui.painter_at(chart_rect);
@@ -2078,11 +2182,17 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
             );
         });
     });
-    assert_eq!(replay_mode, ChartTimeDisplayMode::Server, "Replay mode should toggle to Server when clicked");
+    assert_eq!(
+        replay_mode,
+        ChartTimeDisplayMode::Server,
+        "Replay mode should toggle to Server when clicked"
+    );
 
     // Click again to toggle back to JST
     let mut click2 = egui::RawInput::default();
-    click2.events.push(egui::Event::PointerMoved(badge_rect.center()));
+    click2
+        .events
+        .push(egui::Event::PointerMoved(badge_rect.center()));
     click2.events.push(egui::Event::PointerButton {
         pos: badge_rect.center(),
         button: egui::PointerButton::Primary,
@@ -2128,10 +2238,9 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
             );
         });
     });
-    assert_eq!(replay_mode, ChartTimeDisplayMode::Jst, "Replay mode should toggle back to JST on second click");
+    assert_eq!(
+        replay_mode,
+        ChartTimeDisplayMode::Jst,
+        "Replay mode should toggle back to JST on second click"
+    );
 }
-
-
-
-
-

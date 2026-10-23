@@ -4,9 +4,7 @@
 //! into high-definition, noise-filtered candlesticks, ignoring sub-threshold price vibration
 //! and canceling bidirectional noise within the threshold.
 
-use super::super::common::{
-    chart_plot_rect, price_decimals_for_pip, CHART_HEADER_HEIGHT,
-};
+use super::super::common::{chart_plot_rect, price_decimals_for_pip, CHART_HEADER_HEIGHT};
 use super::super::theme::ChartTheme;
 use egui::{Color32, FontId, Pos2, Rect, Stroke};
 
@@ -279,7 +277,10 @@ pub fn draw_tick_candle_view(
         let y = price_to_y(p);
 
         painter.line_segment(
-            [Pos2::new(plot_rect.left(), y), Pos2::new(plot_rect.right(), y)],
+            [
+                Pos2::new(plot_rect.left(), y),
+                Pos2::new(plot_rect.right(), y),
+            ],
             Stroke::new(0.5_f32, theme.grid_color),
         );
 
@@ -293,7 +294,7 @@ pub fn draw_tick_candle_view(
     }
 
     let bull_color = Color32::from_rgb(0, 211, 126); // Emerald Green
-    let bear_color = Color32::from_rgb(239, 83, 80);  // Coral Red
+    let bear_color = Color32::from_rgb(239, 83, 80); // Coral Red
     let doji_color = Color32::from_rgb(180, 180, 190);
 
     // Render candles and 1-minute boundary lines from right to left
@@ -321,7 +322,10 @@ pub fn draw_tick_candle_view(
 
                 // Vertical delimiter line (in the gap, never piercing through candle bodies)
                 painter.line_segment(
-                    [Pos2::new(line_x, plot_rect.top()), Pos2::new(line_x, plot_rect.bottom())],
+                    [
+                        Pos2::new(line_x, plot_rect.top()),
+                        Pos2::new(line_x, plot_rect.bottom()),
+                    ],
                     line_stroke,
                 );
 
@@ -403,12 +407,18 @@ pub fn draw_tick_candle_view(
         if plot_rect.contains(pos) {
             // Vertical crosshair at hovered candle
             painter.line_segment(
-                [Pos2::new(h_cx, plot_rect.top()), Pos2::new(h_cx, plot_rect.bottom())],
+                [
+                    Pos2::new(h_cx, plot_rect.top()),
+                    Pos2::new(h_cx, plot_rect.bottom()),
+                ],
                 Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(180, 210, 255, 90)),
             );
             // Horizontal crosshair at pointer Y
             painter.line_segment(
-                [Pos2::new(plot_rect.left(), pos.y), Pos2::new(plot_rect.right(), pos.y)],
+                [
+                    Pos2::new(plot_rect.left(), pos.y),
+                    Pos2::new(plot_rect.right(), pos.y),
+                ],
                 Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(180, 210, 255, 70)),
             );
             // Hovered price badge on Y axis

@@ -875,15 +875,19 @@ fn test_simulate_replay_seek_and_playback_candles() {
     let start_utc_ms = 1_787_227_200_000i64;
     println!("\n=== STEP 1: Rebuilding state at start_utc_ms: {start_utc_ms} ===");
     tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
-        start_utc_ms,
-        true,
-        1.0,
-        1,
-        run_id,
-        &clock,
-        &engine,
-        &merge_stream,
-        &tick_wake,
+        tick_scope::replay::rebuilder::RebuildTarget {
+            target_utc_ms: start_utc_ms,
+            is_playing: true,
+            multiplier: 1.0,
+            session_id: 1,
+            run_id,
+        },
+        tick_scope::replay::rebuilder::ReplayHandles {
+            clock: &clock,
+            engine: &engine,
+            merge_stream: &merge_stream,
+            tick_wake: &tick_wake,
+        },
     );
 
     // Check projection immediately after rebuild
@@ -992,15 +996,19 @@ fn test_simulate_replay_seek_and_playback_candles() {
     let jump_utc_ms = current_utc + 600_000;
     println!("\n=== STEP 3: JUMP +10M to {jump_utc_ms} ===");
     tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
-        jump_utc_ms,
-        true,
-        1.0,
-        2,
-        run_id,
-        &clock,
-        &engine,
-        &merge_stream,
-        &tick_wake,
+        tick_scope::replay::rebuilder::RebuildTarget {
+            target_utc_ms: jump_utc_ms,
+            is_playing: true,
+            multiplier: 1.0,
+            session_id: 2,
+            run_id,
+        },
+        tick_scope::replay::rebuilder::ReplayHandles {
+            clock: &clock,
+            engine: &engine,
+            merge_stream: &merge_stream,
+            tick_wake: &tick_wake,
+        },
     );
 
     // Check projection immediately after +10M jump
@@ -1153,15 +1161,19 @@ fn test_simulate_august_3_live_issue() {
     let start_utc_ms = mt5_to_utc_ms(live_mt5_ms);
     println!("\n=== LIVE TEST: Rebuilding state at start_utc_ms: {start_utc_ms} (MT5: {live_mt5_ms}) ===");
     tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
-        start_utc_ms,
-        true,
-        1.0,
-        1,
-        run_id,
-        &clock,
-        &engine,
-        &merge_stream,
-        &tick_wake,
+        tick_scope::replay::rebuilder::RebuildTarget {
+            target_utc_ms: start_utc_ms,
+            is_playing: true,
+            multiplier: 1.0,
+            session_id: 1,
+            run_id,
+        },
+        tick_scope::replay::rebuilder::ReplayHandles {
+            clock: &clock,
+            engine: &engine,
+            merge_stream: &merge_stream,
+            tick_wake: &tick_wake,
+        },
     );
 
     // Check engine status immediately after rebuild

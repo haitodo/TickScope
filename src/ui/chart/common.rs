@@ -178,7 +178,8 @@ pub fn draw_chart_clock_badge(
             .unwrap_or(0)
     };
 
-    let (offset_ms, mode_label) = resolve_chart_offset_ms(*time_mode, is_replay, target_broker, broker_overviews);
+    let (offset_ms, mode_label) =
+        resolve_chart_offset_ms(*time_mode, is_replay, target_broker, broker_overviews);
     let local_ms = now_utc_ms + offset_ms;
     let ms_of_day = local_ms.rem_euclid(86_400_000);
     let hrs = ms_of_day / 3_600_000;
@@ -263,4 +264,3 @@ pub fn draw_chart_clock_badge(
         response.on_hover_text(hover_text);
     }
 }
-

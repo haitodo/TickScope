@@ -819,8 +819,7 @@ impl TickEngine {
                             let time_sec = if tick.broker_time_msc > 0 {
                                 tick.broker_time_msc / 1000
                             } else {
-                                rf.rx_unix_ns
-                                    .map_or(0, |ns| (ns / 1_000_000_000) as i64)
+                                rf.rx_unix_ns.map_or(0, |ns| ns / 1_000_000_000)
                             };
                             if let Some(tct) = self.tick_candle_trackers.get_mut(&broker_id) {
                                 tct.on_tick(quote.mid, time_sec);
@@ -958,70 +957,72 @@ impl TickEngine {
                             rf.rx_mono_ns
                         };
 
-                        let mut mids = HashMap::with_capacity(self.latest_quotes.len());
-                        if quote.is_valid && quote.mid.is_finite() {
-                            mids.insert(broker_id, quote.mid);
-                        }
-                        for (&bid, q) in &self.latest_quotes {
-                            if bid != broker_id && q.is_valid && q.mid.is_finite() {
-                                if is_warmup {
-                                    mids.insert(bid, q.mid);
-                                } else if !q.is_warmup
-                                    && q.rx_mono_ns <= rf.rx_mono_ns
-                                    && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
-                                        <= self
-                                            .config
-                                            .health
-                                            .stale_after_ms
-                                            .saturating_mul(1_000_000)
-                                {
-                                    mids.insert(bid, q.mid);
-                                }
-                            }
-                        }
-
-                        let consensus_mid = compute_median_from_mids(&mids);
-
-                        let pt = RealtimeQuotePoint {
-                            mono_ns: tick_mono_ns,
-                            broker_mids: mids,
-                            consensus_mid,
-                        };
-
-                        if self.realtime_quote_history.is_empty()
-                            || tick_mono_ns >= self.realtime_quote_history.back().unwrap().mono_ns
+                        let merge_target = if !self.realtime_quote_history.is_empty()
+                            && tick_mono_ns < self.realtime_quote_history.back().unwrap().mono_ns
                         {
-                            self.realtime_quote_history.push_back(pt);
-                        } else {
                             let idx = self
                                 .realtime_quote_history
                                 .partition_point(|p| p.mono_ns < tick_mono_ns);
-                            let merged = if idx < self.realtime_quote_history.len()
+                            if idx < self.realtime_quote_history.len()
                                 && self.realtime_quote_history[idx]
                                     .mono_ns
                                     .0
                                     .saturating_sub(tick_mono_ns.0)
                                     <= 20_000_000
                             {
-                                let p = &mut self.realtime_quote_history[idx];
-                                p.broker_mids.insert(broker_id, quote.mid);
-                                p.consensus_mid = compute_median_from_mids(&p.broker_mids);
-                                true
+                                Some((idx, true))
                             } else if idx > 0
                                 && tick_mono_ns
                                     .0
                                     .saturating_sub(self.realtime_quote_history[idx - 1].mono_ns.0)
                                     <= 20_000_000
                             {
-                                let p = &mut self.realtime_quote_history[idx - 1];
-                                p.broker_mids.insert(broker_id, quote.mid);
-                                p.consensus_mid = compute_median_from_mids(&p.broker_mids);
-                                true
+                                Some((idx - 1, true))
                             } else {
-                                false
+                                Some((idx, false))
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some((m_idx, true)) = merge_target {
+                            let p = &mut self.realtime_quote_history[m_idx];
+                            p.broker_mids.insert(broker_id, quote.mid);
+                            p.consensus_mid = compute_median_from_mids(&p.broker_mids);
+                        } else {
+                            let mut mids = HashMap::with_capacity(self.latest_quotes.len());
+                            if quote.is_valid && quote.mid.is_finite() {
+                                mids.insert(broker_id, quote.mid);
+                            }
+                            for (&bid, q) in &self.latest_quotes {
+                                if bid != broker_id
+                                    && q.is_valid
+                                    && q.mid.is_finite()
+                                    && (is_warmup
+                                        || (!q.is_warmup
+                                            && q.rx_mono_ns <= rf.rx_mono_ns
+                                            && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
+                                                <= self
+                                                    .config
+                                                    .health
+                                                    .stale_after_ms
+                                                    .saturating_mul(1_000_000)))
+                                {
+                                    mids.insert(bid, q.mid);
+                                }
+                            }
+
+                            let consensus_mid = compute_median_from_mids(&mids);
+                            let pt = RealtimeQuotePoint {
+                                mono_ns: tick_mono_ns,
+                                broker_mids: mids,
+                                consensus_mid,
                             };
-                            if !merged {
-                                self.realtime_quote_history.insert(idx, pt);
+
+                            if let Some((insert_idx, false)) = merge_target {
+                                self.realtime_quote_history.insert(insert_idx, pt);
+                            } else {
+                                self.realtime_quote_history.push_back(pt);
                             }
                         }
 
@@ -1156,16 +1157,46 @@ pub fn compute_median_from_mids(mids: &HashMap<BrokerId, f64>) -> Option<f64> {
     if mids.is_empty() {
         return None;
     }
-    let mut vals: Vec<f64> = mids.values().copied().filter(|v| v.is_finite()).collect();
-    if vals.is_empty() {
+    // High-performance stack buffer for up to 16 brokers (zero heap allocation in hot path)
+    let mut stack_vals = [0.0f64; 16];
+    let mut count = 0;
+    let mut heap_vals = None;
+
+    for &v in mids.values() {
+        if v.is_finite() {
+            if count < 16 {
+                stack_vals[count] = v;
+                count += 1;
+            } else {
+                let vec = heap_vals.get_or_insert_with(|| {
+                    let mut v = Vec::with_capacity(mids.len());
+                    v.extend_from_slice(&stack_vals[..16]);
+                    v
+                });
+                vec.push(v);
+                count += 1;
+            }
+        }
+    }
+
+    if count == 0 {
         return None;
     }
-    vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let n = vals.len();
-    if n % 2 == 1 {
-        Some(vals[n / 2])
+
+    let slice = if let Some(ref mut vec) = heap_vals {
+        vec.sort_unstable_by(|a, b| a.total_cmp(b));
+        vec.as_slice()
     } else {
-        Some((vals[n / 2 - 1] + vals[n / 2]) / 2.0)
+        let s = &mut stack_vals[..count];
+        s.sort_unstable_by(|a, b| a.total_cmp(b));
+        s
+    };
+
+    let n = slice.len();
+    if n % 2 == 1 {
+        Some(slice[n / 2])
+    } else {
+        Some((slice[n / 2 - 1] + slice[n / 2]) / 2.0)
     }
 }
 
@@ -1216,6 +1247,14 @@ impl TickEngine {
                     MonoNs((eff_utc.max(0) as u64).saturating_mul(1_000_000)).max(last_mono_ns);
                 last_mono_ns = mono_ns;
                 let consensus_mid = compute_median_from_mids(&current_mids);
+
+                if let Some(back) = self.realtime_quote_history.back_mut() {
+                    if back.mono_ns == mono_ns {
+                        back.broker_mids.insert(t.broker_id, mid);
+                        back.consensus_mid = consensus_mid;
+                        continue;
+                    }
+                }
 
                 self.realtime_quote_history.push_back(RealtimeQuotePoint {
                     mono_ns,

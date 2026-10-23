@@ -168,9 +168,6 @@ mod tests {
             broker_color_for_name(&theme, Some("Axiory"), 0),
             COLOR_AXIORY
         );
-        assert_eq!(
-            broker_color_for_name(&theme, Some("Unknown"), 1),
-            COLOR_JFX
-        );
+        assert_eq!(broker_color_for_name(&theme, Some("Unknown"), 1), COLOR_JFX);
     }
 }

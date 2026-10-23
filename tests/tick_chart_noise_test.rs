@@ -135,15 +135,19 @@ fn test_quote_history_matches_truth_after_repeated_seeks() {
     for round in 0..4 {
         println!("=== round {round} seek to {cur} ===");
         tick_scope::replay::rebuilder::StateRebuilder::rebuild_at(
-            cur,
-            true,
-            1.0,
-            round as u64 + 1,
-            run_id,
-            &clock,
-            &engine,
-            &merge_stream,
-            &tick_wake,
+            tick_scope::replay::rebuilder::RebuildTarget {
+                target_utc_ms: cur,
+                is_playing: true,
+                multiplier: 1.0,
+                session_id: round as u64 + 1,
+                run_id,
+            },
+            tick_scope::replay::rebuilder::ReplayHandles {
+                clock: &clock,
+                engine: &engine,
+                merge_stream: &merge_stream,
+                tick_wake: &tick_wake,
+            },
         );
         {
             let eng = engine.lock();

@@ -23,5 +23,5 @@ pub use driver::{mt5_to_utc_ms, ReplayDriver, DEFAULT_SYNC_URL};
 pub use merge_stream::MergeStream;
 pub use parquet_source::{BrokerParquetSource, ReplayTick};
 pub use pump::PlaybackPump;
-pub use rebuilder::StateRebuilder;
+pub use rebuilder::{RebuildTarget, ReplayHandles, StateRebuilder};
 pub use sync_client::WsSyncClient;

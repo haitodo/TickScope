@@ -81,7 +81,12 @@ impl MergeStream {
     }
 
     /// Pop ticks up to `max_utc_ms` directly into the supplied buffer to eliminate heap reallocations.
-    pub fn pop_up_to_buf(&mut self, max_utc_ms: i64, max_count: usize, result: &mut Vec<ReplayTick>) {
+    pub fn pop_up_to_buf(
+        &mut self,
+        max_utc_ms: i64,
+        max_count: usize,
+        result: &mut Vec<ReplayTick>,
+    ) {
         result.clear();
         if result.capacity() < max_count {
             result.reserve(max_count - result.capacity());
@@ -121,12 +126,10 @@ impl MergeStream {
             let eff_from = from_utc_ms - s.receive_delay_ms;
             let eff_to = to_utc_ms - s.receive_delay_ms;
             let ticks = s.get_warmup_range(eff_from, eff_to);
-            for t in ticks {
-                merged.push((s.effective_utc_ms(&t), t));
-            }
+            merged.extend(ticks);
         }
-        merged.sort_by_key(|(eff, t)| (*eff, t.broker_id));
-        merged.into_iter().map(|(_, t)| t).collect()
+        merged.sort_unstable_by_key(|t| (t.effective_utc_ms(), t.broker_id));
+        merged
     }
 
     /// Return total broker sources in this merge stream.

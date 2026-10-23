@@ -36,6 +36,7 @@ impl TerminalProcessStatus {
 
 pub struct TerminalManager {
     broker_terminals: HashMap<BrokerId, Option<PathBuf>>,
+    canonical_terminals: HashMap<BrokerId, Option<PathBuf>>,
     status_cache: HashMap<BrokerId, TerminalProcessStatus>,
     last_scan: Option<Instant>,
     scan_interval: Duration,
@@ -52,6 +53,7 @@ impl TerminalManager {
     pub fn new() -> Self {
         Self {
             broker_terminals: HashMap::new(),
+            canonical_terminals: HashMap::new(),
             status_cache: HashMap::new(),
             last_scan: None,
             scan_interval: Duration::from_millis(1000),
@@ -132,25 +134,38 @@ impl TerminalManager {
         }
         self.last_scan = Some(now);
 
-        // Update path mapping if needed
+        // Update path mapping and pre-canonicalize once on discovery
         for broker in brokers {
-            self.broker_terminals
-                .entry(broker.id)
-                .or_insert_with(|| Self::resolve_terminal_path(broker, discovered));
+            let current_cached = self
+                .broker_terminals
+                .get(&broker.id)
+                .and_then(|p| p.as_ref());
+            let explicit_differs = broker
+                .terminal_path
+                .as_ref()
+                .is_some_and(|p| current_cached.is_none_or(|cur| cur != p));
+            let needs_resolution = explicit_differs || current_cached.is_none();
+            if needs_resolution {
+                let resolved = Self::resolve_terminal_path(broker, discovered);
+                let canon = resolved
+                    .as_ref()
+                    .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()));
+                self.broker_terminals.insert(broker.id, resolved);
+                self.canonical_terminals.insert(broker.id, canon);
+            }
         }
 
         let running_map = query_running_terminals();
 
         for broker in brokers {
-            let path_opt = self
-                .broker_terminals
+            let canon_opt = self
+                .canonical_terminals
                 .get(&broker.id)
                 .and_then(|p| p.as_ref());
-            let status = match path_opt {
+            let status = match canon_opt {
                 None => TerminalProcessStatus::NotFound,
-                Some(path) => {
-                    let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
-                    if let Some(&pid) = running_map.get(&canon) {
+                Some(canon) => {
+                    if let Some(&pid) = running_map.get(canon) {
                         TerminalProcessStatus::Running { pid }
                     } else {
                         TerminalProcessStatus::Stopped

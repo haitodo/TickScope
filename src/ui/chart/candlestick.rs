@@ -260,7 +260,9 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     painter.rect_filled(rect, 4.0, theme.bg_color);
     let plot_rect = chart_plot_rect(rect, CHART_HEADER_HEIGHT);
     let pointer_pos = ui.as_ref().and_then(|u| u.input(|i| i.pointer.hover_pos()));
-    let target_broker_id = selected_broker.or_else(|| broker_ids.first().copied()).unwrap_or(1);
+    let target_broker_id = selected_broker
+        .or_else(|| broker_ids.first().copied())
+        .unwrap_or(1);
 
     let view = match candle_view {
         Some(v) if !v.slot_starts.is_empty() => v,
@@ -287,11 +289,32 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         }
     };
 
-    let broker_ids: Vec<BrokerId> = broker_ids
+    let mut stack_broker_ids = [0; 16];
+    let mut heap_broker_ids: Option<Vec<BrokerId>> = None;
+    let broker_ids: &[BrokerId] = if broker_ids
         .iter()
-        .copied()
-        .filter(|id| view.slots_by_broker.contains_key(id))
-        .collect();
+        .all(|id| view.slots_by_broker.contains_key(id))
+    {
+        broker_ids
+    } else if broker_ids.len() <= 16 {
+        let mut count = 0;
+        for &id in broker_ids {
+            if view.slots_by_broker.contains_key(&id) {
+                stack_broker_ids[count] = id;
+                count += 1;
+            }
+        }
+        &stack_broker_ids[..count]
+    } else {
+        let vec = heap_broker_ids.get_or_insert_with(|| {
+            broker_ids
+                .iter()
+                .copied()
+                .filter(|id| view.slots_by_broker.contains_key(id))
+                .collect()
+        });
+        vec.as_slice()
+    };
     if broker_ids.is_empty() {
         painter.text(
             rect.center(),
@@ -331,7 +354,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     let mut min_price = f64::MAX;
     let mut max_price = f64::MIN;
 
-    for broker_id in &broker_ids {
+    for broker_id in broker_ids {
         if let Some(slots) = view.slots_by_broker.get(broker_id) {
             for (i, s) in slots.iter().enumerate().skip(start_idx) {
                 let offset_from_latest = (total_slots - 1).saturating_sub(i) as f32;
@@ -348,7 +371,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
     // Fallback if no visible slots have OHLC yet: inspect all available slots
     if min_price > max_price || min_price == f64::MAX {
-        for broker_id in &broker_ids {
+        for broker_id in broker_ids {
             if let Some(slots) = view.slots_by_broker.get(broker_id) {
                 for s in slots {
                     if let Some(ohlc) = &s.ohlc {
@@ -363,7 +386,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     let has_ohlc = min_price <= max_price && min_price < f64::MAX;
 
     let candidates = extract_valid_quote_candidates_for_mode(
-        &broker_ids,
+        broker_ids,
         broker_overviews,
         chart_max_quote_age_ms,
         now_mono,
@@ -545,8 +568,14 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         );
 
         // Footer time caption if not too close to the borders
-        if slot_boundary_x >= plot_rect.left() + 24.0 && slot_boundary_x <= plot_rect.right() - 24.0 {
-            let (offset_ms, _) = resolve_chart_offset_ms(*chart_timezone, is_replay, target_broker_id, broker_overviews);
+        if slot_boundary_x >= plot_rect.left() + 24.0 && slot_boundary_x <= plot_rect.right() - 24.0
+        {
+            let (offset_ms, _) = resolve_chart_offset_ms(
+                *chart_timezone,
+                is_replay,
+                target_broker_id,
+                broker_overviews,
+            );
             let local_ms = slot_utc_ms + offset_ms;
             let day_ms = local_ms.rem_euclid(86_400_000);
             let hrs = day_ms / 3_600_000;
@@ -707,17 +736,24 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                     PriceMode::Mid => q.mid,
                 })
                 .or_else(|| {
-                    view.slots_by_broker
-                        .get(&target_id)
-                        .and_then(|slots| slots.iter().rev().find_map(|s| s.ohlc.as_ref().map(|o| o.close)))
+                    view.slots_by_broker.get(&target_id).and_then(|slots| {
+                        slots
+                            .iter()
+                            .rev()
+                            .find_map(|s| s.ohlc.as_ref().map(|o| o.close))
+                    })
                 })
                 .or(fallback_price);
 
             if let Some(price) = cur_price {
                 let cur_y = price_to_y(price);
                 if cur_y >= plot_rect.top() && cur_y <= plot_rect.bottom() {
-                    let broker_index = broker_ids.iter().position(|&id| id == target_id).unwrap_or(0);
-                    let color_index = crate::ui::shared::broker_index(broker_overviews, target_id, broker_index);
+                    let broker_index = broker_ids
+                        .iter()
+                        .position(|&id| id == target_id)
+                        .unwrap_or(0);
+                    let color_index =
+                        crate::ui::shared::broker_index(broker_overviews, target_id, broker_index);
                     let target_name = target_overview.map(|b| b.name.as_str());
                     let broker_color = broker_color_for_name(theme, target_name, color_index);
 
@@ -767,7 +803,10 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         if plot_rect.contains(pos) {
             // 1. Horizontal crosshair at pointer Y
             painter.line_segment(
-                [Pos2::new(plot_rect.left(), pos.y), Pos2::new(plot_rect.right(), pos.y)],
+                [
+                    Pos2::new(plot_rect.left(), pos.y),
+                    Pos2::new(plot_rect.right(), pos.y),
+                ],
                 Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(180, 210, 255, 70)),
             );
 
@@ -818,7 +857,8 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             if idx_from_latest < total_slots {
                 let slot_idx = (total_slots - 1) - idx_from_latest;
                 if slot_idx >= start_idx && slot_idx < total_slots {
-                    let hovered_slot_cx = (right_slot_center_x - (idx_from_latest as f32) * slot_width).round();
+                    let hovered_slot_cx =
+                        (right_slot_center_x - (idx_from_latest as f32) * slot_width).round();
 
                     // Find closest broker candle within this slot
                     let group_left = hovered_slot_cx - candle_group_width * 0.5;
@@ -826,7 +866,10 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                     let mut min_dist = f32::MAX;
 
                     for (b_idx, &b_id) in broker_ids.iter().enumerate() {
-                        let bcx = (group_left + (b_idx as f32) * (bar_width + candle_gap) + bar_width * 0.5).round();
+                        let bcx = (group_left
+                            + (b_idx as f32) * (bar_width + candle_gap)
+                            + bar_width * 0.5)
+                            .round();
                         let dist = (pos.x - bcx).abs();
                         if dist < min_dist {
                             min_dist = dist;
@@ -848,7 +891,12 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
                     // Time label on footer at vertical crosshair
                     if let Some(utc_ms) = view.slot_starts.get(slot_idx) {
-                        let (offset_ms, _) = resolve_chart_offset_ms(*chart_timezone, is_replay, target_id, broker_overviews);
+                        let (offset_ms, _) = resolve_chart_offset_ms(
+                            *chart_timezone,
+                            is_replay,
+                            target_id,
+                            broker_overviews,
+                        );
                         let local_ms = utc_ms.0 + offset_ms;
                         let day_ms = local_ms.rem_euclid(86_400_000);
                         let hrs = day_ms / 3_600_000;
@@ -856,7 +904,8 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                         let secs = (day_ms % 60_000) / 1_000;
                         let time_str = format!("{hrs:02}:{mins:02}:{secs:02}");
 
-                        let badge_cx = target_cx.clamp(rect.left() + 28.0, plot_rect.right() - 28.0);
+                        let badge_cx =
+                            target_cx.clamp(rect.left() + 28.0, plot_rect.right() - 28.0);
                         let time_badge_rect = Rect::from_center_size(
                             Pos2::new(badge_cx, plot_rect.bottom() + 9.0),
                             egui::vec2(52.0, 14.0),
@@ -877,7 +926,10 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
                         // 4. Header inspection info (OHLC for closest broker)
                         let b_name = broker_name(broker_overviews, target_id, "Broker");
-                        let slot_opt = view.slots_by_broker.get(&target_id).and_then(|slots| slots.get(slot_idx));
+                        let slot_opt = view
+                            .slots_by_broker
+                            .get(&target_id)
+                            .and_then(|slots| slots.get(slot_idx));
                         if let Some(ohlc) = slot_opt.and_then(|s| s.ohlc.as_ref()) {
                             let diff_pips = (ohlc.close - ohlc.open) / pip_size;
                             let header_info = format!(
@@ -1134,7 +1186,8 @@ fn draw_trade_overlays_impl(
 
         if pressure == "over" {
             if let Some(ref mut u) = ui {
-                u.ctx().request_repaint_after(std::time::Duration::from_millis(150));
+                u.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(150));
             }
         }
 

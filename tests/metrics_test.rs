@@ -201,3 +201,59 @@ fn test_tl03_tl04_one_to_one_matcher() {
     matcher.on_event(ev_a50);
     assert!(matcher.on_event(ev_b50).is_none(), "Delta 0 must not match");
 }
+
+#[test]
+fn test_compute_median_from_mids_comprehensive() {
+    use std::collections::HashMap;
+    use tick_scope::tick::engine::compute_median_from_mids;
+
+    // 1. Empty map returns None
+    let empty: HashMap<BrokerId, f64> = HashMap::new();
+    assert_eq!(compute_median_from_mids(&empty), None);
+
+    // 2. Single broker returns exact mid
+    let mut single = HashMap::new();
+    single.insert(1, 150.123);
+    assert_eq!(compute_median_from_mids(&single), Some(150.123));
+
+    // 3. Two brokers return mean
+    let mut two = HashMap::new();
+    two.insert(1, 150.10);
+    two.insert(2, 150.20);
+    assert!((compute_median_from_mids(&two).unwrap() - 150.15).abs() < 1e-9);
+
+    // 4. Odd count (3 brokers) returns middle value
+    let mut three = HashMap::new();
+    three.insert(1, 150.30);
+    three.insert(2, 150.10);
+    three.insert(3, 150.20);
+    assert!((compute_median_from_mids(&three).unwrap() - 150.20).abs() < 1e-9);
+
+    // 5. Even count (4 brokers) returns average of two middles
+    let mut four = HashMap::new();
+    four.insert(1, 150.10);
+    four.insert(2, 150.20);
+    four.insert(3, 150.30);
+    four.insert(4, 150.40);
+    assert!((compute_median_from_mids(&four).unwrap() - 150.25).abs() < 1e-9);
+
+    // 6. Non-finite values (NaN, Inf) are filtered out cleanly
+    let mut with_nan = HashMap::new();
+    with_nan.insert(1, 150.10);
+    with_nan.insert(2, f64::NAN);
+    with_nan.insert(3, 150.30);
+    with_nan.insert(4, f64::INFINITY);
+    assert!((compute_median_from_mids(&with_nan).unwrap() - 150.20).abs() < 1e-9);
+
+    // 7. More than 16 brokers (heap fallback path test)
+    let mut large = HashMap::new();
+    for i in 1..=25 {
+        large.insert(i, 100.0 + f64::from(i));
+    }
+    // 25 values from 101.0 to 125.0 -> median is 13th value: 113.0
+    assert_eq!(compute_median_from_mids(&large), Some(113.0));
+
+    // 26 values from 101.0 to 126.0 -> median is (113.0 + 114.0) / 2.0 = 113.5
+    large.insert(26, 126.0);
+    assert_eq!(compute_median_from_mids(&large), Some(113.5));
+}

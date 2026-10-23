@@ -332,3 +332,79 @@ fn test_warmup_fills_full_candle_and_tick_candle_viewport() {
         "TickCandle ring buffer must be fully saturated across 2-hour warmup"
     );
 }
+
+#[test]
+fn test_candle_book_prune_boundary_and_retention() {
+    use tick_scope::config::SlotRetention;
+
+    // Configure 1-second period with 5 retention slots
+    let retentions = vec![SlotRetention {
+        period_ms: 1000,
+        slots: 5,
+    }];
+    let mut book = CandleBook::with_retentions(&retentions);
+    let broker_id = 1;
+
+    // Feed 20 ticks, 1 tick every 1000ms from t=0s to t=19s
+    for s in 0..20 {
+        let utc_ms = s * 1000 + 500;
+        let tick = make_test_tick(broker_id, s as u64 + 1, utc_ms, 150.0, 150.02);
+        book.on_tick(&tick, PriceMode::Bid, UtcMs(utc_ms));
+    }
+
+    // Now inspect candle view at t=19.5s with 10 slots
+    let cv = book.get_candle_view(1000, &[broker_id], 10, UtcMs(19500));
+    assert_eq!(cv.slot_starts.len(), 10);
+    let slots = &cv.slots_by_broker[&broker_id];
+
+    // Slots at 19s, 18s, 17s, 16s, 15s should have OHLC
+    // Older slots beyond retention (keep_slots = slots + 5 = 10) must be pruned cleanly
+    let filled_count = slots.iter().filter(|s| s.ohlc.is_some()).count();
+    assert!(
+        (5..=10).contains(&filled_count),
+        "Expected retention bounded filled slots, got {filled_count}"
+    );
+
+    // Latest slot at 19000 must be populated and Active
+    let latest = slots.last().unwrap();
+    assert_eq!(latest.start_utc_ms, UtcMs(19000));
+    assert!(latest.ohlc.is_some());
+}
+
+#[test]
+fn test_candle_advance_utc_reverse_early_break_and_past_slots() {
+    let mut book = CandleBook::new(vec![1000]);
+    let broker_id = 1;
+
+    // Create 50 consecutive 1-second candles from t=0s to t=49s
+    for s in 0..50 {
+        let utc_ms = s * 1000 + 500;
+        let tick = make_test_tick(broker_id, s as u64 + 1, utc_ms, 150.0, 150.02);
+        book.on_tick(&tick, PriceMode::Bid, UtcMs(utc_ms));
+    }
+
+    // Advance UTC to 49.5s -> slot [49000, 50000) should be Active
+    book.advance_utc(UtcMs(49_500));
+    let view = book.get_candle_view(1000, &[broker_id], 10, UtcMs(49_500));
+    let slots = &view.slots_by_broker[&broker_id];
+    let latest_slot = slots.last().unwrap();
+    assert_eq!(latest_slot.start_utc_ms, UtcMs(49_000));
+    assert_eq!(latest_slot.state, SlotState::Active);
+
+    // Prior slots should be Closed
+    for s in &slots[..slots.len() - 1] {
+        if s.ohlc.is_some() {
+            assert_eq!(s.state, SlotState::Closed);
+        }
+    }
+
+    // Advance UTC to 50.1s -> slot [49000, 50000) must transition to Closed
+    book.advance_utc(UtcMs(50_100));
+    let view_closed = book.get_candle_view(1000, &[broker_id], 10, UtcMs(50_100));
+    let slots_closed = &view_closed.slots_by_broker[&broker_id];
+    let slot_49 = slots_closed
+        .iter()
+        .find(|s| s.start_utc_ms == UtcMs(49_000))
+        .unwrap();
+    assert_eq!(slot_49.state, SlotState::Closed);
+}

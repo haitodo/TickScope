@@ -175,7 +175,10 @@ impl SyncArbiter {
             }
         }
 
-        if let Some(sec) = val.get("time_stop_seconds").and_then(serde_json::Value::as_u64) {
+        if let Some(sec) = val
+            .get("time_stop_seconds")
+            .and_then(serde_json::Value::as_u64)
+        {
             let sec_u32 = sec as u32;
             let mut store = trade_store.write();
             if store.time_stop_seconds != sec_u32 {
@@ -469,7 +472,10 @@ mod tests {
             ),
             "Pausing from high-speed playback must not trigger a false Seek"
         );
-        assert!(!clock.is_playing(), "Clock must be frozen immediately on pause");
+        assert!(
+            !clock.is_playing(),
+            "Clock must be frozen immediately on pause"
+        );
         assert_eq!(clock.current_utc_ms(), mt5_to_utc_ms(101_000));
 
         // 3. Resume playing, then receive TERMINATE -> clock must pause
@@ -488,6 +494,9 @@ mod tests {
         });
         let (action_term, _) = arbiter.evaluate(&v_term, &clock, &trade_store);
         assert!(matches!(action_term, ArbiterAction::Ignore));
-        assert!(!clock.is_playing(), "TERMINATE must freeze clock immediately");
+        assert!(
+            !clock.is_playing(),
+            "TERMINATE must freeze clock immediately"
+        );
     }
 }

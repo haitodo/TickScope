@@ -168,31 +168,23 @@ impl ReplayDriver {
         self.threads.push(pump_handle);
 
         // 2. Spawn WebSocket Sync Client
-        let run_id = self.run_id;
-        let clock = self.clock.clone();
-        let engine = self.engine.clone();
-        let merge_stream = self.merge_stream.clone();
-        let tick_wake = self.tick_wake.clone();
-        let session_epoch = self.session_epoch.clone();
-        let trade_store = self.trade_store.clone();
-        let arbiter = self.arbiter.clone();
+        let ctx = Arc::new(ReplayDriverContext {
+            run_id: self.run_id,
+            clock: self.clock.clone(),
+            engine: self.engine.clone(),
+            merge_stream: self.merge_stream.clone(),
+            tick_wake: self.tick_wake.clone(),
+            session_epoch: self.session_epoch.clone(),
+            trade_store: self.trade_store.clone(),
+            arbiter: self.arbiter.clone(),
+        });
 
         let ws_handle = WsSyncClient::spawn(
             ws_url,
             self.running.clone(),
             self.ws_cmd_tx.clone(),
             move |text| {
-                Self::handle_ws_message(
-                    text,
-                    run_id,
-                    &clock,
-                    &engine,
-                    &merge_stream,
-                    &tick_wake,
-                    &session_epoch,
-                    &trade_store,
-                    &arbiter,
-                );
+                ctx.handle_ws_message(text);
             },
         );
         self.threads.push(ws_handle);
@@ -205,35 +197,58 @@ impl ReplayDriver {
         }
     }
 
+    /// Stop the driver and join threads.
+    pub fn stop(&mut self) {
+        self.running.store(false, Ordering::SeqCst);
+        let (lock, cvar) = &*self.tick_wake;
+        let mut pending = lock.lock();
+        *pending = true;
+        cvar.notify_all();
+    }
+
+    pub fn wait_for_shutdown(self) {
+        for h in self.threads {
+            let _ = h.join();
+        }
+    }
+}
+
+/// Execution context for asynchronous WebSocket replay command handling.
+pub struct ReplayDriverContext {
+    pub run_id: RunId,
+    pub clock: VirtualClock,
+    pub engine: Arc<Mutex<TickEngine>>,
+    pub merge_stream: Arc<RwLock<MergeStream>>,
+    pub tick_wake: Arc<(Mutex<bool>, Condvar)>,
+    pub session_epoch: Arc<AtomicU64>,
+    pub trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
+    pub arbiter: Arc<Mutex<SyncArbiter>>,
+}
+
+impl ReplayDriverContext {
     /// Process incoming status message from `TickReplay` WebSocket server.
-    fn handle_ws_message(
-        text: &str,
-        run_id: RunId,
-        clock: &VirtualClock,
-        engine: &Arc<Mutex<TickEngine>>,
-        merge_stream: &Arc<RwLock<MergeStream>>,
-        tick_wake: &Arc<(Mutex<bool>, Condvar)>,
-        session_epoch: &Arc<AtomicU64>,
-        trade_store: &Arc<RwLock<crate::core::models::ReplayTradeStore>>,
-        arbiter: &Arc<Mutex<SyncArbiter>>,
-    ) {
+    pub fn handle_ws_message(&self, text: &str) {
         let val: serde_json::Value = match serde_json::from_str(text) {
             Ok(v) => v,
             Err(_) => return,
         };
 
-        let (action, jfx_quote) = arbiter.lock().evaluate(&val, clock, trade_store);
+        let (action, jfx_quote) =
+            self.arbiter
+                .lock()
+                .evaluate(&val, &self.clock, &self.trade_store);
 
         // Handle JFX Direct Quote Synchronization (only if JFX is not streamed via parquet merge stream)
         if let Some((jfx_bid, jfx_ask, target_utc_ms)) = jfx_quote {
-            let mut eng = engine.lock();
+            let mut eng = self.engine.lock();
             let jfx_id = eng
                 .config
                 .brokers
                 .iter()
                 .find(|b| b.name.eq_ignore_ascii_case("JFX"))
                 .map_or(5, |b| b.id);
-            let has_jfx_in_parquet = merge_stream
+            let has_jfx_in_parquet = self
+                .merge_stream
                 .read()
                 .sources
                 .iter()
@@ -256,17 +271,21 @@ impl ReplayDriver {
                 is_playing,
                 multiplier,
             } => {
-                let session = session_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+                let session = self.session_epoch.fetch_add(1, Ordering::SeqCst) + 1;
                 StateRebuilder::rebuild_at(
-                    target_utc_ms,
-                    is_playing,
-                    multiplier,
-                    session,
-                    run_id,
-                    clock,
-                    engine,
-                    merge_stream,
-                    tick_wake,
+                    super::rebuilder::RebuildTarget {
+                        target_utc_ms,
+                        is_playing,
+                        multiplier,
+                        session_id: session,
+                        run_id: self.run_id,
+                    },
+                    super::rebuilder::ReplayHandles {
+                        clock: &self.clock,
+                        engine: &self.engine,
+                        merge_stream: &self.merge_stream,
+                        tick_wake: &self.tick_wake,
+                    },
                 );
             }
             ArbiterAction::PlaybackUpdate {
@@ -275,28 +294,13 @@ impl ReplayDriver {
                 ..
             } => {
                 if data_updated || !is_playing {
-                    let (lock, cvar) = &**tick_wake;
+                    let (lock, cvar) = &*self.tick_wake;
                     let mut pending = lock.lock();
                     *pending = true;
                     cvar.notify_one();
                 }
             }
             ArbiterAction::Ignore => {}
-        }
-    }
-
-    /// Stop the driver and join threads.
-    pub fn stop(&mut self) {
-        self.running.store(false, Ordering::SeqCst);
-        let (lock, cvar) = &*self.tick_wake;
-        let mut pending = lock.lock();
-        *pending = true;
-        cvar.notify_all();
-    }
-
-    pub fn wait_for_shutdown(self) {
-        for h in self.threads {
-            let _ = h.join();
         }
     }
 }

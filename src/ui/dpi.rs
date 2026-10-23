@@ -179,7 +179,15 @@ unsafe extern "system" fn dpi_fix_wndproc(
             let original = ORIGINAL_WNDPROC.swap(0, Ordering::AcqRel);
             if original != 0 {
                 SetWindowLongPtrW(hwnd, GWL_WNDPROC, original);
-                let proc: WNDPROC = Some(std::mem::transmute(original));
+                let proc: WNDPROC = Some(std::mem::transmute::<
+                    isize,
+                    unsafe extern "system" fn(
+                        windows_sys::Win32::Foundation::HWND,
+                        u32,
+                        usize,
+                        isize,
+                    ) -> isize,
+                >(original));
                 return CallWindowProcW(proc, hwnd, msg, wparam, lparam);
             }
         }
@@ -204,7 +212,15 @@ unsafe fn call_original(
 
     let original = ORIGINAL_WNDPROC.load(Ordering::Acquire);
     if original != 0 {
-        let proc: WNDPROC = Some(std::mem::transmute(original));
+        let proc: WNDPROC = Some(std::mem::transmute::<
+            isize,
+            unsafe extern "system" fn(
+                windows_sys::Win32::Foundation::HWND,
+                u32,
+                usize,
+                isize,
+            ) -> isize,
+        >(original));
         CallWindowProcW(proc, hwnd, msg, wparam, lparam)
     } else {
         DefWindowProcW(hwnd, msg, wparam, lparam)

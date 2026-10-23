@@ -180,7 +180,13 @@ impl CandleBook {
                 .0
                 .saturating_sub(period.saturating_mul((keep_slots.saturating_sub(1)) as i64));
             let cutoff = UtcMs(cutoff_from_latest.min(cutoff_from_now));
-            broker_map.retain(|start, _| *start >= cutoff);
+            while let Some(entry) = broker_map.first_entry() {
+                if *entry.key() < cutoff {
+                    entry.remove_entry();
+                } else {
+                    break;
+                }
+            }
         }
     }
 
@@ -197,11 +203,15 @@ impl CandleBook {
     pub fn advance_utc(&mut self, current_utc_now: UtcMs) {
         for (&period, broker_map) in &mut self.books {
             for slot_map in broker_map.values_mut() {
-                for slot in slot_map.values_mut() {
-                    if slot.state == SlotState::Active
+                for slot in slot_map.values_mut().rev() {
+                    if slot.state == SlotState::Active {
+                        if slot.start_utc_ms.0 + period <= current_utc_now.0 {
+                            slot.state = SlotState::Closed;
+                        }
+                    } else if slot.state == SlotState::Closed
                         && slot.start_utc_ms.0 + period <= current_utc_now.0
                     {
-                        slot.state = SlotState::Closed;
+                        break;
                     }
                 }
             }

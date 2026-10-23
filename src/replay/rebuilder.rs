@@ -8,8 +8,24 @@ use crate::core::types::{BrokerId, MonoNs, RunId, SessionId};
 use crate::protocol::IngressItem;
 use crate::tick::engine::TickEngine;
 use parking_lot::{Condvar, Mutex, RwLock};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy)]
+pub struct RebuildTarget {
+    pub target_utc_ms: i64,
+    pub is_playing: bool,
+    pub multiplier: f64,
+    pub session_id: SessionId,
+    pub run_id: RunId,
+}
+
+pub struct ReplayHandles<'a> {
+    pub clock: &'a VirtualClock,
+    pub engine: &'a Arc<Mutex<TickEngine>>,
+    pub merge_stream: &'a Arc<RwLock<MergeStream>>,
+    pub tick_wake: &'a Arc<(Mutex<bool>, Condvar)>,
+}
 
 pub struct StateRebuilder;
 
@@ -17,17 +33,21 @@ impl StateRebuilder {
     /// Perform atomic state rebuild for the specified target timestamp.
     /// Ingests historical ticks covering the full retention window (e.g. 2 hours)
     /// to reconstruct Candlesticks across all timeframes (S1, S5, S10, M1) and indicators instantaneously.
-    pub fn rebuild_at(
-        target_utc_ms: i64,
-        is_playing: bool,
-        multiplier: f64,
-        session_id: SessionId,
-        run_id: RunId,
-        clock: &VirtualClock,
-        engine: &Arc<Mutex<TickEngine>>,
-        merge_stream: &Arc<RwLock<MergeStream>>,
-        tick_wake: &Arc<(Mutex<bool>, Condvar)>,
-    ) {
+    pub fn rebuild_at(target: RebuildTarget, handles: ReplayHandles<'_>) {
+        let RebuildTarget {
+            target_utc_ms,
+            is_playing,
+            multiplier,
+            session_id,
+            run_id,
+        } = target;
+        let ReplayHandles {
+            clock,
+            engine,
+            merge_stream,
+            tick_wake,
+        } = handles;
+
         log::info!(
             "[StateRebuilder] Rebuilding state at target_utc: {target_utc_ms} (session: {session_id})"
         );
@@ -78,7 +98,7 @@ impl StateRebuilder {
         let warmup_ticks = stream.get_warmup_ticks(warmup_from_utc, target_utc_ms);
 
         if !warmup_ticks.is_empty() {
-            let mut broker_groups: HashMap<BrokerId, Vec<ReplayTick>> = HashMap::new();
+            let mut broker_groups: BTreeMap<BrokerId, Vec<ReplayTick>> = BTreeMap::new();
             for t in &warmup_ticks {
                 broker_groups.entry(t.broker_id).or_default().push(*t);
             }
@@ -117,19 +137,7 @@ impl StateRebuilder {
         }
 
         // 5. Advance watermark for all connected brokers to target_mono so all warmup frames drain
-        let connected_ids: Vec<BrokerId> = eng
-            .channels
-            .iter()
-            .filter(|(_, ch)| ch.is_connected)
-            .map(|(&id, _)| id)
-            .collect();
-
-        for b_id in connected_ids {
-            eng.on_ingress_item(IngressItem::Progress {
-                broker_id: b_id,
-                watermark_ns: target_mono,
-            });
-        }
+        eng.advance_connected_watermarks(target_mono);
 
         drop(eng);
 

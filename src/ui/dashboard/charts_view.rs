@@ -8,9 +8,8 @@ use crate::ui::chart::{
     draw_candlestick_chart_for_brokers_with_trades_interactive, draw_chart_clock_badge,
     draw_lead_lag_view, draw_mid_diff_chart, draw_mid_dispersion_view_with_visibility,
     draw_move_breadth_view, draw_quote_persistence_view_with_visibility,
-    draw_realtime_quote_path_chart_with_visibility, draw_spread_diff_chart,
-    draw_tick_candle_view, BottomMetric, BottomMetricCategory, ChartXAxisMode,
-    CHART_HEADER_HEIGHT,
+    draw_realtime_quote_path_chart_with_visibility, draw_spread_diff_chart, draw_tick_candle_view,
+    BottomMetric, BottomMetricCategory, ChartXAxisMode, CHART_HEADER_HEIGHT,
 };
 use crate::ui::settings::CandlePriceMode;
 use eframe::egui;
