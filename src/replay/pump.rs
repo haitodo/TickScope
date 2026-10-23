@@ -97,6 +97,7 @@ impl PlaybackPump {
         let mut last_session = session_epoch.load(Ordering::SeqCst);
         let mut current_batch_limit = MIN_BATCH_SIZE;
         let mut tick_buf = Vec::with_capacity(MAX_BATCH_SIZE);
+        let mut last_drained_utc = i64::MIN;
 
         while running.load(Ordering::SeqCst) {
             let current_session = session_epoch.load(Ordering::SeqCst);
@@ -104,14 +105,17 @@ impl PlaybackPump {
                 next_sequences.clear();
                 last_session = current_session;
                 current_batch_limit = MIN_BATCH_SIZE;
+                last_drained_utc = i64::MIN;
             }
 
-            if !clock.is_playing() {
+            let is_playing = clock.is_playing();
+            let current_utc = clock.current_utc_ms();
+
+            if !is_playing && last_drained_utc == current_utc {
                 thread::sleep(Duration::from_millis(10));
                 continue;
             }
 
-            let current_utc = clock.current_utc_ms();
             {
                 let mut stream = merge_stream.write();
                 stream.pop_up_to_buf(current_utc, current_batch_limit, &mut tick_buf);
@@ -162,6 +166,11 @@ impl PlaybackPump {
             let mut pending = lock.lock();
             *pending = true;
             cvar.notify_one();
+
+            // Record last drained timestamp when pause drain has caught up
+            if !is_playing && !has_more {
+                last_drained_utc = current_utc;
+            }
 
             // When there are more ticks queued up to current_utc, do not sleep!
             // Immediately loop to drain remaining ticks with zero lag.
