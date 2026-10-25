@@ -740,6 +740,109 @@ fn test_real_drehis_parquet_read_and_seek() {
 }
 
 #[test]
+fn test_dukascopy_and_oanda_historical_2025_03_merge() {
+    let tick_dir = std::path::Path::new(r"D:\Drehis\tick");
+    if !tick_dir.exists() {
+        eprintln!("D:\\Drehis\\tick does not exist on this machine; skipping live parquet test");
+        return;
+    }
+
+    // 1. Dukascopy Parquet Source: verify multi-candidate merge (mt5 for 2026 + jforex for <=2025)
+    let mut dukascopy = BrokerParquetSource::new(3, "Dukascopy", "usdjpy", tick_dir).unwrap();
+    assert!(
+        dukascopy.partitions.len() >= 50,
+        "Dukascopy must have discovered multi-year partitions across jforex and mt5 (found: {})",
+        dukascopy.partitions.len()
+    );
+
+    // Verify 2025-03 partition exists and points to dukascopy_jforex
+    let part_2025_03_dukas = dukascopy
+        .partitions
+        .iter()
+        .find(|p| p.year == 2025 && p.month == 3)
+        .expect("2025-03 partition must exist for Dukascopy");
+    assert!(
+        part_2025_03_dukas.path.to_string_lossy().contains("dukascopy_jforex"),
+        "2025-03 should originate from dukascopy_jforex: {:?}",
+        part_2025_03_dukas.path
+    );
+
+    // Verify 2026-08 partition exists and prioritizes dukascopy_mt5
+    let part_2026_08_dukas = dukascopy
+        .partitions
+        .iter()
+        .find(|p| p.year == 2026 && p.month == 8)
+        .expect("2026-08 partition must exist for Dukascopy");
+    assert!(
+        part_2026_08_dukas.path.to_string_lossy().contains("dukascopy_mt5"),
+        "2026-08 should prioritize dukascopy_mt5: {:?}",
+        part_2026_08_dukas.path
+    );
+
+    // Load 2025-03 for Dukascopy
+    let loaded = dukascopy.load_partition(2025, 3).unwrap();
+    assert!(loaded, "Dukascopy 2025-03 partition must load successfully");
+    assert!(
+        dukascopy.current_ticks.len() > 100_000,
+        "Dukascopy 2025-03 must contain over 100k ticks (found: {})",
+        dukascopy.current_ticks.len()
+    );
+
+    // 2. OANDA Parquet Source: verify multi-candidate merge (mt5 for 2026 + zip for <=2025)
+    let mut oanda = BrokerParquetSource::new(1, "OANDA", "usdjpy", tick_dir).unwrap();
+    assert!(
+        oanda.partitions.len() >= 50,
+        "OANDA must have discovered multi-year partitions across zip and mt5 (found: {})",
+        oanda.partitions.len()
+    );
+
+    let part_2025_03_oanda = oanda
+        .partitions
+        .iter()
+        .find(|p| p.year == 2025 && p.month == 3)
+        .expect("2025-03 partition must exist for OANDA");
+    assert!(
+        part_2025_03_oanda.path.to_string_lossy().contains("oanda_zip"),
+        "2025-03 should originate from oanda_zip: {:?}",
+        part_2025_03_oanda.path
+    );
+
+    let part_2026_08_oanda = oanda
+        .partitions
+        .iter()
+        .find(|p| p.year == 2026 && p.month == 8)
+        .expect("2026-08 partition must exist for OANDA");
+    assert!(
+        part_2026_08_oanda.path.to_string_lossy().contains("oanda_mt5"),
+        "2026-08 should prioritize oanda_mt5: {:?}",
+        part_2026_08_oanda.path
+    );
+
+    // Load 2025-03 for OANDA
+    let loaded = oanda.load_partition(2025, 3).unwrap();
+    assert!(loaded, "OANDA 2025-03 partition must load successfully");
+    assert!(
+        oanda.current_ticks.len() > 100_000,
+        "OANDA 2025-03 must contain over 100k ticks (found: {})",
+        oanda.current_ticks.len()
+    );
+
+    // 3. Test 2-broker MergeStream at 2025-03-14 12:00:00 UTC (1741953600000 ms, Friday)
+    let target_time_2025 = 1_741_953_600_000_i64;
+    let mut merge = MergeStream::new(vec![oanda, dukascopy]);
+    merge.seek_to_utc(target_time_2025);
+
+    let sample_ticks = merge.pop_up_to(target_time_2025 + 60_000, 50);
+    assert!(
+        !sample_ticks.is_empty(),
+        "Must retrieve ticks for 2025-03-14 target time"
+    );
+    for i in 1..sample_ticks.len() {
+        assert!(sample_ticks[i].utc_ms >= sample_ticks[i - 1].utc_ms);
+    }
+}
+
+#[test]
 fn test_cross_month_playback_boundary_transition() {
     let tick_dir = std::path::Path::new(r"D:\Drehis\tick");
     if !tick_dir.exists() {

@@ -80,12 +80,20 @@ impl BrokerParquetSource {
                 dir_candidates.push("broker=oanda_mt5".to_string());
                 dir_candidates.push("broker=oanda_zip".to_string());
             }
+            "oanda_zip" => {
+                dir_candidates.push("broker=oanda_zip".to_string());
+                dir_candidates.push("broker=oanda_mt5".to_string());
+            }
             "tradeview" | "tradeview_mt5" => {
                 dir_candidates.push("broker=tradeview_mt5".to_string());
             }
-            "dukascopy" | "dukascopy_mt5" | "dukascopy_jforex" => {
+            "dukascopy" | "dukascopy_mt5" => {
                 dir_candidates.push("broker=dukascopy_mt5".to_string());
                 dir_candidates.push("broker=dukascopy_jforex".to_string());
+            }
+            "dukascopy_jforex" => {
+                dir_candidates.push("broker=dukascopy_jforex".to_string());
+                dir_candidates.push("broker=dukascopy_mt5".to_string());
             }
             "axiory" | "axiory_mt5" => {
                 dir_candidates.push("broker=axiory_mt5".to_string());
@@ -126,7 +134,11 @@ impl BrokerParquetSource {
             }
         }
 
-        let mut partitions = Vec::new();
+        // Use a map to collect unique partitions by (year, month).
+        // Since dir_candidates is sorted in order of preference (e.g. mt5 before jforex/zip),
+        // we use entry().or_insert_with() so that the highest-priority source for any given (year, month) wins,
+        // while missing months (such as historical years 2016-2025) are seamlessly populated from secondary sources.
+        let mut partitions_map: HashMap<(i32, u32), PartitionMeta> = HashMap::new();
 
         for candidate in dir_candidates {
             let broker_dir = root_dir.join(&candidate);
@@ -168,10 +180,12 @@ impl BrokerParquetSource {
 
                                         let parquet_file = m_res.path().join("data.parquet");
                                         if parquet_file.exists() {
-                                            partitions.push(PartitionMeta {
-                                                path: parquet_file,
-                                                year,
-                                                month,
+                                            partitions_map.entry((year, month)).or_insert_with(|| {
+                                                PartitionMeta {
+                                                    path: parquet_file,
+                                                    year,
+                                                    month,
+                                                }
                                             });
                                         }
                                     }
@@ -181,12 +195,9 @@ impl BrokerParquetSource {
                     }
                 }
             }
-
-            if !partitions.is_empty() {
-                break;
-            }
         }
 
+        let mut partitions: Vec<PartitionMeta> = partitions_map.into_values().collect();
         partitions.sort_by_key(|p| (p.year, p.month));
 
         log::info!(
