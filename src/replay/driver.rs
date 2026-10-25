@@ -8,7 +8,7 @@ use super::parquet_source::ReplayTick;
 use super::pump::PlaybackPump;
 use super::rebuilder::StateRebuilder;
 use super::sync_client::WsSyncClient;
-use crate::core::types::{BrokerId, MonoNs, RunId, SessionId, UtcMs};
+use crate::core::types::{BrokerId, MonoNs, RunId, SessionId};
 use crate::protocol::{
     Frame, FramePayload, Header, IngressItem, ReceivedFrame, TickRecord, HEADER_FLAG_WARMUP,
     HEADER_LENGTH, MAGIC_TICK, MSG_TYPE_TICK_BATCH, PROTOCOL_VERSION, TICK_RECORD_LENGTH,
@@ -233,37 +233,13 @@ impl ReplayDriverContext {
             Err(_) => return,
         };
 
-        let (action, jfx_quote) =
+        let (action, _jfx_quote) =
             self.arbiter
                 .lock()
                 .evaluate(&val, &self.clock, &self.trade_store);
 
-        // Handle JFX Direct Quote Synchronization (only if JFX is not streamed via parquet merge stream)
-        if let Some((jfx_bid, jfx_ask, target_utc_ms)) = jfx_quote {
-            let mut eng = self.engine.lock();
-            let jfx_id = eng
-                .config
-                .brokers
-                .iter()
-                .find(|b| b.name.eq_ignore_ascii_case("JFX"))
-                .map_or(5, |b| b.id);
-            let has_jfx_in_parquet = self
-                .merge_stream
-                .read()
-                .sources
-                .iter()
-                .any(|s| s.broker_id == jfx_id);
-            if !has_jfx_in_parquet {
-                let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
-                eng.update_direct_quote(
-                    jfx_id,
-                    jfx_bid,
-                    jfx_ask,
-                    UtcMs(target_utc_ms),
-                    target_mono,
-                );
-            }
-        }
+        // Note: JFX quotes (both real and synthetic fallback) are fully streamed via
+        // MergeStream / BrokerParquetSource with millisecond precision and warmup rebuilding.
 
         match action {
             ArbiterAction::Seek {

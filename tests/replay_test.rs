@@ -762,7 +762,10 @@ fn test_dukascopy_and_oanda_historical_2025_03_merge() {
         .find(|p| p.year == 2025 && p.month == 3)
         .expect("2025-03 partition must exist for Dukascopy");
     assert!(
-        part_2025_03_dukas.path.to_string_lossy().contains("dukascopy_jforex"),
+        part_2025_03_dukas
+            .path
+            .to_string_lossy()
+            .contains("dukascopy_jforex"),
         "2025-03 should originate from dukascopy_jforex: {:?}",
         part_2025_03_dukas.path
     );
@@ -774,7 +777,10 @@ fn test_dukascopy_and_oanda_historical_2025_03_merge() {
         .find(|p| p.year == 2026 && p.month == 8)
         .expect("2026-08 partition must exist for Dukascopy");
     assert!(
-        part_2026_08_dukas.path.to_string_lossy().contains("dukascopy_mt5"),
+        part_2026_08_dukas
+            .path
+            .to_string_lossy()
+            .contains("dukascopy_mt5"),
         "2026-08 should prioritize dukascopy_mt5: {:?}",
         part_2026_08_dukas.path
     );
@@ -802,7 +808,10 @@ fn test_dukascopy_and_oanda_historical_2025_03_merge() {
         .find(|p| p.year == 2025 && p.month == 3)
         .expect("2025-03 partition must exist for OANDA");
     assert!(
-        part_2025_03_oanda.path.to_string_lossy().contains("oanda_zip"),
+        part_2025_03_oanda
+            .path
+            .to_string_lossy()
+            .contains("oanda_zip"),
         "2025-03 should originate from oanda_zip: {:?}",
         part_2025_03_oanda.path
     );
@@ -813,7 +822,10 @@ fn test_dukascopy_and_oanda_historical_2025_03_merge() {
         .find(|p| p.year == 2026 && p.month == 8)
         .expect("2026-08 partition must exist for OANDA");
     assert!(
-        part_2026_08_oanda.path.to_string_lossy().contains("oanda_mt5"),
+        part_2026_08_oanda
+            .path
+            .to_string_lossy()
+            .contains("oanda_mt5"),
         "2026-08 should prioritize oanda_mt5: {:?}",
         part_2026_08_oanda.path
     );
@@ -840,6 +852,114 @@ fn test_dukascopy_and_oanda_historical_2025_03_merge() {
     for i in 1..sample_ticks.len() {
         assert!(sample_ticks[i].utc_ms >= sample_ticks[i - 1].utc_ms);
     }
+}
+
+#[test]
+fn test_jfx_synthetic_fallback_historical_and_merge() {
+    let tick_dir = std::path::Path::new(r"D:\Drehis\tick");
+    if !tick_dir.exists() {
+        eprintln!(
+            "D:\\Drehis\\tick does not exist on this machine; skipping JFX synthetic fallback test"
+        );
+        return;
+    }
+
+    // 1. Discover JFX partitions
+    let mut jfx = BrokerParquetSource::new(2, "JFX", "usdjpy", tick_dir).unwrap();
+    assert!(
+        jfx.partitions.len() >= 50,
+        "JFX must discover multi-year partitions through OANDA fallback (found: {})",
+        jfx.partitions.len()
+    );
+
+    // 2. Verify 2026-08 partition uses real jfx_mt5
+    let part_2026_08 = jfx
+        .partitions
+        .iter()
+        .find(|p| p.year == 2026 && p.month == 8)
+        .expect("2026-08 partition must exist for JFX");
+    assert!(
+        part_2026_08.path.to_string_lossy().contains("jfx_mt5"),
+        "2026-08 should prioritize native jfx_mt5: {:?}",
+        part_2026_08.path
+    );
+    assert!(
+        !part_2026_08.is_synthetic_jfx,
+        "2026-08 native JFX must have is_synthetic_jfx = false"
+    );
+
+    // 3. Verify 2025-03 partition falls back to oanda_zip as synthetic JFX
+    let part_2025_03 = jfx
+        .partitions
+        .iter()
+        .find(|p| p.year == 2025 && p.month == 3)
+        .expect("2025-03 partition must exist for JFX via fallback");
+    assert!(
+        part_2025_03.path.to_string_lossy().contains("oanda_zip")
+            || part_2025_03.path.to_string_lossy().contains("oanda_mt5"),
+        "2025-03 should originate from OANDA fallback: {:?}",
+        part_2025_03.path
+    );
+    assert!(
+        part_2025_03.is_synthetic_jfx,
+        "2025-03 fallback partition must have is_synthetic_jfx = true"
+    );
+
+    // 4. Load 2025-03 synthetic JFX partition
+    let loaded = jfx.load_partition(2025, 3).unwrap();
+    assert!(loaded, "JFX 2025-03 partition must load successfully");
+    assert!(
+        jfx.current_ticks.len() > 100_000,
+        "JFX 2025-03 synthetic ticks must be > 100k (found: {})",
+        jfx.current_ticks.len()
+    );
+
+    // 5. Verify synthesized JFX tick properties (spread near 0.2p = 0.002, broker_id = 2)
+    let sample = &jfx.current_ticks[1000..1010];
+    for t in sample {
+        assert_eq!(t.broker_id, 2);
+        let spread = ((t.ask - t.bid) * 1000.0).round() / 1000.0;
+        assert!(
+            (spread - 0.002).abs() < 1e-4 || spread > 0.002,
+            "Synthesized spread should be 0.002 or wider: bid={}, ask={}, spread={}",
+            t.bid,
+            t.ask,
+            spread
+        );
+    }
+
+    // 6. Multi-broker MergeStream with synthetic JFX and real OANDA in 2025-03
+    let mut oanda = BrokerParquetSource::new(5, "OANDA", "usdjpy", tick_dir).unwrap();
+    let _ = oanda.load_partition(2025, 3);
+    let mut dukas = BrokerParquetSource::new(3, "Dukascopy", "usdjpy", tick_dir).unwrap();
+    let _ = dukas.load_partition(2025, 3);
+
+    let jfx = jfx.with_receive_delay_profile();
+    let oanda = oanda.with_receive_delay_profile();
+    let dukas = dukas.with_receive_delay_profile();
+
+    let mut stream = MergeStream::new(vec![jfx, dukas, oanda]);
+    let target_utc_ms = 1_741_953_600_000i64; // 2025-03-14 12:00:00 UTC
+    stream.seek_to_utc(target_utc_ms);
+
+    let popped = stream.pop_up_to(target_utc_ms + 10_000, 500);
+    assert!(
+        !popped.is_empty(),
+        "Popped ticks must not be empty in 2025-03"
+    );
+
+    let jfx_count = popped.iter().filter(|t| t.broker_id == 2).count();
+    let oanda_count = popped.iter().filter(|t| t.broker_id == 5).count();
+    let dukas_count = popped.iter().filter(|t| t.broker_id == 3).count();
+    println!("Popped 500 ticks from 2025-03: JFX(synthetic)={jfx_count}, OANDA={oanda_count}, Dukascopy={dukas_count}");
+    assert!(
+        jfx_count > 0,
+        "Synthetic JFX ticks must be present in MergeStream"
+    );
+    assert!(
+        oanda_count > 0,
+        "OANDA ticks must be present in MergeStream"
+    );
 }
 
 #[test]

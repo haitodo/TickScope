@@ -12,6 +12,7 @@ pub mod coordinator;
 pub mod driver;
 pub mod merge_stream;
 pub mod parquet_source;
+pub mod pseudo_jfx;
 pub mod pump;
 pub mod rebuilder;
 pub mod sync_client;

@@ -34,6 +34,7 @@ pub struct PartitionMeta {
     pub path: PathBuf,
     pub year: i32,
     pub month: u32,
+    pub is_synthetic_jfx: bool,
 }
 
 pub struct BrokerParquetSource {
@@ -100,6 +101,9 @@ impl BrokerParquetSource {
             }
             "jfx" | "jfx_mt5" => {
                 dir_candidates.push("broker=jfx_mt5".to_string());
+                // Fallback to OANDA partitions when native JFX data is absent (e.g. historical years / cross pairs)
+                dir_candidates.push("broker=oanda_mt5".to_string());
+                dir_candidates.push("broker=oanda_zip".to_string());
             }
             "metaquotes" | "metaquotes_mt5" => {
                 dir_candidates.push("broker=metaquotes_mt5".to_string());
@@ -180,13 +184,16 @@ impl BrokerParquetSource {
 
                                         let parquet_file = m_res.path().join("data.parquet");
                                         if parquet_file.exists() {
-                                            partitions_map.entry((year, month)).or_insert_with(|| {
-                                                PartitionMeta {
+                                            let is_synthetic_jfx = name_lower.contains("jfx")
+                                                && candidate.contains("oanda");
+                                            partitions_map.entry((year, month)).or_insert_with(
+                                                || PartitionMeta {
                                                     path: parquet_file,
                                                     year,
                                                     month,
-                                                }
-                                            });
+                                                    is_synthetic_jfx,
+                                                },
+                                            );
                                         }
                                     }
                                 }
@@ -283,7 +290,7 @@ impl BrokerParquetSource {
         }
 
         let p_meta = &self.partitions[idx];
-        let ticks = read_parquet_ticks(self.broker_id, &p_meta.path)?;
+        let ticks = self.read_ticks_for_partition(p_meta)?;
         let arc_ticks = Arc::new(ticks);
 
         const MAX_CACHED_PARTITIONS: usize = 3;
@@ -356,7 +363,7 @@ impl BrokerParquetSource {
             }
         }
         let p_meta = &self.partitions[idx];
-        let ticks = read_parquet_ticks(self.broker_id, &p_meta.path)?;
+        let ticks = self.read_ticks_for_partition(p_meta)?;
         self.partition_cache.insert(idx, Arc::new(ticks));
         Ok(true)
     }
@@ -486,6 +493,20 @@ impl BrokerParquetSource {
 
         result
     }
+
+    fn read_ticks_for_partition(&self, p_meta: &PartitionMeta) -> Result<Vec<ReplayTick>, String> {
+        if p_meta.is_synthetic_jfx {
+            read_parquet_ticks_pseudo_jfx(
+                self.broker_id,
+                &p_meta.path,
+                &self.symbol,
+                p_meta.year,
+                p_meta.month,
+            )
+        } else {
+            read_parquet_ticks(self.broker_id, &p_meta.path)
+        }
+    }
 }
 
 /// Read ticks from a single parquet file with projection, robust schema decoding, and strict sorting.
@@ -575,6 +596,122 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
 
     // Ensure sorted strictly by utc_ms
     ticks.sort_by_key(|t| t.utc_ms);
+
+    Ok(ticks)
+}
+
+/// Read ticks from an OANDA parquet file and synthesize JFX characteristic ticks via PseudoJfxEngine.
+fn read_parquet_ticks_pseudo_jfx(
+    broker_id: BrokerId,
+    path: &Path,
+    symbol: &str,
+    year: i32,
+    month: u32,
+) -> Result<Vec<ReplayTick>, String> {
+    let file = File::open(path).map_err(|e| {
+        format!(
+            "Failed to open OANDA parquet for JFX fallback '{}': {}",
+            path.display(),
+            e
+        )
+    })?;
+
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file).map_err(|e| {
+        format!(
+            "ParquetRecordBatchReaderBuilder failed '{}': {}",
+            path.display(),
+            e
+        )
+    })?;
+
+    let file_schema = builder.schema();
+    let wanted = ["utc_ms", "mt5_ms", "bid", "ask"];
+    let mut root_indices = Vec::new();
+    for (idx, field) in file_schema.fields().iter().enumerate() {
+        if wanted.iter().any(|&w| w.eq_ignore_ascii_case(field.name())) {
+            root_indices.push(idx);
+        }
+    }
+
+    let builder = if root_indices.is_empty() {
+        builder
+    } else {
+        let mask = ProjectionMask::roots(builder.parquet_schema(), root_indices);
+        builder.with_projection(mask)
+    };
+
+    let reader = builder
+        .build()
+        .map_err(|e| format!("Failed to build parquet reader: {e}"))?;
+
+    let year_month = format!("{year:04}-{month:02}");
+    let mut engine = super::pseudo_jfx::PseudoJfxEngine::new(symbol, &year_month);
+    let mut ticks = Vec::new();
+
+    for batch_res in reader {
+        let batch = batch_res.map_err(|e| format!("Error reading record batch: {e}"))?;
+        let schema = batch.schema();
+
+        let utc_idx = schema.index_of("utc_ms").ok();
+        let mt5_idx = schema.index_of("mt5_ms").ok();
+        let bid_idx = schema.index_of("bid").ok();
+        let ask_idx = schema.index_of("ask").ok();
+
+        let (Some(b_idx), Some(a_idx)) = (bid_idx, ask_idx) else {
+            continue;
+        };
+
+        let bid_col = batch.column(b_idx).as_any().downcast_ref::<Float64Array>();
+        let ask_col = batch.column(a_idx).as_any().downcast_ref::<Float64Array>();
+        let utc_col = utc_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
+        let mt5_col = mt5_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
+
+        let (Some(b_arr), Some(a_arr)) = (bid_col, ask_col) else {
+            continue;
+        };
+
+        let num_rows = batch.num_rows();
+        ticks.reserve(num_rows);
+
+        for row in 0..num_rows {
+            let raw_bid = b_arr.value(row);
+            let raw_ask = a_arr.value(row);
+            let mut utc_ms = utc_col.map_or(0, |c| c.value(row));
+            let mut mt5_ms = mt5_col.map_or(0, |c| c.value(row));
+
+            if utc_ms == 0 && mt5_ms > 0 {
+                utc_ms = mt5_to_utc_ms(mt5_ms);
+            } else if mt5_ms == 0 && utc_ms > 0 {
+                mt5_ms = utc_to_mt5_ms(utc_ms);
+            }
+
+            if raw_bid > 0.0
+                && raw_ask >= raw_bid
+                && raw_bid.is_finite()
+                && raw_ask.is_finite()
+                && utc_ms > 0
+            {
+                if let Some((p_bid, p_ask, _p_spread)) =
+                    engine.process_tick(mt5_ms, raw_bid, raw_ask)
+                {
+                    ticks.push(ReplayTick {
+                        broker_id,
+                        utc_ms,
+                        mt5_ms,
+                        bid: p_bid,
+                        ask: p_ask,
+                        receive_delay_ms: 0,
+                    });
+                }
+            }
+        }
+    }
+
+    ticks.sort_by_key(|t| t.utc_ms);
+    log::info!(
+        "[BrokerParquetSource] Broker {broker_id} synthesized {len} JFX ticks from OANDA ({year:04}-{month:02})",
+        len = ticks.len()
+    );
 
     Ok(ticks)
 }
