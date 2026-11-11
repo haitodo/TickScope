@@ -167,6 +167,8 @@ fn main() -> eframe::Result<()> {
         .with_ui_state(&ui_state)
         .with_ui_state_path(ui_state_path)
         .with_pair_selection_handler(coordinator.pair_selection_handler());
+    #[cfg(windows)]
+    let app = app.with_oanda_auto_login();
     let app = if let Some(diagnostics) = coordinator.diagnostics_handle() {
         app.with_diagnostics(diagnostics, coordinator.clock.clone())
     } else {

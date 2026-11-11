@@ -184,6 +184,14 @@ TickScope は、監視対象ブローカーの MT5 端末の起動や終了を U
 
 設定は画面右上の「⚙ Settings」→「MT5 Process Lifecycle」、または `B` キーの「Broker Overview」から行えます。設定内容は自動的に保存されます。
 
+### OANDA MT5のOTP自動入力（Windows）
+
+1. OANDA版MT5で「パスワードを保存」を有効にして、一度ログインします。
+2. TickScopeの「Settings」→「MT5 Process Lifecycle」→「OANDA MT5 自動ログイン」で「キーを登録…」を選びます。Windowsの登録画面のユーザー名欄に `口座番号@サーバー名`（例: `123456789@OANDA-Japan MT5 Live`）、パスワード欄に**TOTPのセットアップキー（Base32）**を入力します。
+3. TickScope起動時にMT5も起動する場合は、OANDAを起動対象にして「Auto-launch target MT5s on start」をオンにします。
+
+キーは現在のWindowsユーザーの資格情報マネージャーに、このPC限定で保存されます。「解除」で削除できます。TickScopeは、登録した口座・サーバーと一致するOANDA版MT5のOTP画面が出たときだけ、コードを直接入力します。キーや6桁コードを設定ファイル・ログ・クリップボードに書き出しません。OTP送信後は、OANDAの価格受信を設定画面で確認できます。画面が一致しない場合や、送信直後に再認証を求められた場合はMT5で手動ログインしてください。
+
 ---
 
 ## トラブルシューティング

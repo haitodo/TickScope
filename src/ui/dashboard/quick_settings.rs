@@ -299,6 +299,20 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
             ui.checkbox(&mut app.mt5_auto_close, "Auto-close running MT5s on exit");
             ui.checkbox(&mut app.mt5_minimized, "Launch Minimized (最小化起動)");
 
+            #[cfg(windows)]
+            if let Some(auto_login) = &mut app.oanda_auto_login {
+                ui.horizontal(|ui| {
+                    ui.label("OANDA MT5 自動ログイン");
+                    if ui.small_button("キーを登録…").clicked() {
+                        auto_login.register();
+                    }
+                    if auto_login.is_registered() && ui.small_button("解除").clicked() {
+                        auto_login.remove();
+                    }
+                });
+                ui.label(auto_login.status_text(snapshot));
+            }
+
             ui.horizontal(|ui| {
                 ui.label("通常表示する業者 (Normal Window):");
                 let current_selected = app.mt5_non_minimized_broker;

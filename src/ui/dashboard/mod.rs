@@ -79,6 +79,8 @@ pub struct DashboardApp {
     pub(crate) always_on_top: bool,
     pub(crate) show_mt5_stop_confirm_modal: bool,
     pub(crate) terminal_manager: crate::runtime::TerminalManager,
+    #[cfg(windows)]
+    pub(crate) oanda_auto_login: Option<crate::runtime::oanda_otp::OandaAutoLogin>,
     pub(crate) discovered_terminals: Vec<crate::deploy::DiscoveredTerminal>,
     pub(crate) broker_configs: Vec<crate::config::BrokerConfig>,
     pub(crate) mt5_config: crate::config::Mt5DeployConfig,
@@ -145,6 +147,8 @@ impl DashboardApp {
             always_on_top: true,
             show_mt5_stop_confirm_modal: false,
             terminal_manager: crate::runtime::TerminalManager::new(),
+            #[cfg(windows)]
+            oanda_auto_login: None,
             discovered_terminals: Vec::new(),
             broker_configs: Vec::new(),
             mt5_config: crate::config::Mt5DeployConfig::default(),
@@ -233,6 +237,19 @@ impl DashboardApp {
     #[must_use]
     pub fn with_mt5_config(mut self, config: crate::config::Mt5DeployConfig) -> Self {
         self.mt5_config = config;
+        self
+    }
+
+    #[cfg(windows)]
+    #[must_use]
+    pub fn with_oanda_auto_login(mut self) -> Self {
+        let mut brokers = self
+            .broker_configs
+            .iter()
+            .filter(|broker| broker.name.eq_ignore_ascii_case("OANDA"));
+        if let (Some(broker), None) = (brokers.next(), brokers.next()) {
+            self.oanda_auto_login = Some(crate::runtime::oanda_otp::OandaAutoLogin::new(broker.id));
+        }
         self
     }
 
@@ -792,6 +809,10 @@ impl DashboardApp {
         // Poll MT5 process statuses periodically (throttled to 1s internally)
         self.terminal_manager
             .poll_status(&self.broker_configs, &self.discovered_terminals, false);
+        #[cfg(windows)]
+        if let Some(auto_login) = &mut self.oanda_auto_login {
+            auto_login.sync(&self.terminal_manager, &self.exchange);
+        }
 
         if !self.fonts_configured {
             setup_fonts(ctx);
@@ -1100,6 +1121,9 @@ impl eframe::App for DashboardApp {
             if let Ok(handle) = frame.window_handle() {
                 if let RawWindowHandle::Win32(win32) = handle.as_ref() {
                     crate::ui::dpi::install_dpi_drag_fix(win32.hwnd.get());
+                    if let Some(auto_login) = &mut self.oanda_auto_login {
+                        auto_login.set_owner(win32.hwnd.get());
+                    }
                 }
             }
         }
