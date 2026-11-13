@@ -10,6 +10,7 @@
 
 use crate::core::models::TickCandleBar;
 use crate::core::types::BrokerId;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]
 pub struct TickCandleTracker {
@@ -17,7 +18,7 @@ pub struct TickCandleTracker {
     pub max_candles: usize,
     pub threshold_pips: f64,
     pub pip_size: f64,
-    pub candles: Vec<TickCandleBar>,
+    pub candles: VecDeque<TickCandleBar>,
     pub last_price: f64,
     pub has_unconfirmed: bool,
     pub is_reusing_candle: bool,
@@ -36,7 +37,7 @@ impl TickCandleTracker {
             max_candles,
             threshold_pips,
             pip_size: if pip_size > 0.0 { pip_size } else { 0.01 },
-            candles: Vec::with_capacity(max_candles),
+            candles: VecDeque::with_capacity(max_candles),
             last_price: 0.0,
             has_unconfirmed: false,
             is_reusing_candle: false,
@@ -111,16 +112,16 @@ impl TickCandleTracker {
             self.is_reusing_candle = false;
         } else {
             if self.candles.len() >= self.max_candles {
-                self.candles.remove(0);
+                self.candles.pop_front();
             }
 
-            let is_minute_changed = if let Some(prev) = self.candles.last() {
+            let is_minute_changed = if let Some(prev) = self.candles.back() {
                 time_sec / 60 != prev.time_sec / 60
             } else {
                 false
             };
 
-            self.candles.push(TickCandleBar {
+            self.candles.push_back(TickCandleBar {
                 open: self.last_price,
                 high: self.last_price.max(price),
                 low: self.last_price.min(price),

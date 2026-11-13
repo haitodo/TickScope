@@ -404,6 +404,51 @@ impl TickEngine {
     }
 
     pub fn on_ingress_item_at(&mut self, item: IngressItem, processing_mono_ns: MonoNs) {
+        self.apply_ingress_item_no_merge(item, processing_mono_ns, true);
+        self.drain_and_process_merge();
+    }
+
+    /// Apply a batch of ingress items and run overflow/merge drainage once at the end of the batch.
+    pub fn on_ingress_batch(&mut self, items: impl IntoIterator<Item = IngressItem>, processing_mono_ns: MonoNs) {
+        let mut touched_brokers: [Option<BrokerId>; 16] = [None; 16];
+        let mut touched_len = 0usize;
+        let mut extra_touched: Vec<BrokerId> = Vec::new();
+
+        for item in items {
+            let bid = item.broker_id();
+            let requires_immediate_drain = matches!(item, IngressItem::Connected { .. } | IngressItem::End { .. });
+            if requires_immediate_drain {
+                self.drain_and_process_merge();
+            }
+            self.apply_ingress_item_no_merge(item, processing_mono_ns, requires_immediate_drain);
+            if !requires_immediate_drain {
+                if !touched_brokers[..touched_len].contains(&Some(bid))
+                    && !extra_touched.contains(&bid)
+                {
+                    if touched_len < touched_brokers.len() {
+                        touched_brokers[touched_len] = Some(bid);
+                        touched_len += 1;
+                    } else {
+                        extra_touched.push(bid);
+                    }
+                }
+            } else {
+                self.drain_and_process_merge();
+            }
+        }
+
+        for bid in touched_brokers[..touched_len].iter().flatten().copied().chain(extra_touched) {
+            self.force_drain_overflow(bid);
+        }
+        self.drain_and_process_merge();
+    }
+
+    fn apply_ingress_item_no_merge(
+        &mut self,
+        item: IngressItem,
+        processing_mono_ns: MonoNs,
+        drain_overflow_now: bool,
+    ) {
         self.processing_mono_ns = processing_mono_ns;
         let broker_id = item.broker_id();
         let mut close_diagnostic = None;
@@ -478,8 +523,9 @@ impl TickEngine {
             self.apply_fast_path_quote(broker_id, quote, rx_mono_ns, is_warmup);
         }
 
-        self.force_drain_overflow(broker_id);
-        self.drain_and_process_merge();
+        if drain_overflow_now {
+            self.force_drain_overflow(broker_id);
+        }
         if is_disconnected {
             self.latest_quotes.remove(&broker_id);
             self.fast_quotes.remove(&broker_id);
@@ -689,7 +735,7 @@ impl TickEngine {
             .as_ref()
             .map(|_| Instant::now());
         let broker_id = rf.frame.header.broker_id;
-        let mut sequence_gaps = Vec::new();
+        let mut sequence_gaps: Option<Vec<(u64, u64)>> = None;
 
         // 1. Process payload according to message type
         match &rf.frame.payload {
@@ -760,7 +806,7 @@ impl TickEngine {
                 for tick in ticks {
                     let (disp, gap) = ch.ledger.observe(tick.sequence);
                     if let Some(gap_range) = gap {
-                        sequence_gaps.push(gap_range);
+                        sequence_gaps.get_or_insert_with(Vec::new).push(gap_range);
                     }
                     if disp == SequenceDisposition::New {
                         let is_warmup = (rf.frame.header.header_flags & HEADER_FLAG_WARMUP) != 0;
@@ -1041,11 +1087,11 @@ impl TickEngine {
                         }
                     }
                 }
-                if !sequence_gaps.is_empty() {
+                if let Some(mut gaps) = sequence_gaps {
                     if let Some(health) = self.health_states.get_mut(&broker_id) {
                         health.integrity = IntegrityState::Gap;
                     }
-                    for (first, last) in sequence_gaps.drain(..) {
+                    for (first, last) in gaps.drain(..) {
                         self.push_diagnostic(Diagnostic {
                             code: "SEQUENCE_GAP".to_string(),
                             severity: DiagnosticSeverity::Warn,

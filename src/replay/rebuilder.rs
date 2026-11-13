@@ -55,48 +55,60 @@ impl StateRebuilder {
         // Freeze clock immediately so PlaybackPump pauses during state reconstruction
         clock.set_playing(false);
 
-        // 1. Reset engine transient state
-        let mut eng = engine.lock();
-        eng.reset_state();
+        // 1. Read retention config briefly without holding the engine lock during disk I/O
+        let max_retention_ms = {
+            let eng = engine.lock();
+            eng.config
+                .history
+                .retentions
+                .iter()
+                .map(|r| r.period_ms.saturating_mul(r.slots as i64))
+                .max()
+                .unwrap_or(7_200_000)
+                .max(7_200_000) // Minimum 2 hours to guarantee complete M1 120-slot coverage
+        };
 
-        // 2. Ensure partitions are loaded for target time
+        // 2. Ensure partitions and warmup ticks are loaded outside engine.lock() so 60Hz publishers never stall on Parquet I/O
         let mut stream = merge_stream.write();
         let _ = stream.load_for_utc_ms(target_utc_ms);
+        let warmup_from_utc = target_utc_ms.saturating_sub(max_retention_ms);
+        let warmup_ticks = stream.get_warmup_ticks(warmup_from_utc, target_utc_ms);
+
+        let broker_states: Vec<(BrokerId, String, bool)> = stream
+            .sources
+            .iter()
+            .map(|s| {
+                (
+                    s.broker_id,
+                    s.broker_name.clone(),
+                    s.partitions.is_empty() || s.current_ticks.is_empty(),
+                )
+            })
+            .collect();
 
         let target_mono = MonoNs((target_utc_ms.max(0) as u64).saturating_mul(1_000_000));
 
-        // 3. Reconcile broker connection states
-        for s in &stream.sources {
-            if s.partitions.is_empty() || s.current_ticks.is_empty() {
+        // 3. Reconstruct in-memory engine state atomically under lock
+        let mut eng = engine.lock();
+        eng.reset_state();
+
+        for (broker_id, broker_name, is_empty) in broker_states {
+            if is_empty {
                 eng.on_ingress_item(IngressItem::End {
-                    broker_id: s.broker_id,
+                    broker_id,
                     generation: 1,
-                    reason: format!("No historical data for broker {}", s.broker_name),
+                    reason: format!("No historical data for broker {broker_name}"),
                 });
             } else {
                 eng.on_ingress_item(IngressItem::Connected {
-                    broker_id: s.broker_id,
+                    broker_id,
                     generation: 1,
                     connected_at_mono: target_mono,
                 });
             }
         }
 
-        // 4. Batch load warm-up ticks covering the full retention window to reconstruct
-        // all candlestick timeframes (S1, S5, S10, M1) and indicators instantaneously.
-        let max_retention_ms = eng
-            .config
-            .history
-            .retentions
-            .iter()
-            .map(|r| r.period_ms.saturating_mul(r.slots as i64))
-            .max()
-            .unwrap_or(7_200_000)
-            .max(7_200_000); // Minimum 2 hours to guarantee complete M1 120-slot coverage
-
-        let warmup_from_utc = target_utc_ms.saturating_sub(max_retention_ms);
-        let warmup_ticks = stream.get_warmup_ticks(warmup_from_utc, target_utc_ms);
-
+        // 4. Batch load warm-up ticks covering the full retention window
         if !warmup_ticks.is_empty() {
             let mut broker_groups: BTreeMap<BrokerId, Vec<ReplayTick>> = BTreeMap::new();
             for t in &warmup_ticks {

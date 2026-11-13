@@ -10,9 +10,10 @@ use chrono::{Datelike, Timelike};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ProjectionMask;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 /// Indicator profile definition
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -112,7 +113,10 @@ pub struct PseudoJfxEngine {
     last_q_pt: i64,
     last_emitted_bid_pt: i64,
     last_emitted_ask_pt: i64,
-    recent_ticks: Vec<(i64, i64)>,
+    recent_ticks: VecDeque<(i64, i64)>,
+    max_event_window_after_ms: i64,
+    cached_dst_hour: i64,
+    cached_is_dst: bool,
 }
 
 impl PseudoJfxEngine {
@@ -123,9 +127,9 @@ impl PseudoJfxEngine {
 
     #[must_use]
     pub fn new_with_custom_dir(symbol: &str, year_month: &str, custom_dir: Option<&str>) -> Self {
-        let parts: Vec<&str> = year_month.split('-').collect();
-        let year: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(2026);
-        let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(8);
+        let mut split = year_month.split('-');
+        let year: i32 = split.next().and_then(|s| s.parse().ok()).unwrap_or(2026);
+        let month: u32 = split.next().and_then(|s| s.parse().ok()).unwrap_or(8);
 
         let sym_upper = symbol.to_uppercase();
         let is_jpy = sym_upper.contains("JPY");
@@ -135,10 +139,12 @@ impl PseudoJfxEngine {
             (0.00001, 100_000.0)
         };
 
-        let profiles = Self::load_profile_matrix();
+        let profiles = Self::cached_profile_matrix();
         let mut events =
-            Self::load_events_for_month(&sym_upper, year, month, &profiles, custom_dir);
+            Self::load_events_for_month(&sym_upper, year, month, profiles, custom_dir);
         events.retain(|e| e.tier <= 3);
+        events.sort_by_key(|e| e.mt5_ms);
+        let max_event_window_after_ms = events.iter().map(|e| e.recovery_ms).max().unwrap_or(0);
 
         Self {
             symbol: sym_upper,
@@ -153,8 +159,16 @@ impl PseudoJfxEngine {
             last_q_pt: 0,
             last_emitted_bid_pt: 0,
             last_emitted_ask_pt: 0,
-            recent_ticks: Vec::with_capacity(256),
+            recent_ticks: VecDeque::with_capacity(256),
+            max_event_window_after_ms,
+            cached_dst_hour: i64::MIN,
+            cached_is_dst: false,
         }
+    }
+
+    fn cached_profile_matrix() -> &'static HashMap<String, IndicatorProfile> {
+        static PROFILES: OnceLock<HashMap<String, IndicatorProfile>> = OnceLock::new();
+        PROFILES.get_or_init(Self::load_profile_matrix)
     }
 
     pub fn load_profile_matrix() -> HashMap<String, IndicatorProfile> {
@@ -421,16 +435,25 @@ impl PseudoJfxEngine {
         self.last_raw_sum_pt = sum_pt;
         self.last_q_pt = q_pt;
 
-        // 3. JST breakdown for rollover & session schedule
-        let naive_mt5_sec = mt5_time_msc / 1000;
-        let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
-            .map(|dt| dt.naive_utc())
-            .unwrap_or_default();
-        let y = naive_dt.year();
-        let m = naive_dt.month();
-        let d = naive_dt.day();
-        let h = naive_dt.hour();
-        let is_dst = is_us_dst(y, m, d, h);
+        // 3. JST breakdown for rollover & session schedule (hour-cached DST + integer clock extraction)
+        let naive_mt5_sec = mt5_time_msc.div_euclid(1000);
+        let mt5_hour_bucket = naive_mt5_sec.div_euclid(3600);
+        let is_dst = if mt5_hour_bucket == self.cached_dst_hour {
+            self.cached_is_dst
+        } else {
+            let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
+                .map(|dt| dt.naive_utc())
+                .unwrap_or_default();
+            let dst = is_us_dst(
+                naive_dt.year(),
+                naive_dt.month(),
+                naive_dt.day(),
+                naive_dt.hour(),
+            );
+            self.cached_dst_hour = mt5_hour_bucket;
+            self.cached_is_dst = dst;
+            dst
+        };
 
         let offset_ms = if is_dst {
             3 * 3600 * 1000
@@ -440,12 +463,10 @@ impl PseudoJfxEngine {
         let utc_ms = mt5_time_msc - offset_ms;
         let jst_ms = utc_ms + 9 * 3600 * 1000;
 
-        let jst_sec = jst_ms / 1000;
-        let jst_dt = chrono::DateTime::from_timestamp(jst_sec, 0)
-            .map(|dt| dt.naive_utc())
-            .unwrap_or_default();
-        let jst_hour = jst_dt.hour();
-        let jst_min = jst_dt.minute();
+        let jst_sec = jst_ms.div_euclid(1000);
+        let jst_sec_of_day = jst_sec.rem_euclid(86_400) as u32;
+        let jst_hour = jst_sec_of_day / 3600;
+        let jst_min = (jst_sec_of_day % 3600) / 60;
 
         // 4. Spread modeling
         let mut target_spread_pips = jfx_characteristics::BASE_SPREAD_PIPS;
@@ -481,9 +502,22 @@ impl PseudoJfxEngine {
 
         let raw_oanda_spread_pips = (a_pt - b_pt).max(0) as f64 * 0.1;
 
-        // Economic event dynamic widening
+        // Economic event dynamic widening (events sorted by mt5_ms; slice via binary search)
         if !self.events.is_empty() {
-            let is_near_event = self.events.iter().any(|ev| {
+            let max_lead_ms = 25_000_i64;
+            let start_idx = self
+                .events
+                .partition_point(|ev| ev.mt5_ms + self.max_event_window_after_ms < mt5_time_msc);
+            let end_idx = self
+                .events
+                .partition_point(|ev| ev.mt5_ms - max_lead_ms <= mt5_time_msc);
+            let candidate_events = if start_idx < end_idx {
+                &self.events[start_idx..end_idx]
+            } else {
+                &[]
+            };
+
+            let is_near_event = candidate_events.iter().any(|ev| {
                 let adv_ms = match ev.tier {
                     1 => 15_000,
                     2 => 10_000,
@@ -495,8 +529,14 @@ impl PseudoJfxEngine {
 
             if is_near_event {
                 let cutoff_10s = mt5_time_msc - 10_000;
-                self.recent_ticks.retain(|&(t, _)| t >= cutoff_10s);
-                self.recent_ticks.push((mt5_time_msc, q_pt));
+                while let Some(&(t, _)) = self.recent_ticks.front() {
+                    if t < cutoff_10s {
+                        self.recent_ticks.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+                self.recent_ticks.push_back((mt5_time_msc, q_pt));
 
                 let mut min_q = q_pt;
                 let mut max_q = q_pt;
@@ -510,7 +550,7 @@ impl PseudoJfxEngine {
                 }
                 let price_volatility_10s_pips = (max_q - min_q) as f64 * 0.1;
 
-                for ev in &self.events {
+                for ev in candidate_events {
                     let adv_ms = match ev.tier {
                         1 => 15_000,
                         2 => 10_000,

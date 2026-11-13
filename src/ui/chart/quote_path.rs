@@ -224,49 +224,44 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         } else {
             dim_color(color, if is_live(broker) { 105 } else { 55 })
         };
-        let mut previous: Option<Pos2> = None;
+        let mut points: Vec<Pos2> = Vec::with_capacity(quote_points.len());
+        let mut last_x = f32::NEG_INFINITY;
         for (sample_index, pt) in quote_points.iter().enumerate() {
-            let current = pt
-                .broker_mids
-                .get(&broker.broker_id)
-                .filter(|m| m.is_finite())
-                .and_then(|&mid| {
-                    x_axis_coordinate(
-                        x_axis_mode,
-                        plot_rect,
-                        sample_index,
-                        quote_points.len(),
-                        pt.mono_ns,
-                        now_mono,
-                        visible_seconds,
-                        visible_ticks,
-                    )
-                    .map(|x| Pos2::new(x, price_to_y(mid)))
-                });
-            if let Some(curr_pos) = current {
-                if let Some(prev_pos) = previous {
+            if let Some(&mid) = pt.broker_mids.get(&broker.broker_id).filter(|m| m.is_finite()) {
+                if let Some(x) = x_axis_coordinate(
+                    x_axis_mode,
+                    plot_rect,
+                    sample_index,
+                    quote_points.len(),
+                    pt.mono_ns,
+                    now_mono,
+                    visible_seconds,
+                    visible_ticks,
+                ) {
                     // Defensive guard: never draw line segments backwards in time
-                    if curr_pos.x >= prev_pos.x {
-                        painter
-                            .line_segment([prev_pos, curr_pos], Stroke::new(1.0_f32, line_color));
-                        previous = Some(curr_pos);
+                    if x >= last_x {
+                        points.push(Pos2::new(x, price_to_y(mid)));
+                        last_x = x;
                     }
-                } else {
-                    previous = Some(curr_pos);
                 }
             }
         }
-        if let Some(point) = previous {
+        let last_point = points.last().copied();
+        if points.len() >= 2 {
+            painter.add(egui::Shape::line(points, Stroke::new(1.0_f32, line_color)));
+        }
+        if let Some(point) = last_point {
             painter.circle_filled(point, if selected { 3.5 } else { 2.0 }, line_color);
         }
     }
 
     // Draw Broker Median (consensus_mid) as one continuous line.
     {
-        let mut previous: Option<Pos2> = None;
+        let mut points: Vec<Pos2> = Vec::with_capacity(quote_points.len());
+        let mut last_x = f32::NEG_INFINITY;
         for (index, pt) in quote_points.iter().enumerate() {
-            let current = pt.consensus_mid.filter(|m| m.is_finite()).and_then(|mid| {
-                x_axis_coordinate(
+            if let Some(mid) = pt.consensus_mid.filter(|m| m.is_finite()) {
+                if let Some(x) = x_axis_coordinate(
                     x_axis_mode,
                     plot_rect,
                     index,
@@ -275,23 +270,20 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
                     now_mono,
                     visible_seconds,
                     visible_ticks,
-                )
-                .map(|x| Pos2::new(x, price_to_y(mid)))
-            });
-            if let Some(curr_pos) = current {
-                if let Some(prev_pos) = previous {
+                ) {
                     // Defensive guard: never draw line segments backwards in time
-                    if curr_pos.x >= prev_pos.x {
-                        painter.line_segment(
-                            [prev_pos, curr_pos],
-                            Stroke::new(1.0_f32, dim_color(theme.median_line, 145)),
-                        );
-                        previous = Some(curr_pos);
+                    if x >= last_x {
+                        points.push(Pos2::new(x, price_to_y(mid)));
+                        last_x = x;
                     }
-                } else {
-                    previous = Some(curr_pos);
                 }
             }
+        }
+        if points.len() >= 2 {
+            painter.add(egui::Shape::line(
+                points,
+                Stroke::new(1.0_f32, dim_color(theme.median_line, 145)),
+            ));
         }
     }
 }

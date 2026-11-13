@@ -53,8 +53,8 @@ struct WireTickRecord
    uint     reserved;
 };
 
-// Convert double to 8 bytes Little Endian
-void StringToDoubleBytes(double val, uchar &dst[])
+// Write double (8 bytes IEEE 754 binary64 LE) directly into buffer at offset
+void WriteDoubleLE(uchar &buffer[], int offset, double val)
 {
    union DoubleUnion
    {
@@ -64,8 +64,14 @@ void StringToDoubleBytes(double val, uchar &dst[])
    u.d = val;
    for(int i = 0; i < 8; i++)
    {
-      dst[i] = u.b[i];
+      buffer[offset + i] = u.b[i];
    }
+}
+
+// Convert double to 8 bytes Little Endian
+void StringToDoubleBytes(double val, uchar &dst[])
+{
+   WriteDoubleLE(dst, 0, val);
 }
 
 // Pack header into 40 bytes LE
@@ -124,25 +130,16 @@ void PackTickRecord(uchar &buffer[], int offset, const WireTickRecord &tick)
    // ea_elapsed_us (ulong 8 bytes)
    for(int i = 0; i < 8; i++) buffer[offset + 16 + i] = (uchar)((tick.ea_elapsed_us >> (i * 8)) & 0xFF);
    
-   // bid (double 8 bytes binary64)
-   uchar double_bytes[8];
-   StringToDoubleBytes(tick.bid, double_bytes);
-   for(int i = 0; i < 8; i++) buffer[offset + 24 + i] = double_bytes[i];
-   
-   // ask
-   StringToDoubleBytes(tick.ask, double_bytes);
-   for(int i = 0; i < 8; i++) buffer[offset + 32 + i] = double_bytes[i];
-   
-   // last
-   StringToDoubleBytes(tick.last, double_bytes);
-   for(int i = 0; i < 8; i++) buffer[offset + 40 + i] = double_bytes[i];
-   
+   // bid, ask, last (8 bytes IEEE 754 binary64 LE written directly)
+   WriteDoubleLE(buffer, offset + 24, tick.bid);
+   WriteDoubleLE(buffer, offset + 32, tick.ask);
+   WriteDoubleLE(buffer, offset + 40, tick.last);
+
    // volume (ulong 8 bytes)
    for(int i = 0; i < 8; i++) buffer[offset + 48 + i] = (uchar)((tick.volume >> (i * 8)) & 0xFF);
-   
+
    // volume_real (double 8 bytes)
-   StringToDoubleBytes(tick.volume_real, double_bytes);
-   for(int i = 0; i < 8; i++) buffer[offset + 56 + i] = double_bytes[i];
+   WriteDoubleLE(buffer, offset + 56, tick.volume_real);
    
    // flags (uint 4 bytes)
    for(int i = 0; i < 4; i++) buffer[offset + 64 + i] = (uchar)((tick.flags >> (i * 8)) & 0xFF);

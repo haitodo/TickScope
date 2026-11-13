@@ -15,7 +15,18 @@ impl TickEngine {
         self.make_projection_at(current_utc_now, self.current_watermark)
     }
 
+    #[must_use]
     pub fn make_projection_at(&self, current_utc_now: UtcMs, now_mono: MonoNs) -> EngineProjection {
+        self.make_projection_at_with_analytics(current_utc_now, now_mono, true)
+    }
+
+    #[must_use]
+    pub fn make_projection_at_with_analytics(
+        &self,
+        current_utc_now: UtcMs,
+        now_mono: MonoNs,
+        include_analytics: bool,
+    ) -> EngineProjection {
         let mut broker_overviews = Vec::with_capacity(self.config.brokers.len());
 
         for b in &self.config.brokers {
@@ -206,19 +217,24 @@ impl TickEngine {
             active_clusters.push(c_down);
         }
 
-        // 3. Broker Fingerprints & Hypotheses
-        let mut fingerprints = HashMap::with_capacity(self.fingerprint_trackers.len());
-        for (&bid, ft) in &self.fingerprint_trackers {
-            fingerprints.insert(bid, ft.compile());
-        }
+        // 3. Broker Fingerprints & Hypotheses (skipped in runtime 60Hz snapshots when UI does not consume them)
+        let (fingerprints, hypotheses) = if include_analytics {
+            let mut fingerprints = HashMap::with_capacity(self.fingerprint_trackers.len());
+            for (&bid, ft) in &self.fingerprint_trackers {
+                fingerprints.insert(bid, ft.compile());
+            }
 
-        let mut hypotheses = Vec::new();
-        for (&bid, fp) in &fingerprints {
-            let repricing = self.repricing_persistence.get(&bid);
-            let persistence = self.quote_persistence.get(&bid);
-            let broker_hypotheses = self.hypothesis_engine.evaluate(fp, repricing, persistence);
-            hypotheses.extend(broker_hypotheses);
-        }
+            let mut hypotheses = Vec::new();
+            for (&bid, fp) in &fingerprints {
+                let repricing = self.repricing_persistence.get(&bid);
+                let persistence = self.quote_persistence.get(&bid);
+                let broker_hypotheses = self.hypothesis_engine.evaluate(fp, repricing, persistence);
+                hypotheses.extend(broker_hypotheses);
+            }
+            (fingerprints, hypotheses)
+        } else {
+            (HashMap::new(), Vec::new())
+        };
 
         // Detailed latency data is aggregated asynchronously only in -d mode.
         let latency_summary = crate::metrics::StageLatencySummary::default();
@@ -230,7 +246,11 @@ impl TickEngine {
         // 6. Tick Candles
         let mut tick_candles = HashMap::with_capacity(self.tick_candle_trackers.len());
         for (&bid, tracker) in &self.tick_candle_trackers {
-            tick_candles.insert(bid, tracker.candles.clone());
+            let (front, back) = tracker.candles.as_slices();
+            let mut bars = Vec::with_capacity(front.len() + back.len());
+            bars.extend_from_slice(front);
+            bars.extend_from_slice(back);
+            tick_candles.insert(bid, bars);
         }
 
         EngineProjection {

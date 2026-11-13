@@ -139,17 +139,17 @@ pub fn resolve_candle_follow_scale(
     match follow_criteria {
         CandleFollowCriteria::Median => {
             *margin_edge_latch = None;
-            let mut sorted = candidates.to_vec();
-            sorted.sort_by(|a, b| {
-                a.bid
-                    .partial_cmp(&b.bid)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            let len = sorted.len();
+            let len = candidates.len();
+            let mut prices: Vec<f64> = candidates.iter().map(|c| c.bid).collect();
+            let cmp = |a: &f64, b: &f64| a.partial_cmp(b).unwrap_or(Ordering::Equal);
+            let mid = len / 2;
+            let (left, mid_val, _) = prices.select_nth_unstable_by(mid, cmp);
+            let hi = *mid_val;
             let median_price = if len % 2 == 1 {
-                sorted[len / 2].bid
+                hi
             } else {
-                (sorted[len / 2 - 1].bid + sorted[len / 2].bid) * 0.5
+                let lo = left.iter().copied().max_by(cmp).unwrap_or(hi);
+                (lo + hi) * 0.5
             };
 
             let anchor = match *chart_anchor {

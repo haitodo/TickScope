@@ -135,15 +135,21 @@ impl QuotePersistenceTracker {
             return Some(self.durations_ms[0]);
         }
 
-        let mut sorted: Vec<f64> = self.durations_ms.iter().copied().collect();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        let rank = pct.clamp(0.0, 1.0) * (sorted.len() - 1) as f64;
+        let mut buf: Vec<f64> = self.durations_ms.iter().copied().collect();
+        let rank = pct.clamp(0.0, 1.0) * (buf.len() - 1) as f64;
         let lower = rank.floor() as usize;
         let upper = rank.ceil() as usize;
         let weight = rank - lower as f64;
 
-        Some(sorted[lower] * (1.0 - weight) + sorted[upper] * weight)
+        let cmp = |a: &f64, b: &f64| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal);
+        let (_, lower_val, right) = buf.select_nth_unstable_by(lower, cmp);
+        let lower_f = *lower_val;
+        if upper == lower || right.is_empty() {
+            return Some(lower_f);
+        }
+        let upper_f = right.iter().copied().min_by(cmp).unwrap_or(lower_f);
+
+        Some(lower_f * (1.0 - weight) + upper_f * weight)
     }
 
     /// Produces the statistical sample context for this persistence tracker.

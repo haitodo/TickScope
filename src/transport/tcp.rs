@@ -4,11 +4,10 @@ use crate::config::BrokerConfig;
 use crate::core::ports::{ClockPort, LogSinkPort, RawIngressSink, SubmitResult};
 use crate::core::types::{LogRawFrame, LogRecord, SessionId};
 use crate::metrics::diagnostics::{DiagnosticStage, DiagnosticsHandle};
-use crate::protocol::codec::{encode_frame, StreamingDecoder};
+use crate::protocol::codec::StreamingDecoder;
 use crate::protocol::{
-    BatchAckPayload, Frame, FramePayload, Header, IngressItem, ReceivedFrame,
-    BATCH_ACK_PAYLOAD_LENGTH, HEADER_LENGTH, MAGIC_TICK, MSG_TYPE_BATCH_ACK, MSG_TYPE_TICK_BATCH,
-    PROTOCOL_VERSION,
+    BatchAckPayload, Header, IngressItem, ReceivedFrame, BATCH_ACK_PAYLOAD_LENGTH, HEADER_LENGTH,
+    MAGIC_TICK, MSG_TYPE_BATCH_ACK, MSG_TYPE_TICK_BATCH, PROTOCOL_VERSION,
 };
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -427,27 +426,26 @@ impl TransportReceiver {
         session_id: SessionId,
         seq_end: u64,
     ) -> std::io::Result<()> {
-        let ack_frame = Frame {
-            header: Header {
-                magic: MAGIC_TICK,
-                protocol_version: PROTOCOL_VERSION,
-                message_type: MSG_TYPE_BATCH_ACK,
-                header_length: HEADER_LENGTH,
-                header_flags: 0,
-                broker_id: self.broker_config.id,
-                session_id,
-                sequence_start: 0,
-                tick_count: 0,
-                payload_length: BATCH_ACK_PAYLOAD_LENGTH as u32,
-            },
-            payload: FramePayload::BatchAck(BatchAckPayload {
-                sequence_end: seq_end,
-            }),
+        let header = Header {
+            magic: MAGIC_TICK,
+            protocol_version: PROTOCOL_VERSION,
+            message_type: MSG_TYPE_BATCH_ACK,
+            header_length: HEADER_LENGTH,
+            header_flags: 0,
+            broker_id: self.broker_config.id,
+            session_id,
+            sequence_start: 0,
+            tick_count: 0,
+            payload_length: BATCH_ACK_PAYLOAD_LENGTH as u32,
         };
-
-        let bytes = encode_frame(&ack_frame).map_err(|error| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
-        })?;
+        let mut bytes = [0u8; HEADER_LENGTH as usize + BATCH_ACK_PAYLOAD_LENGTH];
+        crate::protocol::packet::encode_header(&header, &mut bytes[..HEADER_LENGTH as usize]);
+        crate::protocol::packet::encode_batch_ack(
+            &BatchAckPayload {
+                sequence_end: seq_end,
+            },
+            &mut bytes[HEADER_LENGTH as usize..],
+        );
         stream.write_all(&bytes)
     }
 }
@@ -457,6 +455,8 @@ mod tests {
     use super::*;
     use crate::core::ports::AppendResult;
     use crate::core::types::{ClockReading, MonoNs, RunId};
+    use crate::protocol::codec::encode_frame;
+    use crate::protocol::{Frame, FramePayload};
     use parking_lot::Mutex;
     use std::sync::atomic::AtomicU64;
 

@@ -289,22 +289,12 @@ impl BrokerParquetSource {
             return Ok(true);
         }
 
+        const MAX_CACHED_PARTITIONS: usize = 3;
+        self.evict_farthest_partition_if_full(idx, MAX_CACHED_PARTITIONS);
+
         let p_meta = &self.partitions[idx];
         let ticks = self.read_ticks_for_partition(p_meta)?;
         let arc_ticks = Arc::new(ticks);
-
-        const MAX_CACHED_PARTITIONS: usize = 3;
-        if self.partition_cache.len() >= MAX_CACHED_PARTITIONS {
-            let current = idx;
-            if let Some(&evict_idx) = self
-                .partition_cache
-                .keys()
-                .filter(|&&k| k != current && k != current.saturating_sub(1))
-                .max_by_key(|&&k| (k as isize - current as isize).abs())
-            {
-                self.partition_cache.remove(&evict_idx);
-            }
-        }
 
         self.partition_cache.insert(idx, arc_ticks.clone());
         self.current_partition_idx = Some(idx);
@@ -321,6 +311,19 @@ impl BrokerParquetSource {
         );
 
         Ok(true)
+    }
+
+    fn evict_farthest_partition_if_full(&mut self, current: usize, max_cached: usize) {
+        if self.partition_cache.len() >= max_cached {
+            if let Some(&evict_idx) = self
+                .partition_cache
+                .keys()
+                .filter(|&&k| k != current && k != current.saturating_sub(1))
+                .max_by_key(|&&k| (k as isize - current as isize).abs())
+            {
+                self.partition_cache.remove(&evict_idx);
+            }
+        }
     }
 
     /// Automatically advance to the next chronological partition when the current partition is exhausted.
@@ -351,17 +354,8 @@ impl BrokerParquetSource {
             return Ok(true);
         }
         const MAX_CACHED_PARTITIONS: usize = 3;
-        if self.partition_cache.len() >= MAX_CACHED_PARTITIONS {
-            let current = self.current_partition_idx.unwrap_or(idx);
-            if let Some(&evict_idx) = self
-                .partition_cache
-                .keys()
-                .filter(|&&k| k != current && k != current.saturating_sub(1))
-                .max_by_key(|&&k| (k as isize - current as isize).abs())
-            {
-                self.partition_cache.remove(&evict_idx);
-            }
-        }
+        let current = self.current_partition_idx.unwrap_or(idx);
+        self.evict_farthest_partition_if_full(current, MAX_CACHED_PARTITIONS);
         let p_meta = &self.partitions[idx];
         let ticks = self.read_ticks_for_partition(p_meta)?;
         self.partition_cache.insert(idx, Arc::new(ticks));
@@ -392,14 +386,9 @@ impl BrokerParquetSource {
             return;
         }
 
-        let idx = match self
-            .current_ticks
-            .binary_search_by_key(&target_utc_ms, |t| t.utc_ms)
-        {
-            Ok(exact) => exact,
-            Err(insert_idx) => insert_idx,
-        };
-
+        // partition_point guarantees landing on the first tick with utc_ms >= target_utc_ms
+        // even when multiple ticks share identical millisecond timestamps.
+        let idx = self.current_ticks.partition_point(|t| t.utc_ms < target_utc_ms);
         self.cursor = idx.min(self.current_ticks.len());
     }
 
@@ -447,19 +436,7 @@ impl BrokerParquetSource {
                 let prev_idx = curr_idx - 1;
                 if let Ok(true) = self.ensure_partition_cached(prev_idx) {
                     if let Some(prev_ticks) = self.partition_cache.get(&prev_idx) {
-                        let start =
-                            match prev_ticks.binary_search_by_key(&from_utc_ms, |t| t.utc_ms) {
-                                Ok(i) | Err(i) => i,
-                            };
-                        let end = match prev_ticks.binary_search_by_key(&to_utc_ms, |t| t.utc_ms) {
-                            Ok(i) => i.saturating_add(1),
-                            Err(i) => i,
-                        };
-                        let start = start.min(prev_ticks.len());
-                        let end = end.min(prev_ticks.len());
-                        if start < end {
-                            result.extend_from_slice(&prev_ticks[start..end]);
-                        }
+                        result.extend_from_slice(slice_tick_range(prev_ticks, from_utc_ms, to_utc_ms));
                     }
                 }
             }
@@ -467,24 +444,7 @@ impl BrokerParquetSource {
 
         // Current partition ticks
         if !self.current_ticks.is_empty() {
-            let start = match self
-                .current_ticks
-                .binary_search_by_key(&from_utc_ms, |t| t.utc_ms)
-            {
-                Ok(i) | Err(i) => i,
-            };
-            let end = match self
-                .current_ticks
-                .binary_search_by_key(&to_utc_ms, |t| t.utc_ms)
-            {
-                Ok(i) => i.saturating_add(1),
-                Err(i) => i,
-            };
-            let start = start.min(self.current_ticks.len());
-            let end = end.min(self.current_ticks.len());
-            if start < end {
-                result.extend_from_slice(&self.current_ticks[start..end]);
-            }
+            result.extend_from_slice(slice_tick_range(&self.current_ticks, from_utc_ms, to_utc_ms));
         }
 
         for t in &mut result {
@@ -509,10 +469,25 @@ impl BrokerParquetSource {
     }
 }
 
-/// Read ticks from a single parquet file with projection, robust schema decoding, and strict sorting.
-fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick>, String> {
-    let file = File::open(path)
-        .map_err(|e| format!("Failed to open parquet file '{}': {}", path.display(), e))?;
+fn slice_tick_range(ticks: &[ReplayTick], from_utc_ms: i64, to_utc_ms: i64) -> &[ReplayTick] {
+    let start = ticks.partition_point(|t| t.utc_ms < from_utc_ms);
+    let end = ticks.partition_point(|t| t.utc_ms <= to_utc_ms);
+    if start < end {
+        &ticks[start..end]
+    } else {
+        &[]
+    }
+}
+
+/// Shared Parquet column-projected tick reader supporting normal and synthetic paths.
+fn for_each_parquet_tick(
+    path: &Path,
+    open_error_prefix: &str,
+    ticks_hint_out: &mut Vec<ReplayTick>,
+    mut on_tick: impl FnMut(i64, i64, f64, f64, &mut Vec<ReplayTick>),
+) -> Result<(), String> {
+    let file =
+        File::open(path).map_err(|e| format!("{open_error_prefix} '{}': {}", path.display(), e))?;
 
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).map_err(|e| {
         format!(
@@ -542,8 +517,6 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
         .build()
         .map_err(|e| format!("Failed to build parquet reader: {e}"))?;
 
-    let mut ticks = Vec::new();
-
     for batch_res in reader {
         let batch = batch_res.map_err(|e| format!("Error reading record batch: {e}"))?;
         let schema = batch.schema();
@@ -567,7 +540,7 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
         };
 
         let num_rows = batch.num_rows();
-        ticks.reserve(num_rows);
+        ticks_hint_out.reserve(num_rows);
 
         for row in 0..num_rows {
             let bid = b_arr.value(row);
@@ -582,21 +555,35 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
             }
 
             if bid > 0.0 && ask >= bid && bid.is_finite() && ask.is_finite() && utc_ms > 0 {
-                ticks.push(ReplayTick {
-                    broker_id,
-                    utc_ms,
-                    mt5_ms,
-                    bid,
-                    ask,
-                    receive_delay_ms: 0,
-                });
+                on_tick(utc_ms, mt5_ms, bid, ask, ticks_hint_out);
             }
         }
     }
 
+    Ok(())
+}
+
+/// Read ticks from a single parquet file with projection, robust schema decoding, and strict sorting.
+fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick>, String> {
+    let mut ticks = Vec::new();
+    for_each_parquet_tick(
+        path,
+        "Failed to open parquet file",
+        &mut ticks,
+        |utc_ms, mt5_ms, bid, ask, out| {
+            out.push(ReplayTick {
+                broker_id,
+                utc_ms,
+                mt5_ms,
+                bid,
+                ask,
+                receive_delay_ms: 0,
+            });
+        },
+    )?;
+
     // Ensure sorted strictly by utc_ms
     ticks.sort_by_key(|t| t.utc_ms);
-
     Ok(ticks)
 }
 
@@ -608,104 +595,27 @@ fn read_parquet_ticks_pseudo_jfx(
     year: i32,
     month: u32,
 ) -> Result<Vec<ReplayTick>, String> {
-    let file = File::open(path).map_err(|e| {
-        format!(
-            "Failed to open OANDA parquet for JFX fallback '{}': {}",
-            path.display(),
-            e
-        )
-    })?;
-
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file).map_err(|e| {
-        format!(
-            "ParquetRecordBatchReaderBuilder failed '{}': {}",
-            path.display(),
-            e
-        )
-    })?;
-
-    let file_schema = builder.schema();
-    let wanted = ["utc_ms", "mt5_ms", "bid", "ask"];
-    let mut root_indices = Vec::new();
-    for (idx, field) in file_schema.fields().iter().enumerate() {
-        if wanted.iter().any(|&w| w.eq_ignore_ascii_case(field.name())) {
-            root_indices.push(idx);
-        }
-    }
-
-    let builder = if root_indices.is_empty() {
-        builder
-    } else {
-        let mask = ProjectionMask::roots(builder.parquet_schema(), root_indices);
-        builder.with_projection(mask)
-    };
-
-    let reader = builder
-        .build()
-        .map_err(|e| format!("Failed to build parquet reader: {e}"))?;
-
     let year_month = format!("{year:04}-{month:02}");
     let mut engine = super::pseudo_jfx::PseudoJfxEngine::new(symbol, &year_month);
     let mut ticks = Vec::new();
 
-    for batch_res in reader {
-        let batch = batch_res.map_err(|e| format!("Error reading record batch: {e}"))?;
-        let schema = batch.schema();
-
-        let utc_idx = schema.index_of("utc_ms").ok();
-        let mt5_idx = schema.index_of("mt5_ms").ok();
-        let bid_idx = schema.index_of("bid").ok();
-        let ask_idx = schema.index_of("ask").ok();
-
-        let (Some(b_idx), Some(a_idx)) = (bid_idx, ask_idx) else {
-            continue;
-        };
-
-        let bid_col = batch.column(b_idx).as_any().downcast_ref::<Float64Array>();
-        let ask_col = batch.column(a_idx).as_any().downcast_ref::<Float64Array>();
-        let utc_col = utc_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
-        let mt5_col = mt5_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
-
-        let (Some(b_arr), Some(a_arr)) = (bid_col, ask_col) else {
-            continue;
-        };
-
-        let num_rows = batch.num_rows();
-        ticks.reserve(num_rows);
-
-        for row in 0..num_rows {
-            let raw_bid = b_arr.value(row);
-            let raw_ask = a_arr.value(row);
-            let mut utc_ms = utc_col.map_or(0, |c| c.value(row));
-            let mut mt5_ms = mt5_col.map_or(0, |c| c.value(row));
-
-            if utc_ms == 0 && mt5_ms > 0 {
-                utc_ms = mt5_to_utc_ms(mt5_ms);
-            } else if mt5_ms == 0 && utc_ms > 0 {
-                mt5_ms = utc_to_mt5_ms(utc_ms);
+    for_each_parquet_tick(
+        path,
+        "Failed to open OANDA parquet for JFX fallback",
+        &mut ticks,
+        |utc_ms, mt5_ms, raw_bid, raw_ask, out| {
+            if let Some((p_bid, p_ask, _p_spread)) = engine.process_tick(mt5_ms, raw_bid, raw_ask) {
+                out.push(ReplayTick {
+                    broker_id,
+                    utc_ms,
+                    mt5_ms,
+                    bid: p_bid,
+                    ask: p_ask,
+                    receive_delay_ms: 0,
+                });
             }
-
-            if raw_bid > 0.0
-                && raw_ask >= raw_bid
-                && raw_bid.is_finite()
-                && raw_ask.is_finite()
-                && utc_ms > 0
-            {
-                if let Some((p_bid, p_ask, _p_spread)) =
-                    engine.process_tick(mt5_ms, raw_bid, raw_ask)
-                {
-                    ticks.push(ReplayTick {
-                        broker_id,
-                        utc_ms,
-                        mt5_ms,
-                        bid: p_bid,
-                        ask: p_ask,
-                        receive_delay_ms: 0,
-                    });
-                }
-            }
-        }
-    }
+        },
+    )?;
 
     ticks.sort_by_key(|t| t.utc_ms);
     log::info!(

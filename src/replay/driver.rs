@@ -80,37 +80,7 @@ pub fn utc_to_mt5_ms(utc_ms: i64) -> i64 {
 
 #[must_use]
 pub fn is_us_dst(year: i32, month: u32, day: u32) -> bool {
-    if !(3..=11).contains(&month) {
-        return false;
-    }
-    if month > 3 && month < 11 {
-        return true;
-    }
-
-    if month == 3 {
-        // Second Sunday of March
-        let march1_day = chrono::NaiveDate::from_ymd_opt(year, 3, 1).map_or(0, |d| {
-            use chrono::Datelike;
-            d.weekday().num_days_from_sunday()
-        });
-        let second_sunday = 1
-            + (if march1_day == 0 {
-                7
-            } else {
-                7 - march1_day + 7
-            });
-        day >= second_sunday
-    } else if month == 11 {
-        // First Sunday of November
-        let nov1_day = chrono::NaiveDate::from_ymd_opt(year, 11, 1).map_or(0, |d| {
-            use chrono::Datelike;
-            d.weekday().num_days_from_sunday()
-        });
-        let first_sunday = 1 + (if nov1_day == 0 { 0 } else { 7 - nov1_day });
-        day < first_sunday
-    } else {
-        false
-    }
+    crate::replay::pseudo_jfx::is_us_dst(year, month, day, 12)
 }
 
 pub struct ReplayDriver {

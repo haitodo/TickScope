@@ -212,15 +212,17 @@ public:
       // batch before any new bytes are accepted on a new TCP connection.
       if(!IsConnected()) return false;
       
-      // If there's an existing unsent suffix, append
+      // Shift remaining unsent suffix in-place before appending new bytes (avoids temporary buffer copy)
       int remaining = m_send_len - m_send_offset;
       if(remaining > 0)
       {
-         uchar temp[];
-         ArrayResize(temp, remaining + data_len);
-         ArrayCopy(temp, m_send_buffer, 0, m_send_offset, remaining);
-         ArrayCopy(temp, data, remaining, 0, data_len);
-         ArrayCopy(m_send_buffer, temp);
+         if(m_send_offset > 0)
+         {
+            for(int i = 0; i < remaining; i++)
+               m_send_buffer[i] = m_send_buffer[m_send_offset + i];
+         }
+         ArrayResize(m_send_buffer, remaining + data_len);
+         ArrayCopy(m_send_buffer, data, remaining, 0, data_len);
          m_send_offset = 0;
          m_send_len = remaining + data_len;
       }
@@ -243,12 +245,16 @@ public:
       while(m_send_offset < m_send_len)
       {
          int to_send = m_send_len - m_send_offset;
-         uchar chunk[];
-         ArrayResize(chunk, to_send);
-         ArrayCopy(chunk, m_send_buffer, 0, m_send_offset, to_send);
-         
+         if(m_send_offset > 0)
+         {
+            for(int i = 0; i < to_send; i++)
+               m_send_buffer[i] = m_send_buffer[m_send_offset + i];
+            m_send_offset = 0;
+            m_send_len = to_send;
+         }
+
          ResetLastError();
-         int sent = SocketSend(m_socket, chunk, to_send);
+         int sent = SocketSend(m_socket, m_send_buffer, to_send);
          if(sent > 0)
          {
             m_send_offset += sent;
@@ -307,11 +313,9 @@ public:
          ClearReceiveBuffer();
          return;
       }
-      uchar remaining[];
       int remain_len = m_recv_len - count;
-      ArrayResize(remaining, remain_len);
-      ArrayCopy(remaining, m_recv_buffer, 0, count, remain_len);
-      ArrayCopy(m_recv_buffer, remaining, 0, 0, remain_len);
+      for(int i = 0; i < remain_len; i++)
+         m_recv_buffer[i] = m_recv_buffer[count + i];
       m_recv_len = remain_len;
       ArrayResize(m_recv_buffer, m_recv_len);
    }

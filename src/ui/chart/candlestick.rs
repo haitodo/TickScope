@@ -527,6 +527,12 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
     // Draw candles with user-specified bar_width and pixel-aligned layout
     let plot_painter = painter.with_clip_rect(plot_rect);
+    let (chart_offset_ms, _) = resolve_chart_offset_ms(
+        *chart_timezone,
+        is_replay,
+        target_broker_id,
+        broker_overviews,
+    );
 
     // Draw minute-boundary vertical grid lines and timestamp markers
     for i in start_idx..total_slots {
@@ -570,13 +576,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
         // Footer time caption if not too close to the borders
         if slot_boundary_x >= plot_rect.left() + 24.0 && slot_boundary_x <= plot_rect.right() - 24.0
         {
-            let (offset_ms, _) = resolve_chart_offset_ms(
-                *chart_timezone,
-                is_replay,
-                target_broker_id,
-                broker_overviews,
-            );
-            let local_ms = slot_utc_ms + offset_ms;
+            let local_ms = slot_utc_ms + chart_offset_ms;
             let day_ms = local_ms.rem_euclid(86_400_000);
             let hrs = day_ms / 3_600_000;
             let mins = (day_ms % 3_600_000) / 60_000;

@@ -121,7 +121,7 @@ impl ReplayCoordinator {
 
                 let proj = {
                     let eng = eng_pub.lock();
-                    eng.make_projection_at(now_utc, clk_sample.mono_ns)
+                    eng.make_projection_at_with_analytics(now_utc, clk_sample.mono_ns, false)
                 };
 
                 let snap = builder.build_owned(proj, now_utc, clk_sample.mono_ns, timeframe_ms);

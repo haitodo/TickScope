@@ -83,17 +83,17 @@ impl<R: Read + Seek> LogFileReader<R> {
     }
 
     pub fn next_record(&mut self) -> ReadResult {
+        let start_pos = self.reader.stream_position().unwrap_or(0);
         let mut envelope = [0u8; RECORD_ENVELOPE_LEN];
         match self.reader.read_exact(&mut envelope) {
             Ok(()) => {}
             Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                // If 0 bytes were read, it's clean EOF!
-                let current_pos = self.reader.stream_position().unwrap_or(0);
-                let end_pos = self.reader.seek(SeekFrom::End(0)).unwrap_or(0);
-                if current_pos == end_pos {
+                // Compare against start_pos recorded before read_exact consumed remaining bytes.
+                let end_pos = self.reader.seek(SeekFrom::End(0)).unwrap_or(start_pos);
+                if start_pos == end_pos {
                     return ReadResult::CleanEof;
                 }
-                return ReadResult::TruncatedTail((end_pos - current_pos) as usize);
+                return ReadResult::TruncatedTail((end_pos - start_pos) as usize);
             }
             Err(e) => return ReadResult::Corrupt(format!("I/O error reading envelope: {e}")),
         }
@@ -111,26 +111,23 @@ impl<R: Read + Seek> LogFileReader<R> {
         }
 
         let payload_len = total_length - RECORD_ENVELOPE_LEN;
-        let mut payload = vec![0u8; payload_len];
-        if let Err(e) = self.reader.read_exact(&mut payload) {
+        let mut record_buf = vec![0u8; total_length];
+        record_buf[..RECORD_ENVELOPE_LEN].copy_from_slice(&envelope);
+        record_buf[16..20].fill(0); // Zero out checksum field for CRC32C verification
+        if let Err(e) = self.reader.read_exact(&mut record_buf[RECORD_ENVELOPE_LEN..]) {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
                 return ReadResult::TruncatedTail(payload_len);
             }
             return ReadResult::Corrupt(format!("I/O error reading record payload: {e}"));
         }
 
-        // Verify CRC32C: envelope with checksum 0 + payload
-        let mut crc_check_buf = Vec::with_capacity(total_length);
-        crc_check_buf.extend_from_slice(&envelope);
-        crc_check_buf[16..20].copy_from_slice(&0u32.to_le_bytes()); // Zero out checksum field
-        crc_check_buf.extend_from_slice(&payload);
-
-        let calculated_crc = crc32c(&crc_check_buf);
+        let calculated_crc = crc32c(&record_buf);
         if calculated_crc != stored_crc {
             return ReadResult::Corrupt(format!(
                 "CRC32C mismatch at record {record_index}: stored 0x{stored_crc:08X}, calculated 0x{calculated_crc:08X}"
             ));
         }
+        let payload = &record_buf[RECORD_ENVELOPE_LEN..];
 
         // Decode payload
         match kind {
@@ -138,26 +135,26 @@ impl<R: Read + Seek> LogFileReader<R> {
                 if payload.len() < 60 {
                     return ReadResult::Corrupt("RawFrame payload too short".to_string());
                 }
-                let broker_id = le_u32(&payload, 0);
+                let broker_id = le_u32(payload, 0);
                 if self.broker_id != 0 && broker_id != self.broker_id {
                     return ReadResult::Corrupt(format!(
                         "RawFrame broker {} does not match file broker {}",
                         broker_id, self.broker_id
                     ));
                 }
-                let connection_generation = le_u64(&payload, 4);
-                let frame_index = le_u64(&payload, 12);
-                let rx_mono_ns = MonoNs(le_u64(&payload, 20));
-                let rx_unix = le_i64(&payload, 28);
+                let connection_generation = le_u64(payload, 4);
+                let frame_index = le_u64(payload, 12);
+                let rx_mono_ns = MonoNs(le_u64(payload, 20));
+                let rx_unix = le_i64(payload, 28);
                 let rx_unix_ns = if (flags & 1) != 0 {
                     Some(rx_unix)
                 } else {
                     None
                 };
-                let config_epoch = le_u64(&payload, 36);
-                let analysis_segment = le_u64(&payload, 44);
-                let wire_length = le_u32(&payload, 52) as usize;
-                let disp_count = le_u32(&payload, 56) as usize;
+                let config_epoch = le_u64(payload, 36);
+                let analysis_segment = le_u64(payload, 44);
+                let wire_length = le_u32(payload, 52) as usize;
+                let disp_count = le_u32(payload, 56) as usize;
 
                 if payload.len() < 60 + wire_length + disp_count {
                     return ReadResult::Corrupt("RawFrame wire/dispositions truncated".to_string());
@@ -192,9 +189,9 @@ impl<R: Read + Seek> LogFileReader<R> {
                 if payload.len() < 20 {
                     return ReadResult::Corrupt("Metadata payload too short".to_string());
                 }
-                let config_epoch = le_u64(&payload, 0);
-                let observed_mono_ns = MonoNs(le_u64(&payload, 8));
-                let text_len = le_u32(&payload, 16) as usize;
+                let config_epoch = le_u64(payload, 0);
+                let observed_mono_ns = MonoNs(le_u64(payload, 8));
+                let text_len = le_u32(payload, 16) as usize;
                 if payload.len() < 20 + text_len {
                     return ReadResult::Corrupt("Metadata text truncated".to_string());
                 }
@@ -211,40 +208,40 @@ impl<R: Read + Seek> LogFileReader<R> {
                 if payload.len() < 64 {
                     return ReadResult::Corrupt("Diagnostic payload too short".to_string());
                 }
-                let mono_ns = MonoNs(le_u64(&payload, 0));
-                let broker_id = le_u32(&payload, 8);
+                let mono_ns = MonoNs(le_u64(payload, 0));
+                let broker_id = le_u32(payload, 8);
                 if self.broker_id != 0 && broker_id != self.broker_id {
                     return ReadResult::Corrupt(format!(
                         "Diagnostic broker {} does not match file broker {}",
                         broker_id, self.broker_id
                     ));
                 }
-                let severity_num = le_u16(&payload, 12);
-                let d_flags = le_u16(&payload, 14);
-                let session_raw = le_u64(&payload, 16);
+                let severity_num = le_u16(payload, 12);
+                let d_flags = le_u16(payload, 14);
+                let session_raw = le_u64(payload, 16);
                 let session_id = if (d_flags & (1 << 0)) != 0 {
                     Some(session_raw)
                 } else {
                     None
                 };
 
-                let first = le_u64(&payload, 24);
-                let last = le_u64(&payload, 32);
+                let first = le_u64(payload, 24);
+                let last = le_u64(payload, 32);
                 let sequence_range = if (d_flags & (1 << 1)) != 0 {
                     Some((first, last))
                 } else {
                     None
                 };
 
-                let count_raw = le_u64(&payload, 40);
+                let count_raw = le_u64(payload, 40);
                 let known_count = if (d_flags & (1 << 2)) != 0 {
                     Some(count_raw)
                 } else {
                     None
                 };
-                let detail_value = le_i64(&payload, 48);
-                let code_len = le_u32(&payload, 56) as usize;
-                let msg_len = le_u32(&payload, 60) as usize;
+                let detail_value = le_i64(payload, 48);
+                let code_len = le_u32(payload, 56) as usize;
+                let msg_len = le_u32(payload, 60) as usize;
 
                 if payload.len() < 64 + code_len + msg_len {
                     return ReadResult::Corrupt("Diagnostic text truncated".to_string());

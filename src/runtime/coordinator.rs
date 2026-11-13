@@ -299,7 +299,7 @@ impl RuntimeCoordinator {
                 let projection_start = diagnostics_pub.as_ref().map(|_| Instant::now());
                 let proj = {
                     let eng = eng_pub.lock();
-                    eng.make_projection_at(now_utc, clk_sample.mono_ns)
+                    eng.make_projection_at_with_analytics(now_utc, clk_sample.mono_ns, false)
                 };
                 if let (Some(diagnostics), Some(start)) = (&diagnostics_pub, projection_start) {
                     diagnostics.record_duration(DiagnosticStage::ProjectionBuild, start.elapsed());
@@ -356,29 +356,26 @@ impl RuntimeCoordinator {
     ) {
         // Once shutdown begins, receivers are stopped first and every frame
         // already accepted into ingress is processed before this worker exits.
+        let mut batch = Vec::with_capacity(65);
         while running.load(Ordering::SeqCst) || !rx.is_empty() {
             match rx.recv_timeout(Duration::from_millis(20)) {
                 Ok(item) => {
-                    let mut eng = engine.lock();
-                    if diagnostics_enabled {
-                        eng.on_ingress_item_at(item, clock.sample().mono_ns);
-                    } else {
-                        eng.on_ingress_item(item);
-                    }
-                    // Batch drain up to 64 additional immediately available items under the same lock
+                    batch.push(item);
                     for _ in 0..64 {
                         match rx.try_recv() {
-                            Ok(next_item) => {
-                                if diagnostics_enabled {
-                                    eng.on_ingress_item_at(next_item, clock.sample().mono_ns);
-                                } else {
-                                    eng.on_ingress_item(next_item);
-                                }
-                            }
+                            Ok(next_item) => batch.push(next_item),
                             Err(_) => break,
                         }
                     }
-                    drop(eng);
+                    let mono_ns = if diagnostics_enabled {
+                        clock.sample().mono_ns
+                    } else {
+                        crate::core::types::MonoNs::ZERO
+                    };
+                    {
+                        let mut eng = engine.lock();
+                        eng.on_ingress_batch(batch.drain(..), mono_ns);
+                    }
 
                     // Signal publisher immediately
                     {

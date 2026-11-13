@@ -31,31 +31,38 @@ pub const RECORD_KIND_DIAGNOSTIC: u16 = 3;
 ///
 /// Never fails today; the `Result` keeps a future encoding failure from changing every call site.
 pub fn encode_record(record: &LogRecord, record_index: u64) -> Result<Vec<u8>, StorageError> {
-    let mut payload = Vec::new();
+    let estimated_payload = match record {
+        LogRecord::RawFrame(raw) => 48 + raw.raw_wire_bytes.len() + raw.dispositions.len(),
+        LogRecord::Metadata(meta) => 20 + meta.toml_text.len(),
+        LogRecord::Diagnostic(diag) => 64 + diag.code.len() + diag.message.len(),
+    };
+    let mut envelope = Vec::with_capacity(RECORD_ENVELOPE_LEN + estimated_payload);
+    envelope.resize(RECORD_ENVELOPE_LEN, 0);
+
     let (kind, flags) = match record {
         LogRecord::RawFrame(raw) => {
             let flags: u16 = u16::from(raw.rx_unix_ns.is_some());
-            payload.extend_from_slice(&raw.broker_id.to_le_bytes());
-            payload.extend_from_slice(&raw.connection_generation.to_le_bytes());
-            payload.extend_from_slice(&raw.frame_index.to_le_bytes());
-            payload.extend_from_slice(&raw.rx_mono_ns.0.to_le_bytes());
-            payload.extend_from_slice(&raw.rx_unix_ns.unwrap_or(0).to_le_bytes());
-            payload.extend_from_slice(&raw.config_epoch.to_le_bytes());
-            payload.extend_from_slice(&raw.analysis_segment.to_le_bytes());
-            payload.extend_from_slice(&(raw.raw_wire_bytes.len() as u32).to_le_bytes());
-            payload.extend_from_slice(&(raw.dispositions.len() as u32).to_le_bytes());
-            payload.extend_from_slice(&raw.raw_wire_bytes);
+            envelope.extend_from_slice(&raw.broker_id.to_le_bytes());
+            envelope.extend_from_slice(&raw.connection_generation.to_le_bytes());
+            envelope.extend_from_slice(&raw.frame_index.to_le_bytes());
+            envelope.extend_from_slice(&raw.rx_mono_ns.0.to_le_bytes());
+            envelope.extend_from_slice(&raw.rx_unix_ns.unwrap_or(0).to_le_bytes());
+            envelope.extend_from_slice(&raw.config_epoch.to_le_bytes());
+            envelope.extend_from_slice(&raw.analysis_segment.to_le_bytes());
+            envelope.extend_from_slice(&(raw.raw_wire_bytes.len() as u32).to_le_bytes());
+            envelope.extend_from_slice(&(raw.dispositions.len() as u32).to_le_bytes());
+            envelope.extend_from_slice(&raw.raw_wire_bytes);
             for d in &raw.dispositions {
-                payload.push(*d as u8);
+                envelope.push(*d as u8);
             }
             (RECORD_KIND_RAW_FRAME, flags)
         }
         LogRecord::Metadata(meta) => {
-            payload.extend_from_slice(&meta.config_epoch.to_le_bytes());
-            payload.extend_from_slice(&meta.observed_mono_ns.0.to_le_bytes());
+            envelope.extend_from_slice(&meta.config_epoch.to_le_bytes());
+            envelope.extend_from_slice(&meta.observed_mono_ns.0.to_le_bytes());
             let text_bytes = meta.toml_text.as_bytes();
-            payload.extend_from_slice(&(text_bytes.len() as u32).to_le_bytes());
-            payload.extend_from_slice(text_bytes);
+            envelope.extend_from_slice(&(text_bytes.len() as u32).to_le_bytes());
+            envelope.extend_from_slice(text_bytes);
             (RECORD_KIND_METADATA, 0)
         }
         LogRecord::Diagnostic(diag) => {
@@ -70,41 +77,35 @@ pub fn encode_record(record: &LogRecord, record_index: u64) -> Result<Vec<u8>, S
                 flags |= 1 << 2;
             }
 
-            payload.extend_from_slice(&diag.mono_ns.0.to_le_bytes());
-            payload.extend_from_slice(&diag.broker_id.to_le_bytes());
-            payload.extend_from_slice(&(diag.severity as u16).to_le_bytes());
-            payload.extend_from_slice(&flags.to_le_bytes());
-            payload.extend_from_slice(&diag.session_id.unwrap_or(0).to_le_bytes());
+            envelope.extend_from_slice(&diag.mono_ns.0.to_le_bytes());
+            envelope.extend_from_slice(&diag.broker_id.to_le_bytes());
+            envelope.extend_from_slice(&(diag.severity as u16).to_le_bytes());
+            envelope.extend_from_slice(&flags.to_le_bytes());
+            envelope.extend_from_slice(&diag.session_id.unwrap_or(0).to_le_bytes());
 
             let (first, last) = diag.sequence_range.unwrap_or((0, 0));
-            payload.extend_from_slice(&first.to_le_bytes());
-            payload.extend_from_slice(&last.to_le_bytes());
-            payload.extend_from_slice(&diag.known_count.unwrap_or(0).to_le_bytes());
-            payload.extend_from_slice(&diag.detail_value.to_le_bytes());
+            envelope.extend_from_slice(&first.to_le_bytes());
+            envelope.extend_from_slice(&last.to_le_bytes());
+            envelope.extend_from_slice(&diag.known_count.unwrap_or(0).to_le_bytes());
+            envelope.extend_from_slice(&diag.detail_value.to_le_bytes());
 
             let code_bytes = diag.code.as_bytes();
             let msg_bytes = diag.message.as_bytes();
-            payload.extend_from_slice(&(code_bytes.len() as u32).to_le_bytes());
-            payload.extend_from_slice(&(msg_bytes.len() as u32).to_le_bytes());
-            payload.extend_from_slice(code_bytes);
-            payload.extend_from_slice(msg_bytes);
+            envelope.extend_from_slice(&(code_bytes.len() as u32).to_le_bytes());
+            envelope.extend_from_slice(&(msg_bytes.len() as u32).to_le_bytes());
+            envelope.extend_from_slice(code_bytes);
+            envelope.extend_from_slice(msg_bytes);
             (RECORD_KIND_DIAGNOSTIC, 0)
         }
     };
 
-    let total_len = (RECORD_ENVELOPE_LEN + payload.len()) as u32;
-    let mut envelope = vec![0u8; total_len as usize];
-
+    let total_len = envelope.len() as u32;
     envelope[0..4].copy_from_slice(&total_len.to_le_bytes());
     envelope[4..6].copy_from_slice(&kind.to_le_bytes());
     envelope[6..8].copy_from_slice(&flags.to_le_bytes());
     envelope[8..16].copy_from_slice(&record_index.to_le_bytes());
-    envelope[16..20].copy_from_slice(&0u32.to_le_bytes()); // Checksum = 0 during calculation
-    envelope[20..24].copy_from_slice(&0u32.to_le_bytes()); // Reserved
+    // Bytes 16..24 (checksum and reserved) remain zeroed for CRC32C calculation
 
-    envelope[RECORD_ENVELOPE_LEN..].copy_from_slice(&payload);
-
-    // Calculate CRC32C over envelope (with checksum=0) + payload
     let checksum = crc32c(&envelope);
     envelope[16..20].copy_from_slice(&checksum.to_le_bytes());
 
@@ -317,13 +318,24 @@ impl AsyncLogger {
         let mut next_file_id = 1_u64;
         let mut last_flush = std::time::Instant::now();
         let flush_interval = Duration::from_millis(flush_interval_ms);
+        let mut cached_utc_day: Option<(u64, String)> = None;
 
         while running.load(Ordering::SeqCst) || !receiver.is_empty() {
             match receiver.recv_timeout(Duration::from_millis(10)) {
                 Ok(LogCommand::Record(command)) => {
                     queued_bytes.fetch_sub(command.queued_bytes, Ordering::SeqCst);
                     let broker_id = log_broker_id(&command.record);
-                    let utc_date = utc_date_now();
+                    let current_day = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_secs() / 86_400);
+                    let utc_date: &str = match &cached_utc_day {
+                        Some((day, date_str)) if *day == current_day => date_str.as_str(),
+                        _ => {
+                            let fresh = utc_date_now();
+                            cached_utc_day = Some((current_day, fresh));
+                            &cached_utc_day.as_ref().unwrap().1
+                        }
+                    };
                     let write_result = (|| -> Result<(), String> {
                         let needs_new_writer = writers
                             .get(&broker_id)
@@ -337,12 +349,12 @@ impl AsyncLogger {
                                 run_id,
                                 next_file_id,
                                 broker_id,
-                                &utc_date,
+                                utc_date,
                             )?;
                             writers.insert(
                                 broker_id,
                                 ActiveLog {
-                                    utc_date,
+                                    utc_date: utc_date.to_owned(),
                                     writer,
                                     next_record_index: 0,
                                 },

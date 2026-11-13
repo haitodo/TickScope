@@ -207,7 +207,7 @@ pub fn draw_mid_diff_chart(
     draw_difference_header(painter, plot_rect, rect, &header, theme.diff_line);
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
-    let mut previous = None;
+    let mut points = Vec::with_capacity(series.len());
     for (index, pt) in series.iter().enumerate() {
         if let Some(x) = x_axis_coordinate(
             x_axis_mode,
@@ -219,12 +219,14 @@ pub fn draw_mid_diff_chart(
             visible_seconds,
             visible_ticks,
         ) {
-            let position = Pos2::new(x, diff_to_y(pt.mid_diff));
-            if let Some(previous) = previous {
-                painter.line_segment([previous, position], Stroke::new(1.5_f32, theme.diff_line));
-            }
-            previous = Some(position);
+            points.push(Pos2::new(x, diff_to_y(pt.mid_diff)));
         }
+    }
+    if points.len() >= 2 {
+        painter.add(egui::Shape::line(
+            points,
+            Stroke::new(1.5_f32, theme.diff_line),
+        ));
     }
 }
 
@@ -297,8 +299,8 @@ pub fn draw_bid_ask_diff_chart(
     draw_difference_header(painter, plot_rect, rect, &header, Color32::WHITE);
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
-    let mut previous_bid = None;
-    let mut previous_ask = None;
+    let mut bid_points = Vec::with_capacity(series.len());
+    let mut ask_points = Vec::with_capacity(series.len());
     for (index, pt) in series.iter().enumerate() {
         if let Some(x) = x_axis_coordinate(
             x_axis_mode,
@@ -310,34 +312,21 @@ pub fn draw_bid_ask_diff_chart(
             visible_seconds,
             visible_ticks,
         ) {
-            let position = Pos2::new(x, diff_to_y(pt.bid_diff));
-            if let Some(previous) = previous_bid {
-                painter.line_segment(
-                    [previous, position],
-                    Stroke::new(1.5_f32, theme.bid_diff_line),
-                );
-            }
-            previous_bid = Some(position);
+            bid_points.push(Pos2::new(x, diff_to_y(pt.bid_diff)));
+            ask_points.push(Pos2::new(x, diff_to_y(pt.ask_diff)));
         }
-        if let Some(x) = x_axis_coordinate(
-            x_axis_mode,
-            plot_rect,
-            index,
-            series.len(),
-            pt.mono_ns,
-            now_mono,
-            visible_seconds,
-            visible_ticks,
-        ) {
-            let position = Pos2::new(x, diff_to_y(pt.ask_diff));
-            if let Some(previous) = previous_ask {
-                painter.line_segment(
-                    [previous, position],
-                    Stroke::new(1.5_f32, theme.ask_diff_line),
-                );
-            }
-            previous_ask = Some(position);
-        }
+    }
+    if bid_points.len() >= 2 {
+        painter.add(egui::Shape::line(
+            bid_points,
+            Stroke::new(1.5_f32, theme.bid_diff_line),
+        ));
+    }
+    if ask_points.len() >= 2 {
+        painter.add(egui::Shape::line(
+            ask_points,
+            Stroke::new(1.5_f32, theme.ask_diff_line),
+        ));
     }
 }
 
@@ -420,7 +409,7 @@ pub fn draw_spread_diff_chart(
     draw_difference_header(painter, plot_rect, rect, &header, theme.spread_diff_line);
 
     draw_x_axis_caption(painter, rect, x_axis_mode, visible_seconds, visible_ticks);
-    let mut previous = None;
+    let mut points = Vec::with_capacity(series.len());
     for (index, pt) in series.iter().enumerate() {
         if let Some(x) = x_axis_coordinate(
             x_axis_mode,
@@ -432,15 +421,14 @@ pub fn draw_spread_diff_chart(
             visible_seconds,
             visible_ticks,
         ) {
-            let position = Pos2::new(x, diff_to_y(pt.spread_diff));
-            if let Some(previous) = previous {
-                painter.line_segment(
-                    [previous, position],
-                    Stroke::new(1.5_f32, theme.spread_diff_line),
-                );
-            }
-            previous = Some(position);
+            points.push(Pos2::new(x, diff_to_y(pt.spread_diff)));
         }
+    }
+    if points.len() >= 2 {
+        painter.add(egui::Shape::line(
+            points,
+            Stroke::new(1.5_f32, theme.spread_diff_line),
+        ));
     }
 }
 

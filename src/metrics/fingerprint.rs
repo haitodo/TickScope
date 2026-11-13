@@ -244,14 +244,24 @@ impl BrokerFingerprintTracker {
 
         let median_delay_ms = if self.delays_ms.is_empty() {
             0.0
+        } else if self.delays_ms.len() == 1 {
+            self.delays_ms[0]
         } else {
-            let mut sorted: Vec<f64> = self.delays_ms.iter().copied().collect();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let mid = sorted.len() / 2;
-            if sorted.len() % 2 == 0 {
-                (sorted[mid - 1] + sorted[mid]) / 2.0
+            let mut buf: Vec<f64> = self.delays_ms.iter().copied().collect();
+            let len = buf.len();
+            let mid = len / 2;
+            let cmp = |a: &f64, b: &f64| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal);
+            let (left, mid_val, _) = buf.select_nth_unstable_by(mid, cmp);
+            let hi = *mid_val;
+            if len % 2 == 0 {
+                let lo = left
+                    .iter()
+                    .copied()
+                    .max_by(cmp)
+                    .unwrap_or(hi);
+                (lo + hi) / 2.0
             } else {
-                sorted[mid]
+                hi
             }
         };
 

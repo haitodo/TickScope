@@ -9,7 +9,7 @@
 use crate::core::models::{MoveDirection, MoveEvent};
 use crate::core::types::{BrokerId, MonoNs};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 /// Geometric classification of quote changes.
 /// Reference: RFC Beta 0.3 §34, §35.
@@ -314,30 +314,9 @@ impl MultiBrokerBurstDetector {
         stale_count: usize,
         now_mono: MonoNs,
     ) -> MoveBreadth {
-        let cutoff = now_mono.0.saturating_sub(self.window_ns);
-        let mut latest_dir: HashMap<BrokerId, MoveDirection> = HashMap::new();
-
-        for ev in &self.recent_events {
-            if ev.rx_mono_ns.0 >= cutoff && ev.rx_mono_ns <= now_mono {
-                latest_dir.insert(ev.broker_id, ev.direction);
-            }
-        }
-
-        let mut up_count = 0;
-        let mut down_count = 0;
-        for dir in latest_dir.values() {
-            match dir {
-                MoveDirection::Up => up_count += 1,
-                MoveDirection::Down => down_count += 1,
-            }
-        }
-
-        MoveBreadth {
-            up_count,
-            down_count,
-            stale_count,
-            total_brokers,
-        }
+        let mut breadth = self.compute_breadth_with_stale_brokers(total_brokers, &[], now_mono);
+        breadth.stale_count = stale_count;
+        breadth
     }
 
     /// Compute directional `MoveBreadth` explicitly filtering out known stale brokers.
@@ -349,20 +328,38 @@ impl MultiBrokerBurstDetector {
         now_mono: MonoNs,
     ) -> MoveBreadth {
         let cutoff = now_mono.0.saturating_sub(self.window_ns);
-        let mut latest_dir: HashMap<BrokerId, MoveDirection> = HashMap::new();
+        // Zero-heap inline table for up to 16 brokers; overflows to overflow_dirs only if > 16 brokers are active.
+        let mut stack_dirs: [Option<(BrokerId, MoveDirection)>; 16] = [None; 16];
+        let mut stack_len = 0usize;
+        let mut overflow_dirs: Vec<(BrokerId, MoveDirection)> = Vec::new();
 
-        for ev in &self.recent_events {
-            if ev.rx_mono_ns.0 >= cutoff
-                && ev.rx_mono_ns <= now_mono
-                && !stale_brokers.contains(&ev.broker_id)
+        for ev in self.recent_events.iter().rev() {
+            if ev.rx_mono_ns.0 < cutoff || ev.rx_mono_ns > now_mono || stale_brokers.contains(&ev.broker_id) {
+                continue;
+            }
+            let bid = ev.broker_id;
+            if stack_dirs[..stack_len].iter().any(|e| matches!(e, Some((b, _)) if *b == bid))
+                || overflow_dirs.iter().any(|(b, _)| *b == bid)
             {
-                latest_dir.insert(ev.broker_id, ev.direction);
+                continue;
+            }
+            if stack_len < stack_dirs.len() {
+                stack_dirs[stack_len] = Some((bid, ev.direction));
+                stack_len += 1;
+            } else {
+                overflow_dirs.push((bid, ev.direction));
             }
         }
 
-        let mut up_count = 0;
-        let mut down_count = 0;
-        for dir in latest_dir.values() {
+        let mut up_count = 0usize;
+        let mut down_count = 0usize;
+        for entry in stack_dirs[..stack_len].iter().flatten() {
+            match entry.1 {
+                MoveDirection::Up => up_count += 1,
+                MoveDirection::Down => down_count += 1,
+            }
+        }
+        for &(_, dir) in &overflow_dirs {
             match dir {
                 MoveDirection::Up => up_count += 1,
                 MoveDirection::Down => down_count += 1,

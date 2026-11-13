@@ -69,6 +69,7 @@ pub struct DashboardApp {
     pub(crate) window_geometry: WindowGeometryState,
     pub(crate) window_reset_in_progress: u8,
     pub(crate) state_dirty: bool,
+    pub(crate) last_state_save: std::time::Instant,
     pub(crate) repaint_registered: bool,
     pub(crate) dpi_drag_fix_installed: bool,
     pub(crate) mt5_minimized: bool,
@@ -137,6 +138,7 @@ impl DashboardApp {
             window_geometry: WindowGeometryState::default(),
             window_reset_in_progress: 0,
             state_dirty: false,
+            last_state_save: std::time::Instant::now(),
             repaint_registered: false,
             dpi_drag_fix_installed: false,
             mt5_minimized: true,
@@ -332,6 +334,7 @@ impl DashboardApp {
     }
 
     pub fn save_state(&mut self) {
+        self.last_state_save = std::time::Instant::now();
         if let Some(path) = &self.ui_state_path {
             let state = self.current_ui_state();
             if let Err(e) = save_ui_state(path, &state) {
@@ -1098,7 +1101,11 @@ impl DashboardApp {
             }
         });
 
-        if self.state_dirty || ctx.input(|i| i.viewport().close_requested()) {
+        let close_requested = ctx.input(|i| i.viewport().close_requested());
+        if close_requested
+            || (self.state_dirty
+                && self.last_state_save.elapsed() >= std::time::Duration::from_millis(500))
+        {
             self.save_state();
         }
     }
