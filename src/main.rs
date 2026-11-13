@@ -215,8 +215,7 @@ fn main() -> eframe::Result<()> {
 
     // Reload the latest UI state persisted during app lifecycle
     let final_ui_state = tick_scope::ui::load_ui_state(&ui_state_path).unwrap_or(ui_state);
-    let should_auto_close =
-        final_ui_state.mt5_auto_close || coordinator.config.mt5.auto_close_terminals;
+    let should_auto_close = final_ui_state.mt5_auto_close;
 
     if should_auto_close {
         let mut tm = tick_scope::runtime::TerminalManager::new();

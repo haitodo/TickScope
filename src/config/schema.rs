@@ -383,7 +383,7 @@ pub struct Mt5DeployConfig {
     pub custom_data_dirs: Vec<String>,
     #[serde(default = "default_false")]
     pub auto_launch_terminals: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub auto_close_terminals: bool,
     #[serde(default = "default_true")]
     pub launch_minimized: bool,
@@ -397,7 +397,7 @@ impl Default for Mt5DeployConfig {
             auto_deploy: default_true(),
             custom_data_dirs: Vec::new(),
             auto_launch_terminals: false,
-            auto_close_terminals: true,
+            auto_close_terminals: false,
             launch_minimized: true,
             non_minimized_broker: default_non_minimized_broker(),
         }
