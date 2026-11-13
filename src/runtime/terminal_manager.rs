@@ -9,7 +9,7 @@ use crate::core::types::BrokerId;
 use crate::deploy::discovery::{read_origin, DiscoveredTerminal};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::thread;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -236,7 +236,7 @@ impl TerminalManager {
     /// Request graceful close of terminal for a single broker.
     pub fn stop(&mut self, broker_id: BrokerId, timeout: Duration) {
         if let Some(pid) = self.get_status(broker_id).pid() {
-            stop_terminal_process_async(pid, timeout);
+            let _ = stop_terminal_process(pid, timeout);
         }
     }
 
@@ -244,6 +244,21 @@ impl TerminalManager {
     pub fn stop_multiple(&mut self, broker_ids: &[BrokerId], timeout: Duration) {
         for &id in broker_ids {
             self.stop(id, timeout);
+        }
+    }
+
+    /// Request graceful close of terminals for multiple brokers and block until all have closed or timed out.
+    pub fn stop_multiple_and_wait(&mut self, broker_ids: &[BrokerId], timeout: Duration) {
+        let mut handles = Vec::new();
+        for &id in broker_ids {
+            if let Some(pid) = self.get_status(id).pid() {
+                if let Some(handle) = stop_terminal_process(pid, timeout) {
+                    handles.push(handle);
+                }
+            }
+        }
+        for handle in handles {
+            let _ = handle.join();
         }
     }
 }
@@ -424,7 +439,7 @@ fn launch_terminal_process(exe_path: &Path, _minimized: bool) -> Result<u32, Str
 }
 
 #[cfg(windows)]
-fn stop_terminal_process_async(pid: u32, timeout: Duration) {
+fn stop_terminal_process(pid: u32, timeout: Duration) -> Option<JoinHandle<()>> {
     use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, WAIT_TIMEOUT};
     use windows_sys::Win32::System::Threading::{
         OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
@@ -443,7 +458,7 @@ fn stop_terminal_process_async(pid: u32, timeout: Duration) {
         1 // Continue enumeration
     }
 
-    thread::spawn(move || unsafe {
+    Some(std::thread::spawn(move || unsafe {
         log::info!("[TerminalManager] Posting WM_CLOSE to MT5 terminal (PID: {pid})...");
         // Post WM_CLOSE to all top-level windows of target process
         EnumWindows(Some(enum_windows_proc), pid as LPARAM);
@@ -465,11 +480,13 @@ fn stop_terminal_process_async(pid: u32, timeout: Duration) {
             log::info!("[TerminalManager] MT5 terminal (PID: {pid}) exited cleanly.");
         }
         CloseHandle(process_handle);
-    });
+    }))
 }
 
 #[cfg(not(windows))]
-fn stop_terminal_process_async(_pid: u32, _timeout: Duration) {}
+fn stop_terminal_process(_pid: u32, _timeout: Duration) -> Option<JoinHandle<()>> {
+    None
+}
 
 #[cfg(test)]
 mod tests {

@@ -34,6 +34,12 @@ fn test_engine_initializes_verified_offsets_at_startup() {
 
     assert_eq!(proj.broker_overviews.len(), 5);
 
+    // All brokers use NyClose rule, so offset must match resolution of current time
+    let now_sec = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as i64;
+    let expected_offset = TimezoneRule::NyClose.resolve_offset(now_sec, 0);
+
     // Engine must have all 5 brokers initialized with verified = true
     for b in &proj.broker_overviews {
         assert_eq!(
@@ -43,10 +49,9 @@ fn test_engine_initializes_verified_offsets_at_startup() {
             b.broker_id,
             b.name
         );
-        // Summer time (today): offset must be +10800 (+3h)
         assert_eq!(
-            b.active_utc_offset_sec, 10800,
-            "Broker {} ({}) must resolve to +10800s (GMT+3) in summer",
+            b.active_utc_offset_sec, expected_offset,
+            "Broker {} ({}) must resolve to current season offset ({expected_offset}s)",
             b.broker_id, b.name
         );
     }

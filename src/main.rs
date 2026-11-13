@@ -135,7 +135,6 @@ fn main() -> eframe::Result<()> {
 
     let should_auto_launch =
         ui_state.mt5_auto_launch || coordinator.config.mt5.auto_launch_terminals;
-    let should_auto_close = ui_state.mt5_auto_close || coordinator.config.mt5.auto_close_terminals;
 
     if should_auto_launch && !ui_state.mt5_launch_targets.is_empty() {
         log::info!(
@@ -165,7 +164,7 @@ fn main() -> eframe::Result<()> {
         .with_mt5_config(coordinator.config.mt5.clone())
         .with_discovered_terminals(discovered_terminals.clone())
         .with_ui_state(&ui_state)
-        .with_ui_state_path(ui_state_path)
+        .with_ui_state_path(ui_state_path.clone())
         .with_pair_selection_handler(coordinator.pair_selection_handler());
     #[cfg(windows)]
     let app = app.with_oanda_auto_login();
@@ -214,17 +213,27 @@ fn main() -> eframe::Result<()> {
         }),
     );
 
+    // Reload the latest UI state persisted during app lifecycle
+    let final_ui_state = tick_scope::ui::load_ui_state(&ui_state_path).unwrap_or(ui_state);
+    let should_auto_close =
+        final_ui_state.mt5_auto_close || coordinator.config.mt5.auto_close_terminals;
+
     if should_auto_close {
-        log::info!("[MT5 Auto-Close] Auto-closing running MT5 terminals...");
         let mut tm = tick_scope::runtime::TerminalManager::new();
         tm.poll_status(&coordinator.config.brokers, &discovered_terminals, true);
-        let running_targets: Vec<_> = ui_state
+        let running_targets: Vec<_> = final_ui_state
             .mt5_launch_targets
             .iter()
             .copied()
             .filter(|&id| tm.get_status(id).is_running())
             .collect();
-        tm.stop_multiple(&running_targets, std::time::Duration::from_secs(5));
+        if !running_targets.is_empty() {
+            log::info!(
+                "[MT5 Auto-Close] Auto-closing {} running MT5 terminal(s)...",
+                running_targets.len()
+            );
+            tm.stop_multiple_and_wait(&running_targets, std::time::Duration::from_secs(5));
+        }
     }
 
     coordinator.stop();

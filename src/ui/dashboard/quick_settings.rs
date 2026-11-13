@@ -296,7 +296,13 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
             });
 
             ui.checkbox(&mut app.mt5_auto_launch, "Auto-launch target MT5s on start");
-            ui.checkbox(&mut app.mt5_auto_close, "Auto-close running MT5s on exit");
+            ui.checkbox(
+                &mut app.mt5_auto_close,
+                "TickScope終了時に起動中MT5も自動終了",
+            )
+            .on_hover_text(
+                "ウィンドウの×ボタンでTickScopeを終了する際、\n監視対象の起動中MT5端末を安全に正常終了（WM_CLOSE）します。",
+            );
             ui.checkbox(&mut app.mt5_minimized, "Launch Minimized (最小化起動)");
 
             #[cfg(windows)]

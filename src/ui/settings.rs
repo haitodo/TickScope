@@ -239,7 +239,7 @@ pub struct UiState {
     pub mt5_launch_targets: Vec<BrokerId>,
     #[serde(default)]
     pub mt5_auto_launch: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub mt5_auto_close: bool,
     #[serde(default = "default_non_minimized_broker_id")]
     pub mt5_non_minimized_broker: Option<BrokerId>,
@@ -274,7 +274,7 @@ impl Default for UiState {
             mt5_minimized: true,
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
-            mt5_auto_close: false,
+            mt5_auto_close: true,
             mt5_non_minimized_broker: default_non_minimized_broker_id(),
             always_on_top: true,
             chart_timezone: ChartTimeZone::default(),
@@ -883,5 +883,22 @@ mod tests {
         };
         geom_nan.sanitize();
         assert_eq!(geom_nan.physical_inner_size, None);
+    }
+
+    #[test]
+    fn test_ui_state_default_auto_close_is_true() {
+        let default_state = UiState::default();
+        assert!(
+            default_state.mt5_auto_close,
+            "mt5_auto_close must default to true"
+        );
+
+        // Deserializing empty JSON object should also set mt5_auto_close to true
+        let deserialized: UiState =
+            serde_json::from_str("{}").expect("empty JSON should deserialize with defaults");
+        assert!(
+            deserialized.mt5_auto_close,
+            "mt5_auto_close must default to true when omitted in JSON"
+        );
     }
 }

@@ -142,7 +142,7 @@ impl DashboardApp {
             mt5_minimized: true,
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
-            mt5_auto_close: false,
+            mt5_auto_close: true,
             mt5_non_minimized_broker: Some(5),
             always_on_top: true,
             show_mt5_stop_confirm_modal: false,
