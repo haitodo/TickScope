@@ -10,7 +10,7 @@ pub fn setup_fonts(ctx: &egui::Context) {
     if let Some((name, font_bytes)) = load_system_cjk_font() {
         fonts
             .font_data
-            .insert(name.clone(), FontData::from_owned(font_bytes));
+            .insert(name.clone(), FontData::from_owned(font_bytes).into());
 
         // Append the CJK font as a fallback for both Proportional and Monospace.
         // This preserves default clean ASCII/Latin glyphs while resolving Japanese

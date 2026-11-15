@@ -19,12 +19,12 @@ use egui::{Color32, RichText};
 /// the metric toolbar selector, and the chosen bottom indicator chart.
 pub fn render_charts_view(
     app: &mut DashboardApp,
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     snapshot: &UiSnapshot,
     name_a: &str,
     name_b: &str,
 ) {
-    egui::CentralPanel::default().show(ctx, |ui| {
+    egui::CentralPanel::default().show(ui, |ui| {
         let available_rect = ui.available_rect_before_wrap();
         let toolbar_height = 24.0;
         let available_chart_space = (available_rect.height() - toolbar_height - 8.0).max(100.0);
@@ -141,7 +141,7 @@ pub fn render_charts_view(
             egui::Vec2::new(available_rect.width(), toolbar_height),
         );
 
-        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(toolbar_rect), |ui| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(toolbar_rect), |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
 
@@ -261,7 +261,7 @@ pub fn render_charts_view(
                                     .clicked()
                                 {
                                     app.set_broker_a(b.broker_id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         },
@@ -331,7 +331,7 @@ pub fn render_charts_view(
                                     && ui.selectable_label(b.broker_id == app.selected_broker_a, &b.name).clicked()
                                 {
                                     app.set_broker_a(b.broker_id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         },
@@ -349,7 +349,7 @@ pub fn render_charts_view(
                                     && ui.selectable_label(b.broker_id == app.selected_broker_b, &b.name).clicked()
                                 {
                                     app.set_broker_b(b.broker_id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         },
@@ -567,13 +567,13 @@ pub fn render_charts_view(
         }
 
         // Quick Settings Popover
-        quick_settings::render_quick_settings(app, ctx, snapshot);
+        quick_settings::render_quick_settings(app, ui.ctx(), snapshot);
 
         // Debug Overlay
         if app.show_debug_overlay {
             egui::Window::new("Debug Diagnostics")
                 .default_size([400.0, 250.0])
-                .show(ctx, |ui| {
+                .show(ui.ctx(), |ui| {
                     ui.label(format!("Snapshot Rev: {}", snapshot.snapshot_revision));
                     ui.label(format!("Projection Rev: {}", snapshot.projection_revision));
                     ui.label(format!(

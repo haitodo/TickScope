@@ -788,7 +788,8 @@ impl DashboardApp {
         self.set_top_x_axis_mode(mode);
     }
 
-    pub fn render_ui(&mut self, ctx: &egui::Context) {
+    pub fn render_ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
         let ui_render_start = self.diagnostics.as_ref().map(|_| Instant::now());
         let prev_candle = self.show_candle_context;
         let prev_timeframe = self.selected_timeframe_ms;
@@ -818,11 +819,11 @@ impl DashboardApp {
         }
 
         if !self.fonts_configured {
-            setup_fonts(ctx);
+            setup_fonts(&ctx);
             self.fonts_configured = true;
         }
         if !self.style_configured {
-            style::configure(ctx);
+            style::configure(&ctx);
             self.style_configured = true;
         }
         if !self.repaint_registered {
@@ -851,13 +852,13 @@ impl DashboardApp {
         let name_b = broker_name(&snapshot.broker_overviews, self.selected_broker_b, "B");
 
         // 1. Top Panel: Header context controls and HUD
-        header::render_top_header(self, ctx, &snapshot, name_a, name_b);
+        header::render_top_header(self, ui, &snapshot, name_a, name_b);
 
         // 2. Broker Overview panel of ALL configured brokers (collapsible)
-        broker_overview::render_broker_overview(self, ctx, &snapshot);
+        broker_overview::render_broker_overview(self, ui, &snapshot);
 
         // 3. State Ribbon at Bottom
-        egui::TopBottomPanel::bottom("state_ribbon").show(ctx, |ui| {
+        egui::Panel::bottom("state_ribbon").show(ui, |ui| {
             draw_state_ribbon(
                 ui,
                 &snapshot.broker_overviews,
@@ -868,10 +869,10 @@ impl DashboardApp {
         });
 
         // 4. Keyboard Shortcuts
-        self.handle_hotkeys(ctx, &snapshot);
+        self.handle_hotkeys(&ctx, &snapshot);
 
         // 5. Main Charts Area
-        charts_view::render_charts_view(self, ctx, &snapshot, name_a, name_b);
+        charts_view::render_charts_view(self, ui, &snapshot, name_a, name_b);
 
         // Check if any interactive UI settings changed during this frame
         if self.show_candle_context != prev_candle
@@ -934,7 +935,7 @@ impl DashboardApp {
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
                     ui.label(RichText::new("起動中のMT5端末を終了しますか？").strong());
                     if running_names.is_empty() {
@@ -972,7 +973,7 @@ impl DashboardApp {
         }
 
         // 7. Track window geometry and auto-persist state
-        self.track_window_geometry(ctx);
+        self.track_window_geometry(&ctx);
 
         if let (Some(diagnostics), Some(start)) = (&self.diagnostics, ui_render_start) {
             diagnostics.record_duration(DiagnosticStage::UiRenderWork, start.elapsed());
@@ -1118,7 +1119,7 @@ impl Drop for DashboardApp {
 }
 
 impl eframe::App for DashboardApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         #[cfg(windows)]
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -1134,14 +1135,14 @@ impl eframe::App for DashboardApp {
                 }
             }
         }
-        self.render_ui(ctx);
+        self.render_ui(ui);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::test_support::headless_app;
+    use crate::ui::test_support::{headless_app, run_headless};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
@@ -1239,8 +1240,8 @@ mod tests {
             repeat: false,
             modifiers: egui::Modifiers::NONE,
         });
-        let _ = ctx.run(input_s, |ctx| {
-            app.render_ui(ctx);
+        let _ = run_headless(&ctx, input_s, |ui| {
+            app.render_ui(ui);
         });
         assert!(app.show_quick_settings());
 
@@ -1253,8 +1254,8 @@ mod tests {
             repeat: false,
             modifiers: egui::Modifiers::NONE,
         });
-        let _ = ctx.run(input_esc, |ctx| {
-            app.render_ui(ctx);
+        let _ = run_headless(&ctx, input_esc, |ui| {
+            app.render_ui(ui);
         });
         assert!(!app.show_quick_settings());
 
@@ -1267,8 +1268,8 @@ mod tests {
             repeat: false,
             modifiers: egui::Modifiers::NONE,
         });
-        let _ = ctx.run(input_comma, |ctx| {
-            app.render_ui(ctx);
+        let _ = run_headless(&ctx, input_comma, |ui| {
+            app.render_ui(ui);
         });
         assert!(app.show_quick_settings());
     }

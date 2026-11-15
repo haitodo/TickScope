@@ -1,4 +1,4 @@
-use egui::{Color32, Context, FontId, Margin, Rounding, Stroke, TextStyle, Vec2, Visuals};
+use egui::{Color32, Context, CornerRadius, FontId, Margin, Stroke, TextStyle, Vec2, Visuals};
 
 pub const BACKGROUND: Color32 = Color32::from_rgb(17, 22, 29);
 pub const SURFACE: Color32 = Color32::from_rgb(24, 31, 40);
@@ -62,7 +62,7 @@ pub const FRESH_PARTIAL: Color32 = Color32::from_rgb(255, 200, 80); // ribbon: s
 
 /// Configure once per dashboard so every native control shares the chart palette.
 pub fn configure(ctx: &Context) {
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     style
         .text_styles
         .insert(TextStyle::Body, FontId::proportional(13.0));
@@ -81,7 +81,7 @@ pub fn configure(ctx: &Context) {
     style.spacing.item_spacing = Vec2::new(8.0, 7.0);
     style.spacing.button_padding = Vec2::new(9.0, 5.0);
     style.spacing.interact_size.y = 26.0;
-    style.spacing.window_margin = Margin::same(14.0);
+    style.spacing.window_margin = Margin::same(14);
     style.animation_time = 0.12;
 
     let mut visuals = Visuals::dark();
@@ -90,8 +90,8 @@ pub fn configure(ctx: &Context) {
     visuals.extreme_bg_color = BACKGROUND;
     visuals.faint_bg_color = Color32::from_rgb(29, 37, 48);
     visuals.window_stroke = Stroke::new(1.0_f32, BORDER);
-    visuals.window_rounding = Rounding::same(10.0);
-    visuals.menu_rounding = Rounding::same(7.0);
+    visuals.window_corner_radius = CornerRadius::same(10);
+    visuals.menu_corner_radius = CornerRadius::same(7);
     visuals.selection.bg_fill = Color32::from_rgb(37, 73, 94);
     visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.hyperlink_color = ACCENT;
@@ -117,9 +117,9 @@ pub fn configure(ctx: &Context) {
         &mut visuals.widgets.active,
         &mut visuals.widgets.open,
     ] {
-        widget.rounding = Rounding::same(5.0);
+        widget.corner_radius = CornerRadius::same(5);
         widget.expansion = 0.0;
     }
     style.visuals = visuals;
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }

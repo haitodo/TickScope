@@ -12,12 +12,12 @@ use std::fmt::Write as _;
 
 pub fn render_top_header(
     app: &mut DashboardApp,
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     snapshot: &UiSnapshot,
     name_a: &str,
     name_b: &str,
 ) {
-    egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+    egui::Panel::top("top_panel").show(ui, |ui| {
         ui.horizontal(|ui| {
             // 1. Left Zone: Context Controls (操作ゾーン)
             ui.checkbox(&mut app.show_candle_context, "Candle");
@@ -200,7 +200,7 @@ pub fn render_top_header(
                     "最前面固定: オフ\nクリックして常に手前に表示 [Key: T]"
                 };
                 if pin_btn.on_hover_text(pin_hover).clicked() {
-                    app.toggle_always_on_top(ctx);
+                    app.toggle_always_on_top(ui.ctx());
                 }
 
                 if app.show_candle_context {
@@ -255,7 +255,7 @@ pub fn render_top_header(
                                 .clicked()
                             {
                                 app.set_candle_price_scale(CandlePriceScaleMode::Auto);
-                                ui.close_menu();
+                                ui.close();
                             }
 
                             for &pips in &VALID_CANDLE_FIXED_PIPS {
@@ -266,7 +266,7 @@ pub fn render_top_header(
                                     .clicked()
                                 {
                                     app.set_candle_price_scale(mode);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         });
@@ -326,7 +326,7 @@ pub fn render_top_header(
                                     .clicked()
                                 {
                                     app.set_candle_price_line_broker(Some(b.broker_id));
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         });

@@ -433,6 +433,7 @@ pub fn draw_tick_candle_view(
                 hover_badge_rect,
                 2.0,
                 Stroke::new(1.0_f32, Color32::from_rgb(100, 180, 255)),
+                egui::StrokeKind::Middle,
             );
             painter.text(
                 hover_badge_rect.center(),
@@ -467,6 +468,7 @@ pub fn draw_tick_candle_view(
             badge_rect,
             2.0,
             Stroke::new(1.0_f32, Color32::from_rgb(255, 215, 0)),
+            egui::StrokeKind::Middle,
         );
         painter.text(
             badge_rect.center(),
@@ -521,8 +523,8 @@ mod tests {
     #[test]
     fn test_draw_tick_candle_view_scaling_headless() {
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = crate::ui::test_support::run_headless(&ctx, Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let rect = Rect::from_min_size(Pos2::new(0.0, 0.0), egui::vec2(600.0, 250.0));
                 let painter = ui.painter_at(rect);
                 let theme = ChartTheme::default();

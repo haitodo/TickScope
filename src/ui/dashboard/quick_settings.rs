@@ -14,7 +14,7 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
         return;
     }
 
-    let screen_rect = ctx.screen_rect();
+    let screen_rect = ctx.content_rect();
     let top_offset = 32.0;
     let bottom_margin = 8.0;
     let side_margin = 8.0;

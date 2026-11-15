@@ -12,9 +12,10 @@ fn test_setup_fonts_and_japanese_shaping() {
         "—",
     ];
 
-    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let ctx = ui.ctx();
         for text in &test_strings {
-            let prop_galley = ctx.fonts(|f| {
+            let prop_galley = ctx.fonts_mut(|f| {
                 f.layout_no_wrap(
                     text.to_string(),
                     egui::FontId::proportional(14.0),
@@ -30,7 +31,7 @@ fn test_setup_fonts_and_japanese_shaping() {
                 "Proportional glyphs should not be empty for text: {text}"
             );
 
-            let mono_galley = ctx.fonts(|f| {
+            let mono_galley = ctx.fonts_mut(|f| {
                 f.layout_no_wrap(
                     text.to_string(),
                     egui::FontId::monospace(14.0),
@@ -47,4 +48,5 @@ fn test_setup_fonts_and_japanese_shaping() {
             );
         }
     });
+    output.textures_delta.clear();
 }

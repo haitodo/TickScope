@@ -215,7 +215,12 @@ pub fn draw_chart_clock_badge(
     };
 
     painter.rect_filled(badge_rect, 2.0, bg_color);
-    painter.rect_stroke(badge_rect, 2.0, Stroke::new(1.0_f32, stroke_color));
+    painter.rect_stroke(
+        badge_rect,
+        2.0,
+        Stroke::new(1.0_f32, stroke_color),
+        egui::StrokeKind::Middle,
+    );
 
     let bar_w = (badge_rect.width() * progress).clamp(0.0, badge_rect.width());
     if bar_w > 0.0 {
@@ -238,7 +243,7 @@ pub fn draw_chart_clock_badge(
     if let Some(ui) = ui {
         let response = ui.interact(
             badge_rect,
-            egui::Id::new("chart_clock_badge_interactive"),
+            ui.make_persistent_id("chart_clock_badge_interactive"),
             egui::Sense::click(),
         );
         if is_replay && response.clicked() {

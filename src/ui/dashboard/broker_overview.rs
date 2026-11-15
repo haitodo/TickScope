@@ -88,12 +88,13 @@ fn quote_age(age_ms: u64) -> String {
     }
 }
 
-pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snapshot: &UiSnapshot) {
+pub fn render_broker_overview(app: &mut DashboardApp, ui: &mut egui::Ui, snapshot: &UiSnapshot) {
     if !app.show_broker_overview {
         return;
     }
 
-    egui::TopBottomPanel::top("brokers_overview").show(ctx, |ui| {
+    let ctx = ui.ctx().clone();
+    egui::Panel::top("brokers_overview").show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.strong("Brokers");
             ui.label(
@@ -112,11 +113,11 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                 ui.menu_button("操作", |ui| {
                     if ui.button("順序を初期設定に戻す").clicked() {
                         app.reset_broker_order(&snapshot.broker_overviews);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("すべての業者を表示").clicked() {
                         app.show_all_brokers();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("すべてをMT5一括操作の対象にする").clicked() {
@@ -126,12 +127,12 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                             .map(|b| b.broker_id)
                             .collect();
                         app.select_all_mt5_targets(&ids);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("MT5一括操作の対象をすべて解除").clicked() {
                         app.mt5_launch_targets.clear();
                         app.state_dirty = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
             });
@@ -144,7 +145,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
 
         let row_count = ids.len().max(1);
         let content_height = ROW_HEIGHT + (row_count as f32) * (ROW_HEIGHT + 2.0) + 12.0;
-        let viewport_h = ctx.screen_rect().height();
+        let viewport_h = ctx.content_rect().height();
         let max_allowed = (viewport_h * 0.60).clamp(190.0, 550.0);
         let scroll_max_height = content_height.min(max_allowed).max(120.0);
 
@@ -208,7 +209,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                         ui.horizontal(|ui| {
                             cell(ui, widths[0], |ui| {
                                 ui.dnd_drag_source(
-                                    egui::Id::new(("broker_order_drag", id)),
+                                    ui.make_persistent_id(("broker_order_drag", id)),
                                     id,
                                     |ui| {
                                         // Draw the handle so it does not depend on symbol font coverage.
@@ -380,7 +381,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                                                         id,
                                                         std::time::Duration::from_secs(5),
                                                     );
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                             TerminalProcessStatus::Stopped => {
@@ -393,7 +394,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                                                         &app.discovered_terminals,
                                                         true,
                                                     );
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                             TerminalProcessStatus::NotFound => {
@@ -408,7 +409,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                     });
 
                     // Accept drops across the row, including its price and status cells.
-                    if let Some(payload) = egui::DragAndDrop::payload::<BrokerId>(ctx) {
+                    if let Some(payload) = egui::DragAndDrop::payload::<BrokerId>(&ctx) {
                         if let Some(pointer) = ctx.pointer_interact_pos() {
                             if row_rect.intersect(ui.clip_rect()).contains(pointer)
                                 && *payload != id
@@ -427,7 +428,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
                                     egui::Stroke::new(2.0_f32, style::LIVE),
                                 );
                                 if ctx.input(|i| i.pointer.any_released()) {
-                                    egui::DragAndDrop::take_payload::<BrokerId>(ctx);
+                                    egui::DragAndDrop::take_payload::<BrokerId>(&ctx);
                                     movement = Some((*payload, id, after));
                                 }
                             }
@@ -446,7 +447,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ctx: &egui::Context, snaps
 mod layout_tests {
     use super::*;
     use crate::core::types::{MonoNs, Quote, TickId};
-    use crate::ui::test_support::headless_app;
+    use crate::ui::test_support::{headless_app, run_headless};
 
     #[test]
     fn default_window_columns_stay_inside_viewport_across_feed_changes() {
@@ -487,8 +488,8 @@ mod layout_tests {
                 )),
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                render_broker_overview(&mut app, ctx, &snapshot);
+            let _ = run_headless(&ctx, input, |ui| {
+                render_broker_overview(&mut app, ui, &snapshot);
             });
         }
         let mut expected_positions = None;
@@ -509,8 +510,8 @@ mod layout_tests {
                     )),
                     ..Default::default()
                 };
-                let output = ctx.run(input, |ctx| {
-                    render_broker_overview(&mut app, ctx, &snapshot);
+                let output = run_headless(&ctx, input, |ui| {
+                    render_broker_overview(&mut app, ui, &snapshot);
                 });
                 let positions: Vec<_> = HEADERS
                     .iter()
@@ -539,7 +540,7 @@ mod layout_tests {
                 } else {
                     expected_positions = Some(positions);
                 }
-                assert!(ctx.used_rect().right() <= 1100.0);
+                assert!(ctx.globally_used_rect().right() <= 1100.0);
                 let feed_text = format!("● {}", feed_status(&snapshot.broker_overviews[0]).0);
                 let feed = output
                     .shapes
@@ -616,11 +617,11 @@ mod layout_tests {
             )),
             ..Default::default()
         };
-        let _ = ctx.run(input.clone(), |ctx| {
-            render_broker_overview(&mut app, ctx, &snapshot);
+        let _ = run_headless(&ctx, input.clone(), |ui| {
+            render_broker_overview(&mut app, ui, &snapshot);
         });
-        let output = ctx.run(input, |ctx| {
-            render_broker_overview(&mut app, ctx, &snapshot);
+        let output = run_headless(&ctx, input, |ui| {
+            render_broker_overview(&mut app, ui, &snapshot);
         });
 
         for shape in &output.shapes {
@@ -686,14 +687,14 @@ mod layout_tests {
                 )),
                 ..Default::default()
             };
-            // Run 3 frames so egui can measure and resize TopBottomPanel
+            // Run 3 frames so egui can measure and resize Panel
             for _ in 0..3 {
-                let _ = ctx.run(input.clone(), |ctx| {
-                    render_broker_overview(&mut app, ctx, &snapshot);
+                let _ = run_headless(&ctx, input.clone(), |ui| {
+                    render_broker_overview(&mut app, ui, &snapshot);
                 });
             }
-            let output = ctx.run(input, |ctx| {
-                render_broker_overview(&mut app, ctx, &snapshot);
+            let output = run_headless(&ctx, input, |ui| {
+                render_broker_overview(&mut app, ui, &snapshot);
             });
             // Find the bottom panel separator line
             output

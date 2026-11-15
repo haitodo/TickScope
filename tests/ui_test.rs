@@ -7,6 +7,16 @@ use tick_scope::core::types::*;
 use tick_scope::state::snapshot::SnapshotExchange;
 use tick_scope::ui::dashboard::DashboardApp;
 
+fn run_headless(
+    ctx: &egui::Context,
+    input: egui::RawInput,
+    ui_fn: impl FnMut(&mut egui::Ui),
+) -> egui::FullOutput {
+    let mut output = ctx.run_ui(input, ui_fn);
+    output.textures_delta.clear();
+    output
+}
+
 #[test]
 fn test_ts02_ui_headless_render() {
     let run_id = RunId([1u8; 16]);
@@ -119,8 +129,8 @@ fn test_ts02_ui_headless_render() {
     // Headless egui Context
     let ctx = egui::Context::default();
     let raw_input = egui::RawInput::default();
-    let _full_output = ctx.run(raw_input, |ctx| {
-        app.render_ui(ctx);
+    let _full_output = run_headless(&ctx, raw_input, |ui| {
+        app.render_ui(ui);
     });
 
     assert_eq!(app.selected_pair(), (1, 2));
@@ -212,8 +222,8 @@ fn test_candlestick_chart_scaling_and_timeframe_selection() {
 
     let ctx = egui::Context::default();
     let raw_input = egui::RawInput::default();
-    let _ = ctx.run(raw_input, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, raw_input, |ui| {
+        app.render_ui(ui);
     });
 }
 
@@ -265,8 +275,8 @@ fn test_candlestick_fixed_slot_width_and_responsive_slots() {
     };
 
     let ctx = egui::Context::default();
-    let _ = ctx.run(egui::RawInput::default(), |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, egui::RawInput::default(), |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let theme = ChartTheme::default();
 
             // Test render on narrow rect (800x400) with 5px bar (Auto scale)
@@ -438,8 +448,8 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input1, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input1, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::QuotePath);
 
@@ -452,8 +462,8 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input2, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input2, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::TickCandle);
 
@@ -466,8 +476,8 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input3, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input3, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::MidDiff);
 
@@ -480,8 +490,8 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input4, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input4, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::BidAskDiff);
 
@@ -494,8 +504,8 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input6, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input6, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
 
@@ -508,16 +518,16 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input_tab, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input_tab, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::MidDispersion);
 
     // Simulate pressing Shift+Tab -> should cycle back to LeadLag
-    let mut input_shift_tab = egui::RawInput {
-        modifiers: egui::Modifiers::SHIFT,
-        ..Default::default()
-    };
+    let mut input_shift_tab = egui::RawInput::default();
+    input_shift_tab
+        .events
+        .push(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
     input_shift_tab.events.push(egui::Event::Key {
         key: egui::Key::Tab,
         physical_key: None,
@@ -525,13 +535,16 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::SHIFT,
     });
-    let _ = ctx.run(input_shift_tab, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input_shift_tab, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::LeadLag);
 
     // Simulate pressing Key 1 (Num1) -> should switch to QuotePath
     let mut input8 = egui::RawInput::default();
+    input8
+        .events
+        .push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     input8.events.push(egui::Event::Key {
         key: egui::Key::Num1,
         physical_key: None,
@@ -539,8 +552,8 @@ fn test_bottom_metric_shortcuts_and_cycling() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input8, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input8, |ui| {
+        app.render_ui(ui);
     });
     assert_eq!(app.bottom_metric(), BottomMetric::QuotePath);
 }
@@ -666,8 +679,8 @@ fn test_all_bottom_metrics_render_headless() {
     // Verify all metrics render successfully without panicking
     for &metric in &BottomMetric::ALL {
         app.set_bottom_metric(metric);
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            app.render_ui(ctx);
+        let _ = run_headless(&ctx, egui::RawInput::default(), |ui| {
+            app.render_ui(ui);
         });
         assert_eq!(app.bottom_metric(), metric);
     }
@@ -701,8 +714,8 @@ fn test_ui_settings_persistence_lifecycle() {
 
         let ctx = egui::Context::default();
         app.set_always_on_top(&ctx, true);
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            app.render_ui(ctx);
+        let _ = run_headless(&ctx, egui::RawInput::default(), |ui| {
+            app.render_ui(ui);
         });
 
         // Mutate additional settings
@@ -713,12 +726,10 @@ fn test_ui_settings_persistence_lifecycle() {
             )),
             ..Default::default()
         };
-        let _ = ctx.run(input, |ctx| {
+        let _ = run_headless(&ctx, input, |ui| {
             // Emulate selecting S10
-            egui::CentralPanel::default().show(ctx, |_ui| {
-                app.set_bottom_metric(BottomMetric::LeadLag);
-            });
-            app.render_ui(ctx);
+            app.set_bottom_metric(BottomMetric::LeadLag);
+            app.render_ui(ui);
         });
         // Drops here, executing save_state via Drop
     }
@@ -1007,8 +1018,8 @@ fn test_candlestick_chart_hides_broker_without_wasted_gap() {
     ];
 
     let ctx = egui::Context::default();
-    let _ = ctx.run(egui::RawInput::default(), |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, egui::RawInput::default(), |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let theme = ChartTheme::default();
             let rect =
                 egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
@@ -1132,7 +1143,9 @@ fn test_ctrl_zero_hotkey_triggers_window_reset() {
 
     // Simulate Ctrl+0 key press input
     let mut raw_input = egui::RawInput::default();
-    raw_input.modifiers.command = true;
+    raw_input
+        .events
+        .push(egui::Event::ModifiersChanged(egui::Modifiers::COMMAND));
     raw_input.events.push(egui::Event::Key {
         key: egui::Key::Num0,
         physical_key: None,
@@ -1141,8 +1154,8 @@ fn test_ctrl_zero_hotkey_triggers_window_reset() {
         modifiers: egui::Modifiers::COMMAND,
     });
 
-    let _ = ctx.run(raw_input, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, raw_input, |ui| {
+        app.render_ui(ui);
     });
 
     // Window size should now be reset to defaults
@@ -1180,14 +1193,14 @@ fn test_quick_settings_small_screen_viewport_constraint() {
             ..egui::RawInput::default()
         };
 
-        let window_id = egui::Id::new("⚙ Quick Settings");
+        let window_id = egui::Id::unique(Some("⚙ Quick Settings"));
         let input1 = raw_input.clone();
-        let _ = ctx.run(input1, |ctx| {
-            app.render_ui(ctx);
+        let _ = run_headless(&ctx, input1, |ui| {
+            app.render_ui(ui);
         });
 
-        let _ = ctx.run(raw_input, |ctx| {
-            app.render_ui(ctx);
+        let _ = run_headless(&ctx, raw_input, |ui| {
+            app.render_ui(ui);
         });
 
         let rect = ctx.memory(|mem| mem.area_rect(window_id)).unwrap();
@@ -1293,8 +1306,8 @@ fn test_always_on_top_toggle_and_hotkey() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input_t, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input_t, |ui| {
+        app.render_ui(ui);
     });
     assert!(
         !app.always_on_top(),
@@ -1310,8 +1323,8 @@ fn test_always_on_top_toggle_and_hotkey() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    let _ = ctx.run(input_t2, |ctx| {
-        app.render_ui(ctx);
+    let _ = run_headless(&ctx, input_t2, |ui| {
+        app.render_ui(ui);
     });
     assert!(
         app.always_on_top(),
@@ -1388,8 +1401,8 @@ fn test_candlestick_5_brokers_hiding_broker_4_tradeview_remains() {
     ];
 
     let ctx = egui::Context::default();
-    let output = ctx.run(egui::RawInput::default(), |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let output = run_headless(&ctx, egui::RawInput::default(), |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let theme = ChartTheme::default();
             let rect =
                 egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
@@ -1476,8 +1489,8 @@ fn test_candlestick_chart_with_more_than_16_brokers_heap_fallback() {
     assert_eq!(requested_brokers.len(), 19);
 
     let ctx = egui::Context::default();
-    let output = ctx.run(egui::RawInput::default(), |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let output = run_headless(&ctx, egui::RawInput::default(), |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let theme = ChartTheme::default();
             let rect =
                 egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(800.0, 400.0));
@@ -1598,9 +1611,8 @@ fn test_candlestick_chart_current_price_line_toggle() {
     let ctx = egui::Context::default();
 
     // 1. Render with show_current_price = false
-    let shapes_without_price = ctx
-        .run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+    let shapes_without_price = run_headless(&ctx, egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let theme = ChartTheme::default();
                 let rect = egui::Rect::from_min_size(
                     egui::Pos2::new(0.0, 0.0),
@@ -1640,9 +1652,8 @@ fn test_candlestick_chart_current_price_line_toggle() {
         .len();
 
     // 2. Render with show_current_price = true
-    let shapes_with_price = ctx
-        .run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+    let shapes_with_price = run_headless(&ctx, egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let theme = ChartTheme::default();
                 let rect = egui::Rect::from_min_size(
                     egui::Pos2::new(0.0, 0.0),
@@ -1787,9 +1798,8 @@ fn test_candlestick_chart_crosshair_render() {
 
     // 1. Without pointer hover
     let ctx = egui::Context::default();
-    let shapes_without_hover = ctx
-        .run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+    let shapes_without_hover = run_headless(&ctx, Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let painter = ui.painter_at(rect);
                 draw_candlestick_chart_for_brokers_with_trades_interactive(
                     ui,
@@ -1826,9 +1836,8 @@ fn test_candlestick_chart_crosshair_render() {
     raw_input
         .events
         .push(egui::Event::PointerMoved(egui::Pos2::new(300.0, 150.0)));
-    let shapes_with_hover = ctx
-        .run(raw_input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+    let shapes_with_hover = run_headless(&ctx, raw_input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let painter = ui.painter_at(rect);
                 draw_candlestick_chart_for_brokers_with_trades_interactive(
                     ui,
@@ -1963,9 +1972,8 @@ fn test_candlestick_chart_crosshair_closest_broker_multi() {
         raw_input
             .events
             .push(egui::Event::PointerMoved(egui::Pos2::new(hover_x, 150.0)));
-        let shapes = ctx
-            .run(raw_input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+        let shapes = run_headless(&ctx, raw_input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let painter = ui.painter_at(rect);
                     draw_candlestick_chart_for_brokers_with_trades_interactive(
                         ui,
@@ -2033,9 +2041,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
 
     // 1. Realtime mode: fixed to JST, clicking does NOT toggle
     let mut realtime_mode = ChartTimeDisplayMode::Jst;
-    let shapes_jst = ctx
-        .run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+    let shapes_jst = run_headless(&ctx, Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let painter = ui.painter_at(chart_rect);
                 draw_chart_clock_badge(
                     Some(ui),
@@ -2067,8 +2074,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
         pressed: true,
         modifiers: egui::Modifiers::default(),
     });
-    let _ = ctx.run(click_input, |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, click_input, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let painter = ui.painter_at(chart_rect);
             draw_chart_clock_badge(
                 Some(ui),
@@ -2090,8 +2097,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
         pressed: false,
         modifiers: egui::Modifiers::default(),
     });
-    let _ = ctx.run(release_input, |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, release_input, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let painter = ui.painter_at(chart_rect);
             draw_chart_clock_badge(
                 Some(ui),
@@ -2114,8 +2121,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
 
     // 2. Replay mode: click toggles between JST and SERVER
     let mut replay_mode = ChartTimeDisplayMode::Jst;
-    let _ = ctx.run(Default::default(), |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, Default::default(), |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let painter = ui.painter_at(chart_rect);
             draw_chart_clock_badge(
                 Some(ui),
@@ -2141,8 +2148,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
         pressed: true,
         modifiers: egui::Modifiers::default(),
     });
-    let _ = ctx.run(click_input_replay, |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, click_input_replay, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let painter = ui.painter_at(chart_rect);
             draw_chart_clock_badge(
                 Some(ui),
@@ -2166,8 +2173,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
             pressed: false,
             modifiers: egui::Modifiers::default(),
         });
-    let _ = ctx.run(release_input_replay, |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, release_input_replay, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let painter = ui.painter_at(chart_rect);
             draw_chart_clock_badge(
                 Some(ui),
@@ -2199,8 +2206,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
         pressed: true,
         modifiers: egui::Modifiers::default(),
     });
-    let _ = ctx.run(click2, |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, click2, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let painter = ui.painter_at(chart_rect);
             draw_chart_clock_badge(
                 Some(ui),
@@ -2222,8 +2229,8 @@ fn test_chart_clock_badge_renders_and_toggles_timezone() {
         pressed: false,
         modifiers: egui::Modifiers::default(),
     });
-    let _ = ctx.run(release2, |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    let _ = run_headless(&ctx, release2, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let painter = ui.painter_at(chart_rect);
             draw_chart_clock_badge(
                 Some(ui),

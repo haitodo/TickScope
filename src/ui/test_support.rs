@@ -20,3 +20,15 @@ pub(crate) fn headless_app() -> DashboardApp {
         (1, 2),
     )
 }
+
+/// Run a headless egui pass and discard `textures_delta` so egui 0.37's
+/// `Drop` assertion on unapplied texture deltas does not panic in unit tests.
+pub(crate) fn run_headless(
+    ctx: &egui::Context,
+    input: egui::RawInput,
+    ui_fn: impl FnMut(&mut egui::Ui),
+) -> egui::FullOutput {
+    let mut output = ctx.run_ui(input, ui_fn);
+    output.textures_delta.clear();
+    output
+}

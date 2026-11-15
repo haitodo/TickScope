@@ -783,7 +783,12 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                         );
 
                         painter.rect_filled(badge_rect, 2.0, Color32::from_rgb(30, 40, 55));
-                        painter.rect_stroke(badge_rect, 2.0, Stroke::new(1.0_f32, broker_color));
+                        painter.rect_stroke(
+                            badge_rect,
+                            2.0,
+                            Stroke::new(1.0_f32, broker_color),
+                            egui::StrokeKind::Middle,
+                        );
                         painter.galley(
                             Pos2::new(
                                 badge_rect.center().x - text_w * 0.5,
@@ -834,6 +839,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                     badge_rect,
                     2.0,
                     Stroke::new(1.0_f32, Color32::from_rgb(100, 180, 255)),
+                    egui::StrokeKind::Middle,
                 );
                 painter.galley(
                     Pos2::new(
@@ -915,6 +921,7 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                             time_badge_rect,
                             1.0,
                             Stroke::new(1.0_f32, Color32::from_rgb(100, 180, 255)),
+                            egui::StrokeKind::Middle,
                         );
                         painter.text(
                             time_badge_rect.center(),
@@ -1414,7 +1421,12 @@ fn draw_price_axis_position_badge(
     );
 
     painter.rect_filled(badge_rect, 3.0, bg_color);
-    painter.rect_stroke(badge_rect, 3.0, Stroke::new(stroke_width, stroke_color));
+    painter.rect_stroke(
+        badge_rect,
+        3.0,
+        Stroke::new(stroke_width, stroke_color),
+        egui::StrokeKind::Middle,
+    );
     painter.galley(
         Pos2::new(
             badge_rect.center().x - text_w * 0.5,
@@ -1444,7 +1456,7 @@ fn interact_trade_rect(
     }
     let response = ui.interact(
         hit_rect,
-        egui::Id::new((
+        ui.make_persistent_id((
             "replay_trade_bar",
             trade.symbol.as_str(),
             trade.ticket,

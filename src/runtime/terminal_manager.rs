@@ -346,7 +346,8 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
 #[cfg(windows)]
 fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, BOOL};
+    use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
     use windows_sys::Win32::System::Threading::{
         PROCESS_INFORMATION, STARTF_USESHOWWINDOW, STARTUPINFOW,
     };
@@ -440,7 +441,8 @@ fn launch_terminal_process(exe_path: &Path, _minimized: bool) -> Result<u32, Str
 
 #[cfg(windows)]
 fn stop_terminal_process(pid: u32, timeout: Duration) -> Option<JoinHandle<()>> {
-    use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, WAIT_TIMEOUT};
+    use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, WAIT_TIMEOUT};
     use windows_sys::Win32::System::Threading::{
         OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };

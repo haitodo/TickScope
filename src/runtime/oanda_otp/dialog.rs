@@ -1,5 +1,6 @@
 use super::credentials::OtpCode;
-use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+use windows_sys::core::BOOL;
+use windows_sys::Win32::Foundation::{HWND, LPARAM};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetAncestor, GetClassNameW, GetDlgItem, GetWindowTextW, GetWindowThreadProcessId,
