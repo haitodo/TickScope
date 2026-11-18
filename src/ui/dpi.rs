@@ -12,7 +12,9 @@
 
 #[cfg(windows)]
 pub mod windows {
-    use windows_sys::Win32::Graphics::Gdi::{MonitorFromPoint, HMONITOR, MONITOR_DEFAULTTONEAREST};
+    use windows_sys::Win32::Graphics::Gdi::{
+        MonitorFromPoint, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY,
+    };
     use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
     /// Queries the DPI scale factor (e.g. 1.0, 1.5) for a given screen point (x, y).
@@ -22,6 +24,26 @@ pub mod windows {
         unsafe {
             let pt = windows_sys::Win32::Foundation::POINT { x, y };
             let hmonitor: HMONITOR = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+            if !hmonitor.is_null() {
+                let mut dpi_x = 0;
+                let mut dpi_y = 0;
+                if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y)
+                    == 0
+                    && dpi_x > 0
+                {
+                    return dpi_x as f32 / 96.0;
+                }
+            }
+        }
+        1.0
+    }
+
+    /// Queries the DPI scale factor of the primary monitor (where `winit` creates windows first).
+    #[must_use]
+    pub fn get_primary_monitor_dpi_scale() -> f32 {
+        unsafe {
+            let pt = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+            let hmonitor: HMONITOR = MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY);
             if !hmonitor.is_null() {
                 let mut dpi_x = 0;
                 let mut dpi_y = 0;
@@ -224,5 +246,390 @@ unsafe fn call_original(
         CallWindowProcW(proc, hwnd, msg, wparam, lparam)
     } else {
         DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-monitor window position persistence & restoration
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RectI32 {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl RectI32 {
+    fn intersection_area(self, other: Self) -> i64 {
+        let w = i64::from(self.right.min(other.right) - self.left.max(other.left));
+        let h = i64::from(self.bottom.min(other.bottom) - self.top.max(other.top));
+        if w > 0 && h > 0 {
+            w * h
+        } else {
+            0
+        }
+    }
+
+    const fn contains_with_margin(self, x: i32, y: i32, margin: i32) -> bool {
+        x >= self.left - margin
+            && x <= self.right + margin
+            && y >= self.top - margin
+            && y <= self.bottom + margin
+    }
+    fn clamp_to_work_area(x: i32, y: i32, work: RectI32) -> [i32; 2] {
+        let min_x = work.left - 16;
+        let max_x = (work.right - 120).max(min_x);
+        let min_y = work.top - 8;
+        let max_y = (work.bottom - 60).max(min_y);
+        [x.clamp(min_x, max_x), y.clamp(min_y, max_y)]
+    }
+}
+
+/// Validates and lightly clamps a saved physical outer window position against connected monitors.
+/// Returns `None` if no connected monitor intersects the saved position (e.g. a monitor was unplugged).
+fn validate_physical_position_against_monitors(
+    monitors: &[(RectI32, RectI32)],
+    pos: [i32; 2],
+    size_px: [i32; 2],
+) -> Option<[i32; 2]> {
+    if monitors.is_empty() {
+        return Some(pos);
+    }
+
+    let win_rect = RectI32 {
+        left: pos[0],
+        top: pos[1],
+        right: pos[0].saturating_add(size_px[0].max(200)),
+        bottom: pos[1].saturating_add(size_px[1].max(150)),
+    };
+
+    let mut best_idx: Option<usize> = None;
+    let mut best_area: i64 = 0;
+    for (idx, &(mon, _work)) in monitors.iter().enumerate() {
+        let area = win_rect.intersection_area(mon);
+        if area > best_area {
+            best_area = area;
+            best_idx = Some(idx);
+        }
+    }
+
+    if best_idx.is_none() {
+        best_idx = monitors
+            .iter()
+            .position(|&(mon, _work)| mon.contains_with_margin(pos[0], pos[1], 16));
+    }
+
+    let (_, work) = monitors[best_idx?];
+    Some(RectI32::clamp_to_work_area(pos[0], pos[1], work))
+}
+
+#[cfg(windows)]
+fn enumerate_monitors() -> Vec<(RectI32, RectI32)> {
+    use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::{LPARAM, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
+    };
+
+    unsafe extern "system" fn collect_monitor(
+        hmonitor: HMONITOR,
+        _hdc: HDC,
+        _rect: *mut RECT,
+        lparam: LPARAM,
+    ) -> BOOL {
+        let monitors = &mut *(lparam as *mut Vec<(RectI32, RectI32)>);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmonitor, &raw mut info) != 0 {
+            let mon = RectI32 {
+                left: info.rcMonitor.left,
+                top: info.rcMonitor.top,
+                right: info.rcMonitor.right,
+                bottom: info.rcMonitor.bottom,
+            };
+            let work = RectI32 {
+                left: info.rcWork.left,
+                top: info.rcWork.top,
+                right: info.rcWork.right,
+                bottom: info.rcWork.bottom,
+            };
+            monitors.push((mon, work));
+        }
+        1
+    }
+
+    let mut monitors: Vec<(RectI32, RectI32)> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            Some(collect_monitor),
+            std::ptr::from_mut(&mut monitors) as LPARAM,
+        );
+    }
+    monitors
+}
+
+#[cfg(windows)]
+fn validated_startup_physical_position(
+    geom: &crate::ui::settings::WindowGeometryState,
+) -> Option<[i32; 2]> {
+    let phys_pos = geom.physical_position?;
+    let monitors = enumerate_monitors();
+    let size_px = geom.physical_inner_size.map_or_else(
+        || [geom.inner_size[0] as i32, geom.inner_size[1] as i32],
+        |s| [s[0] as i32, s[1] as i32],
+    );
+    validate_physical_position_against_monitors(&monitors, phys_pos, size_px)
+}
+
+/// Computes the logical startup position to pass to `ViewportBuilder::with_position`.
+///
+/// On Windows, `winit` creates the window on the primary monitor first and converts
+/// `LogicalPosition` to physical pixels using the *primary monitor's* DPI scale factor.
+/// Passing `physical_position / primary_dpi_scale` ensures `winit` moves the window
+/// directly to the saved monitor (even when secondary and primary monitors have different DPIs).
+#[must_use]
+pub fn startup_logical_position(
+    geom: &crate::ui::settings::WindowGeometryState,
+) -> Option<[f32; 2]> {
+    #[cfg(windows)]
+    {
+        if let Some(phys_pos) = validated_startup_physical_position(geom) {
+            let primary_scale = windows::get_primary_monitor_dpi_scale();
+            return Some([
+                phys_pos[0] as f32 / primary_scale,
+                phys_pos[1] as f32 / primary_scale,
+            ]);
+        }
+        if geom.physical_position.is_some() {
+            // Saved physical position was off-screen (e.g. secondary monitor disconnected);
+            // let Windows place the window cleanly on an active monitor.
+            return None;
+        }
+    }
+    geom.position
+}
+
+/// Ensures on the first frame that the native Windows HWND is on the saved monitor
+/// (and maximized if requested), overriding any `winit` cross-DPI placement nudge.
+#[cfg(windows)]
+pub(crate) fn apply_initial_window_placement(
+    hwnd: isize,
+    geom: &crate::ui::settings::WindowGeometryState,
+) {
+    use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        MonitorFromPoint, MonitorFromWindow, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, IsZoomed, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOSIZE,
+        SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
+    };
+
+    let Some([px, py]) = validated_startup_physical_position(geom) else {
+        return;
+    };
+
+    let hwnd = hwnd as HWND;
+    unsafe {
+        let target_hmon = MonitorFromPoint(
+            POINT {
+                x: px + 60,
+                y: py + 40,
+            },
+            MONITOR_DEFAULTTONEAREST,
+        );
+        let curr_hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let is_zoomed = IsZoomed(hwnd) != 0;
+
+        if geom.maximized {
+            if curr_hmon != target_hmon || !is_zoomed {
+                if is_zoomed {
+                    ShowWindow(hwnd, SW_RESTORE);
+                }
+                SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    px,
+                    py,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+                ShowWindow(hwnd, SW_MAXIMIZE);
+            }
+        } else {
+            let mut rect: RECT = std::mem::zeroed();
+            let pos_differs = if GetWindowRect(hwnd, &raw mut rect) != 0 {
+                (rect.left - px).abs() > 2 || (rect.top - py).abs() > 2
+            } else {
+                true
+            };
+            if curr_hmon != target_hmon || pos_differs {
+                SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    px,
+                    py,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
+}
+
+/// Captures the current physical window position and maximized state directly from Win32.
+///
+/// Returns `None` when the window is minimized (so saved coordinates are never overwritten by `-32000`),
+/// or `Some(changed)` indicating whether `geom` was modified.
+#[cfg(windows)]
+pub(crate) fn capture_window_geometry_windows(
+    hwnd: isize,
+    geom: &mut crate::ui::settings::WindowGeometryState,
+) -> Option<bool> {
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromRect, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed, WINDOWPLACEMENT,
+    };
+
+    let hwnd = hwnd as HWND;
+    unsafe {
+        if IsIconic(hwnd) != 0 {
+            return None;
+        }
+
+        let mut changed = false;
+        let is_zoomed = IsZoomed(hwnd) != 0;
+        if geom.maximized != is_zoomed {
+            geom.maximized = is_zoomed;
+            changed = true;
+        }
+
+        if is_zoomed {
+            // Even while maximized, track which monitor the window occupies so moving a
+            // maximized window to another monitor (e.g. Win+Shift+Left or snap) persists.
+            let curr_hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut mi: MONITORINFO = std::mem::zeroed();
+            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if !curr_hmon.is_null() && GetMonitorInfoW(curr_hmon, &raw mut mi) != 0 {
+                let mut wp: WINDOWPLACEMENT = std::mem::zeroed();
+                wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+                let mut target_pos = [mi.rcWork.left + 40, mi.rcWork.top + 40];
+                if GetWindowPlacement(hwnd, &raw mut wp) != 0 {
+                    let dx = mi.rcWork.left - mi.rcMonitor.left;
+                    let dy = mi.rcWork.top - mi.rcMonitor.top;
+                    let norm_screen = RECT {
+                        left: wp.rcNormalPosition.left + dx,
+                        top: wp.rcNormalPosition.top + dy,
+                        right: wp.rcNormalPosition.right + dx,
+                        bottom: wp.rcNormalPosition.bottom + dy,
+                    };
+                    if MonitorFromRect(&raw const norm_screen, MONITOR_DEFAULTTONEAREST)
+                        == curr_hmon
+                        && norm_screen.left > -30_000
+                        && norm_screen.top > -30_000
+                    {
+                        let work = RectI32 {
+                            left: mi.rcWork.left,
+                            top: mi.rcWork.top,
+                            right: mi.rcWork.right,
+                            bottom: mi.rcWork.bottom,
+                        };
+                        target_pos =
+                            RectI32::clamp_to_work_area(norm_screen.left, norm_screen.top, work);
+                    }
+                }
+                if geom.physical_position != Some(target_pos) {
+                    geom.physical_position = Some(target_pos);
+                    let dpi_scale =
+                        windows::get_dpi_scale_at_point(target_pos[0] + 60, target_pos[1] + 40);
+                    geom.position = Some([
+                        target_pos[0] as f32 / dpi_scale,
+                        target_pos[1] as f32 / dpi_scale,
+                    ]);
+                    changed = true;
+                }
+            }
+        } else {
+            let mut rect: RECT = std::mem::zeroed();
+            if GetWindowRect(hwnd, &raw mut rect) != 0 && rect.left > -30_000 && rect.top > -30_000
+            {
+                let phys_pos = [rect.left, rect.top];
+                if geom.physical_position != Some(phys_pos) {
+                    geom.physical_position = Some(phys_pos);
+                    changed = true;
+                }
+            }
+        }
+
+        Some(changed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_physical_position_dual_monitor_left_secondary_right_primary() {
+        // Left monitor: 2K 100% (-2560..0, 0..1440)
+        // Right monitor (main): 4K 150% (0..3840, 0..2160)
+        let monitors = vec![
+            (
+                RectI32 {
+                    left: -2560,
+                    top: 0,
+                    right: 0,
+                    bottom: 1440,
+                },
+                RectI32 {
+                    left: -2560,
+                    top: 0,
+                    right: 0,
+                    bottom: 1400,
+                },
+            ),
+            (
+                RectI32 {
+                    left: 0,
+                    top: 0,
+                    right: 3840,
+                    bottom: 2160,
+                },
+                RectI32 {
+                    left: 0,
+                    top: 0,
+                    right: 3840,
+                    bottom: 2100,
+                },
+            ),
+        ];
+
+        // Normal position on left monitor
+        assert_eq!(
+            validate_physical_position_against_monitors(&monitors, [-1800, 150], [1100, 750]),
+            Some([-1800, 150])
+        );
+
+        // Snapped to left edge of left monitor (invisible 8px border extends to -2568)
+        assert_eq!(
+            validate_physical_position_against_monitors(&monitors, [-2568, 0], [1280, 1400]),
+            Some([-2568, 0])
+        );
+
+        // Disconnected left monitor: only right monitor remains -> returns None
+        let single_monitor = vec![monitors[1]];
+        assert_eq!(
+            validate_physical_position_against_monitors(&single_monitor, [-1800, 150], [1100, 750]),
+            None
+        );
     }
 }

@@ -144,6 +144,8 @@ pub struct WindowGeometryState {
     #[serde(default)]
     pub position: Option<[f32; 2]>,
     #[serde(default)]
+    pub physical_position: Option<[i32; 2]>,
+    #[serde(default)]
     pub maximized: bool,
 }
 
@@ -153,6 +155,7 @@ impl Default for WindowGeometryState {
             inner_size: default_window_size(),
             physical_inner_size: None,
             position: None,
+            physical_position: None,
             maximized: false,
         }
     }
@@ -176,8 +179,17 @@ impl WindowGeometryState {
             }
         }
         if let Some(pos) = self.position {
-            if !pos[0].is_finite() || !pos[1].is_finite() {
+            if !pos[0].is_finite()
+                || !pos[1].is_finite()
+                || pos[0] <= -30_000.0
+                || pos[1] <= -30_000.0
+            {
                 self.position = None;
+            }
+        }
+        if let Some(phys_pos) = self.physical_position {
+            if phys_pos[0] <= -30_000 || phys_pos[1] <= -30_000 {
+                self.physical_position = None;
             }
         }
     }
@@ -602,6 +614,7 @@ mod tests {
                 inner_size: [1280.0, 800.0],
                 physical_inner_size: None,
                 position: Some([100.0, 150.0]),
+                physical_position: Some([-1200, 150]),
                 maximized: false,
             },
         };
@@ -752,6 +765,7 @@ mod tests {
                 inner_size: [200.0, 100.0], // Too small
                 physical_inner_size: None,
                 position: None,
+                physical_position: None,
                 maximized: false,
             },
         };
@@ -859,26 +873,32 @@ mod tests {
             inner_size: [1200.0, 800.0],
             physical_inner_size: Some([1800.0, 1200.0]),
             position: Some([100.0, 100.0]),
+            physical_position: Some([-1500, 100]),
             maximized: false,
         };
         geom.sanitize();
         assert_eq!(geom.physical_inner_size, Some([1800.0, 1200.0]));
+        assert_eq!(geom.physical_position, Some([-1500, 100]));
 
         // Invalid physical size (< min) should be sanitized to None
         let mut geom_invalid = WindowGeometryState {
             inner_size: [1200.0, 800.0],
             physical_inner_size: Some([400.0, 300.0]),
-            position: None,
+            position: Some([-32000.0, -32000.0]),
+            physical_position: Some([-32000, -32000]),
             maximized: false,
         };
         geom_invalid.sanitize();
         assert_eq!(geom_invalid.physical_inner_size, None);
+        assert_eq!(geom_invalid.position, None);
+        assert_eq!(geom_invalid.physical_position, None);
 
         // NaN or Inf should be sanitized to None
         let mut geom_nan = WindowGeometryState {
             inner_size: [1200.0, 800.0],
             physical_inner_size: Some([f32::NAN, 1200.0]),
             position: None,
+            physical_position: None,
             maximized: false,
         };
         geom_nan.sanitize();

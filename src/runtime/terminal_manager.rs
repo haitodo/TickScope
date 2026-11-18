@@ -12,6 +12,13 @@ use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalLaunchMode {
+    Normal,
+    Minimized,
+    Maximized,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalProcessStatus {
     Running { pid: u32 },
@@ -191,24 +198,58 @@ impl TerminalManager {
             .and_then(|p| p.as_ref())
     }
 
+    /// Resolve the launch window mode for a given broker.
+    #[must_use]
+    pub const fn resolve_launch_mode(
+        broker_id: BrokerId,
+        normal_broker_id: Option<BrokerId>,
+        default_minimized: bool,
+    ) -> TerminalLaunchMode {
+        if matches!(normal_broker_id, Some(id) if id == broker_id) {
+            TerminalLaunchMode::Maximized
+        } else if default_minimized {
+            TerminalLaunchMode::Minimized
+        } else {
+            TerminalLaunchMode::Normal
+        }
+    }
+
+    /// Launch terminal for a single broker with the specified window mode.
+    /// # Errors
+    ///
+    /// Returns a message when no executable path is known for the broker, or when the terminal
+    /// process cannot be spawned.
+    pub fn launch_with_mode(
+        &mut self,
+        broker_id: BrokerId,
+        mode: TerminalLaunchMode,
+    ) -> Result<u32, String> {
+        let exe_path = self
+            .get_exe_path(broker_id)
+            .ok_or_else(|| format!("MT5 executable path not found for broker ID {broker_id}"))?
+            .clone();
+
+        let pid = launch_terminal_process(&exe_path, mode)?;
+        self.status_cache
+            .insert(broker_id, TerminalProcessStatus::Running { pid });
+        Ok(pid)
+    }
+
     /// Launch terminal for a single broker.
     /// # Errors
     ///
     /// Returns a message when no executable path is known for the broker, or when the terminal
     /// process cannot be spawned.
     pub fn launch(&mut self, broker_id: BrokerId, minimized: bool) -> Result<u32, String> {
-        let exe_path = self
-            .get_exe_path(broker_id)
-            .ok_or_else(|| format!("MT5 executable path not found for broker ID {broker_id}"))?
-            .clone();
-
-        let pid = launch_terminal_process(&exe_path, minimized)?;
-        self.status_cache
-            .insert(broker_id, TerminalProcessStatus::Running { pid });
-        Ok(pid)
+        let mode = if minimized {
+            TerminalLaunchMode::Minimized
+        } else {
+            TerminalLaunchMode::Normal
+        };
+        self.launch_with_mode(broker_id, mode)
     }
 
-    /// Launch terminals for multiple brokers, allowing a specific broker to launch in normal (non-minimized) window mode.
+    /// Launch terminals for multiple brokers, launching the selected normal-display broker maximized.
     pub fn launch_multiple_with_normal(
         &mut self,
         broker_ids: &[BrokerId],
@@ -217,9 +258,8 @@ impl TerminalManager {
     ) -> Vec<(BrokerId, Result<u32, String>)> {
         let mut results = Vec::new();
         for &id in broker_ids {
-            let is_normal = normal_broker_id == Some(id);
-            let minimized = if is_normal { false } else { default_minimized };
-            results.push((id, self.launch(id, minimized)));
+            let mode = Self::resolve_launch_mode(id, normal_broker_id, default_minimized);
+            results.push((id, self.launch_with_mode(id, mode)));
         }
         results
     }
@@ -344,14 +384,16 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
 }
 
 #[cfg(windows)]
-fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, String> {
+fn launch_terminal_process(exe_path: &Path, mode: TerminalLaunchMode) -> Result<u32, String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::core::BOOL;
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
     use windows_sys::Win32::System::Threading::{
         PROCESS_INFORMATION, STARTF_USESHOWWINDOW, STARTUPINFOW,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWMINNOACTIVE;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SW_SHOWMAXIMIZED, SW_SHOWMINNOACTIVE, SW_SHOWNORMAL,
+    };
 
     #[link(name = "kernel32")]
     extern "system" {
@@ -372,10 +414,10 @@ fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, Stri
     let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
     si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
     si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = if minimized {
-        SW_SHOWMINNOACTIVE as u16
-    } else {
-        1 // SW_SHOWNORMAL
+    si.wShowWindow = match mode {
+        TerminalLaunchMode::Minimized => SW_SHOWMINNOACTIVE as u16,
+        TerminalLaunchMode::Normal => SW_SHOWNORMAL as u16,
+        TerminalLaunchMode::Maximized => SW_SHOWMAXIMIZED as u16,
     };
 
     let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
@@ -415,11 +457,14 @@ fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, Stri
             CloseHandle(pi.hThread);
         }
         log::info!(
-            "[TerminalManager] Launched MT5 terminal (PID: {}) at '{}' (minimized: {})",
+            "[TerminalManager] Launched MT5 terminal (PID: {}) at '{}' (mode: {:?})",
             pid,
             exe_path.display(),
-            minimized
+            mode
         );
+        if mode == TerminalLaunchMode::Maximized {
+            spawn_maximize_watcher(pid);
+        }
         Ok(pid)
     } else {
         let err = unsafe { GetLastError() };
@@ -431,8 +476,99 @@ fn launch_terminal_process(exe_path: &Path, minimized: bool) -> Result<u32, Stri
     }
 }
 
+/// Ensures an MT5 terminal launched in `Maximized` mode actually ends up maximized even if
+/// `terminal64.exe` restores an unmaximized `WINDOWPLACEMENT` from its own `terminal.ini`.
+#[cfg(windows)]
+fn spawn_maximize_watcher(pid: u32) {
+    use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetAncestor, GetClassNameW, GetWindow, GetWindowLongW,
+        GetWindowThreadProcessId, IsWindowVisible, IsZoomed, ShowWindowAsync, GA_ROOT, GWL_STYLE,
+        GW_OWNER, SW_MAXIMIZE, WS_CAPTION, WS_MAXIMIZEBOX,
+    };
+
+    #[repr(C)]
+    struct Search {
+        pid: u32,
+        found: HWND,
+    }
+
+    unsafe extern "system" fn find_main_window_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let search = &mut *(lparam as *mut Search);
+        let mut win_pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, &raw mut win_pid);
+        if win_pid != search.pid {
+            return 1;
+        }
+        if GetAncestor(hwnd, GA_ROOT) != hwnd || IsWindowVisible(hwnd) == 0 {
+            return 1;
+        }
+        if !GetWindow(hwnd, GW_OWNER).is_null() {
+            return 1;
+        }
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        if (style & WS_CAPTION) != WS_CAPTION || (style & WS_MAXIMIZEBOX) == 0 {
+            return 1;
+        }
+        let mut class_buf = [0u16; 32];
+        let len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+        if len > 0
+            && class_buf[..len as usize]
+                .iter()
+                .copied()
+                .eq("#32770".encode_utf16())
+        {
+            return 1;
+        }
+        search.found = hwnd;
+        0
+    }
+
+    std::thread::spawn(move || unsafe {
+        let process_handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        let mut zoomed_stable_ticks: u32 = 0;
+
+        for _ in 0..150 {
+            if !process_handle.is_null() && WaitForSingleObject(process_handle, 0) != WAIT_TIMEOUT {
+                break;
+            }
+
+            let mut search = Search {
+                pid,
+                found: std::ptr::null_mut(),
+            };
+            EnumWindows(
+                Some(find_main_window_proc),
+                std::ptr::from_mut(&mut search) as LPARAM,
+            );
+
+            if !search.found.is_null() {
+                if IsZoomed(search.found) == 0 {
+                    ShowWindowAsync(search.found, SW_MAXIMIZE);
+                    zoomed_stable_ticks = 0;
+                } else {
+                    zoomed_stable_ticks += 1;
+                    if zoomed_stable_ticks >= 5 {
+                        break;
+                    }
+                }
+            }
+
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        if !process_handle.is_null() {
+            CloseHandle(process_handle);
+        }
+    });
+}
+
 #[cfg(not(windows))]
-fn launch_terminal_process(exe_path: &Path, _minimized: bool) -> Result<u32, String> {
+fn launch_terminal_process(exe_path: &Path, _mode: TerminalLaunchMode) -> Result<u32, String> {
     Err(format!(
         "Terminal process launching is only supported on Windows: {}",
         exe_path.display()
@@ -574,5 +710,33 @@ mod tests {
         // Normal launch_multiple delegates with None
         let results2 = tm.launch_multiple(&broker_ids, true);
         assert_eq!(results2.len(), 3);
+    }
+
+    #[test]
+    fn test_resolve_launch_mode_maximizes_selected_broker() {
+        assert_eq!(
+            TerminalManager::resolve_launch_mode(5, Some(5), true),
+            TerminalLaunchMode::Maximized
+        );
+        assert_eq!(
+            TerminalManager::resolve_launch_mode(5, Some(5), false),
+            TerminalLaunchMode::Maximized
+        );
+        assert_eq!(
+            TerminalManager::resolve_launch_mode(2, Some(5), true),
+            TerminalLaunchMode::Minimized
+        );
+        assert_eq!(
+            TerminalManager::resolve_launch_mode(2, Some(5), false),
+            TerminalLaunchMode::Normal
+        );
+        assert_eq!(
+            TerminalManager::resolve_launch_mode(2, None, true),
+            TerminalLaunchMode::Minimized
+        );
+        assert_eq!(
+            TerminalManager::resolve_launch_mode(2, None, false),
+            TerminalLaunchMode::Normal
+        );
     }
 }

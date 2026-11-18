@@ -367,7 +367,7 @@ pub fn render_broker_overview(app: &mut DashboardApp, ui: &mut egui::Ui, snapsho
                                         let normal = app.mt5_non_minimized_broker == Some(id);
                                         ui.strong(&b.name);
                                         ui.label(if normal {
-                                            "起動モード: 通常表示"
+                                            "起動モード: 最大表示"
                                         } else if app.mt5_minimized {
                                             "起動モード: 最小化"
                                         } else {
@@ -386,9 +386,14 @@ pub fn render_broker_overview(app: &mut DashboardApp, ui: &mut egui::Ui, snapsho
                                             }
                                             TerminalProcessStatus::Stopped => {
                                                 if ui.button("MT5を起動").clicked() {
+                                                    let mode = crate::runtime::TerminalManager::resolve_launch_mode(
+                                                        id,
+                                                        app.mt5_non_minimized_broker,
+                                                        app.mt5_minimized,
+                                                    );
                                                     let _ = app
                                                         .terminal_manager
-                                                        .launch(id, !normal && app.mt5_minimized);
+                                                        .launch_with_mode(id, mode);
                                                     app.terminal_manager.poll_status(
                                                         &app.broker_configs,
                                                         &app.discovered_terminals,

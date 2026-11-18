@@ -320,7 +320,8 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
             }
 
             ui.horizontal(|ui| {
-                ui.label("通常表示する業者 (Normal Window):");
+                ui.label("通常表示する業者 (最大表示):")
+                    .on_hover_text("選択した業者のMT5は常に最大表示（最大化）で起動します。");
                 let current_selected = app.mt5_non_minimized_broker;
                 let selected_text = match current_selected {
                     Some(id) => app

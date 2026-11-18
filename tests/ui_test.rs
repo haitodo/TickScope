@@ -1090,6 +1090,7 @@ fn test_reset_window_size_restores_defaults_and_persists() {
         inner_size: [1400.0, 900.0],
         physical_inner_size: Some([2100.0, 1350.0]),
         position: Some([120.0, 200.0]),
+        physical_position: Some([-1200, 200]),
         maximized: true,
     });
     app.save_state();
@@ -1136,6 +1137,7 @@ fn test_ctrl_zero_hotkey_triggers_window_reset() {
         inner_size: [1600.0, 1000.0],
         physical_inner_size: None,
         position: None,
+        physical_position: None,
         maximized: true,
     });
 

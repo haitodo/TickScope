@@ -188,7 +188,7 @@ fn main() -> eframe::Result<()> {
         viewport = viewport.with_icon(icon);
     }
 
-    if let Some(pos) = ui_state.window.position {
+    if let Some(pos) = tick_scope::ui::dpi::startup_logical_position(&ui_state.window) {
         viewport = viewport.with_position(egui::pos2(pos[0], pos[1]));
     }
 

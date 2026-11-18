@@ -72,6 +72,8 @@ pub struct DashboardApp {
     pub(crate) last_state_save: std::time::Instant,
     pub(crate) repaint_registered: bool,
     pub(crate) dpi_drag_fix_installed: bool,
+    pub(crate) window_hwnd: Option<isize>,
+    pub(crate) initial_placement_grace_frames: u8,
     pub(crate) mt5_minimized: bool,
     pub(crate) mt5_launch_targets: Vec<BrokerId>,
     pub(crate) mt5_auto_launch: bool,
@@ -141,6 +143,8 @@ impl DashboardApp {
             last_state_save: std::time::Instant::now(),
             repaint_registered: false,
             dpi_drag_fix_installed: false,
+            window_hwnd: None,
+            initial_placement_grace_frames: 0,
             mt5_minimized: true,
             mt5_launch_targets: Vec::new(),
             mt5_auto_launch: false,
@@ -1060,8 +1064,34 @@ impl DashboardApp {
             }
             return;
         }
+        if self.initial_placement_grace_frames > 0 {
+            self.initial_placement_grace_frames -= 1;
+            if ctx.input(|i| i.viewport().close_requested()) {
+                self.save_state();
+            }
+            return;
+        }
 
         let current_ppp = ctx.pixels_per_point();
+
+        #[cfg(windows)]
+        let mut is_minimized = false;
+        #[cfg(not(windows))]
+        let is_minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+
+        #[cfg(windows)]
+        if let Some(hwnd) = self.window_hwnd {
+            match crate::ui::dpi::capture_window_geometry_windows(hwnd, &mut self.window_geometry) {
+                None => {
+                    is_minimized = true;
+                }
+                Some(changed) => {
+                    if changed {
+                        self.state_dirty = true;
+                    }
+                }
+            }
+        }
 
         // No manual DPI compensation is needed here.  winit handles
         // WM_DPICHANGED on Windows (Per-Monitor DPI V2) and applies the
@@ -1070,37 +1100,44 @@ impl DashboardApp {
         // apps.  The logical size stays constant; the physical pixel count
         // scales with newDpi / oldDpi automatically.
 
-        ctx.input(|i| {
-            let vp = i.viewport();
-            if let Some(maximized) = vp.maximized {
-                if self.window_geometry.maximized != maximized {
-                    self.window_geometry.maximized = maximized;
-                    self.state_dirty = true;
-                }
-            }
-            if !self.window_geometry.maximized {
-                if let Some(rect) = vp.inner_rect {
-                    let logical_size = [rect.width(), rect.height()];
-                    let physical_size = [rect.width() * current_ppp, rect.height() * current_ppp];
-                    if logical_size[0] >= MIN_WINDOW_WIDTH
-                        && logical_size[1] >= MIN_WINDOW_HEIGHT
-                        && ((self.window_geometry.inner_size[0] - logical_size[0]).abs() > 1.0
-                            || (self.window_geometry.inner_size[1] - logical_size[1]).abs() > 1.0)
-                    {
-                        self.window_geometry.inner_size = logical_size;
-                        self.window_geometry.physical_inner_size = Some(physical_size);
+        if !is_minimized {
+            ctx.input(|i| {
+                let vp = i.viewport();
+                if let Some(maximized) = vp.maximized {
+                    if self.window_geometry.maximized != maximized {
+                        self.window_geometry.maximized = maximized;
                         self.state_dirty = true;
                     }
                 }
-                if let Some(rect) = vp.outer_rect {
-                    let pos = [rect.min.x, rect.min.y];
-                    if self.window_geometry.position != Some(pos) {
-                        self.window_geometry.position = Some(pos);
-                        self.state_dirty = true;
+                if !self.window_geometry.maximized {
+                    if let Some(rect) = vp.inner_rect {
+                        let logical_size = [rect.width(), rect.height()];
+                        let physical_size =
+                            [rect.width() * current_ppp, rect.height() * current_ppp];
+                        if logical_size[0] >= MIN_WINDOW_WIDTH
+                            && logical_size[1] >= MIN_WINDOW_HEIGHT
+                            && ((self.window_geometry.inner_size[0] - logical_size[0]).abs() > 1.0
+                                || (self.window_geometry.inner_size[1] - logical_size[1]).abs()
+                                    > 1.0)
+                        {
+                            self.window_geometry.inner_size = logical_size;
+                            self.window_geometry.physical_inner_size = Some(physical_size);
+                            self.state_dirty = true;
+                        }
+                    }
+                    if let Some(rect) = vp.outer_rect {
+                        let pos = [rect.min.x, rect.min.y];
+                        if pos[0] > -30_000.0
+                            && pos[1] > -30_000.0
+                            && self.window_geometry.position != Some(pos)
+                        {
+                            self.window_geometry.position = Some(pos);
+                            self.state_dirty = true;
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
 
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested
@@ -1128,9 +1165,13 @@ impl eframe::App for DashboardApp {
             self.dpi_drag_fix_installed = true;
             if let Ok(handle) = frame.window_handle() {
                 if let RawWindowHandle::Win32(win32) = handle.as_ref() {
-                    crate::ui::dpi::install_dpi_drag_fix(win32.hwnd.get());
+                    let hwnd = win32.hwnd.get();
+                    self.window_hwnd = Some(hwnd);
+                    crate::ui::dpi::install_dpi_drag_fix(hwnd);
+                    crate::ui::dpi::apply_initial_window_placement(hwnd, &self.window_geometry);
+                    self.initial_placement_grace_frames = 2;
                     if let Some(auto_login) = &mut self.oanda_auto_login {
-                        auto_login.set_owner(win32.hwnd.get());
+                        auto_login.set_owner(hwnd);
                     }
                 }
             }
