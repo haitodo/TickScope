@@ -325,51 +325,174 @@ fn validate_physical_position_against_monitors(
     Some(RectI32::clamp_to_work_area(pos[0], pos[1], work))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonitorDescriptor {
+    pub device_name: String,
+    pub monitor_rect: [i32; 4],
+    pub work_rect: [i32; 4],
+    pub is_primary: bool,
+}
+
+impl MonitorDescriptor {
+    #[must_use]
+    pub const fn width(&self) -> i32 {
+        self.monitor_rect[2] - self.monitor_rect[0]
+    }
+
+    #[must_use]
+    pub const fn height(&self) -> i32 {
+        self.monitor_rect[3] - self.monitor_rect[1]
+    }
+
+    #[must_use]
+    pub const fn center(&self) -> (i32, i32) {
+        (
+            (self.monitor_rect[0] + self.monitor_rect[2]) / 2,
+            (self.monitor_rect[1] + self.monitor_rect[3]) / 2,
+        )
+    }
+}
+
+/// Formats a human-readable monitor label (e.g. `"モニター 1 (左・2560×1440)"` or
+/// `"モニター 2 (右・メイン・3840×2160)"`).
+#[must_use]
+pub fn format_monitor_label(
+    index: usize,
+    monitor: &MonitorDescriptor,
+    all: &[MonitorDescriptor],
+) -> String {
+    let mut tags = Vec::new();
+    if all.len() > 1 {
+        let (cx, cy) = monitor.center();
+        let min_x = all.iter().map(|m| m.center().0).min().unwrap_or(cx);
+        let max_x = all.iter().map(|m| m.center().0).max().unwrap_or(cx);
+        let min_y = all.iter().map(|m| m.center().1).min().unwrap_or(cy);
+        let max_y = all.iter().map(|m| m.center().1).max().unwrap_or(cy);
+        if max_x > min_x {
+            if cx == min_x {
+                tags.push("左");
+            } else if cx == max_x {
+                tags.push("右");
+            }
+        } else if max_y > min_y {
+            if cy == min_y {
+                tags.push("上");
+            } else if cy == max_y {
+                tags.push("下");
+            }
+        }
+    }
+    if monitor.is_primary {
+        tags.push("メイン");
+    }
+    let size = format!("{}×{}", monitor.width(), monitor.height());
+    tags.push(&size);
+    format!("モニター {} ({})", index + 1, tags.join("・"))
+}
+
+/// Resolves the target monitor's work-area rect `[left, top, right, bottom]` for an MT5 placement policy.
+/// Returns `None` for `Mt5DisplayMonitor::Auto` or when no monitors are available.
+#[must_use]
+pub fn resolve_target_monitor_work_rect(
+    target: &crate::ui::settings::Mt5DisplayMonitor,
+    monitors: &[MonitorDescriptor],
+) -> Option<[i32; 4]> {
+    use crate::ui::settings::Mt5DisplayMonitor;
+    match target {
+        Mt5DisplayMonitor::Auto => None,
+        Mt5DisplayMonitor::Primary => monitors
+            .iter()
+            .find(|m| m.is_primary)
+            .or_else(|| monitors.first())
+            .map(|m| m.work_rect),
+        Mt5DisplayMonitor::Device(dev) => monitors
+            .iter()
+            .find(|m| m.device_name == *dev)
+            .or_else(|| monitors.iter().find(|m| m.is_primary))
+            .or_else(|| monitors.first())
+            .map(|m| m.work_rect),
+    }
+}
+
+/// Enumerates connected displays sorted left-to-right, then top-to-bottom.
+#[must_use]
+pub fn list_monitors() -> Vec<MonitorDescriptor> {
+    #[cfg(windows)]
+    {
+        use windows_sys::core::BOOL;
+        use windows_sys::Win32::Foundation::{LPARAM, RECT};
+        use windows_sys::Win32::Graphics::Gdi::{
+            EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
+        };
+        const MONITORINFOF_PRIMARY: u32 = 1;
+
+        unsafe extern "system" fn collect_monitor(
+            hmonitor: HMONITOR,
+            _hdc: HDC,
+            _rect: *mut RECT,
+            lparam: LPARAM,
+        ) -> BOOL {
+            let monitors = &mut *(lparam as *mut Vec<MonitorDescriptor>);
+            let mut info: MONITORINFOEXW = std::mem::zeroed();
+            info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+            if GetMonitorInfoW(hmonitor, (&raw mut info).cast()) != 0 {
+                let len = info
+                    .szDevice
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(info.szDevice.len());
+                let device_name = String::from_utf16_lossy(&info.szDevice[..len]);
+                let mon = info.monitorInfo.rcMonitor;
+                let work = info.monitorInfo.rcWork;
+                monitors.push(MonitorDescriptor {
+                    device_name,
+                    monitor_rect: [mon.left, mon.top, mon.right, mon.bottom],
+                    work_rect: [work.left, work.top, work.right, work.bottom],
+                    is_primary: (info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0,
+                });
+            }
+            1
+        }
+
+        let mut monitors: Vec<MonitorDescriptor> = Vec::new();
+        unsafe {
+            EnumDisplayMonitors(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                Some(collect_monitor),
+                std::ptr::from_mut(&mut monitors) as LPARAM,
+            );
+        }
+        monitors.sort_by_key(|m| (m.monitor_rect[0], m.monitor_rect[1]));
+        monitors
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg(windows)]
 fn enumerate_monitors() -> Vec<(RectI32, RectI32)> {
-    use windows_sys::core::BOOL;
-    use windows_sys::Win32::Foundation::{LPARAM, RECT};
-    use windows_sys::Win32::Graphics::Gdi::{
-        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
-    };
-
-    unsafe extern "system" fn collect_monitor(
-        hmonitor: HMONITOR,
-        _hdc: HDC,
-        _rect: *mut RECT,
-        lparam: LPARAM,
-    ) -> BOOL {
-        let monitors = &mut *(lparam as *mut Vec<(RectI32, RectI32)>);
-        let mut info: MONITORINFO = std::mem::zeroed();
-        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetMonitorInfoW(hmonitor, &raw mut info) != 0 {
-            let mon = RectI32 {
-                left: info.rcMonitor.left,
-                top: info.rcMonitor.top,
-                right: info.rcMonitor.right,
-                bottom: info.rcMonitor.bottom,
-            };
-            let work = RectI32 {
-                left: info.rcWork.left,
-                top: info.rcWork.top,
-                right: info.rcWork.right,
-                bottom: info.rcWork.bottom,
-            };
-            monitors.push((mon, work));
-        }
-        1
-    }
-
-    let mut monitors: Vec<(RectI32, RectI32)> = Vec::new();
-    unsafe {
-        EnumDisplayMonitors(
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            Some(collect_monitor),
-            std::ptr::from_mut(&mut monitors) as LPARAM,
-        );
-    }
-    monitors
+    list_monitors()
+        .into_iter()
+        .map(|m| {
+            (
+                RectI32 {
+                    left: m.monitor_rect[0],
+                    top: m.monitor_rect[1],
+                    right: m.monitor_rect[2],
+                    bottom: m.monitor_rect[3],
+                },
+                RectI32 {
+                    left: m.work_rect[0],
+                    top: m.work_rect[1],
+                    right: m.work_rect[2],
+                    bottom: m.work_rect[3],
+                },
+            )
+        })
+        .collect()
 }
 
 #[cfg(windows)]
@@ -629,6 +752,59 @@ mod tests {
         let single_monitor = vec![monitors[1]];
         assert_eq!(
             validate_physical_position_against_monitors(&single_monitor, [-1800, 150], [1100, 750]),
+            None
+        );
+    }
+
+    #[test]
+    fn test_resolve_target_monitor_and_labels() {
+        use crate::ui::settings::Mt5DisplayMonitor;
+
+        let monitors = vec![
+            MonitorDescriptor {
+                device_name: "\\\\.\\DISPLAY2".to_string(),
+                monitor_rect: [-2560, 0, 0, 1440],
+                work_rect: [-2560, 0, 0, 1400],
+                is_primary: false,
+            },
+            MonitorDescriptor {
+                device_name: "\\\\.\\DISPLAY1".to_string(),
+                monitor_rect: [0, 0, 3840, 2160],
+                work_rect: [0, 0, 3840, 2100],
+                is_primary: true,
+            },
+        ];
+
+        assert_eq!(
+            format_monitor_label(0, &monitors[0], &monitors),
+            "モニター 1 (左・2560×1440)"
+        );
+        assert_eq!(
+            format_monitor_label(1, &monitors[1], &monitors),
+            "モニター 2 (右・メイン・3840×2160)"
+        );
+
+        assert_eq!(
+            resolve_target_monitor_work_rect(&Mt5DisplayMonitor::Primary, &monitors),
+            Some([0, 0, 3840, 2100])
+        );
+        assert_eq!(
+            resolve_target_monitor_work_rect(
+                &Mt5DisplayMonitor::Device("\\\\.\\DISPLAY2".to_string()),
+                &monitors
+            ),
+            Some([-2560, 0, 0, 1400])
+        );
+        // Unknown/disconnected device falls back to Primary
+        assert_eq!(
+            resolve_target_monitor_work_rect(
+                &Mt5DisplayMonitor::Device("\\\\.\\DISPLAY99".to_string()),
+                &monitors
+            ),
+            Some([0, 0, 3840, 2100])
+        );
+        assert_eq!(
+            resolve_target_monitor_work_rect(&Mt5DisplayMonitor::Auto, &monitors),
             None
         );
     }

@@ -13,8 +13,9 @@ use crate::ui::chart::{BottomMetric, ChartTheme, ChartXAxisMode, MarginEdgeLatch
 use crate::ui::fonts::setup_fonts;
 use crate::ui::settings::{
     save_ui_state, CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, ChartTimeZone,
-    UiState, WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH, DEFAULT_TICK_CANDLE_BAR_WIDTH,
-    DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH,
+    Mt5DisplayMonitor, UiState, WindowGeometryState, DEFAULT_CANDLE_BAR_WIDTH,
+    DEFAULT_TICK_CANDLE_BAR_WIDTH, DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH, MIN_WINDOW_HEIGHT,
+    MIN_WINDOW_WIDTH,
 };
 use crate::ui::shared::broker_name;
 use crate::ui::style;
@@ -79,6 +80,7 @@ pub struct DashboardApp {
     pub(crate) mt5_auto_launch: bool,
     pub(crate) mt5_auto_close: bool,
     pub(crate) mt5_non_minimized_broker: Option<BrokerId>,
+    pub(crate) mt5_display_monitor: Mt5DisplayMonitor,
     pub(crate) always_on_top: bool,
     pub(crate) show_mt5_stop_confirm_modal: bool,
     pub(crate) terminal_manager: crate::runtime::TerminalManager,
@@ -150,6 +152,7 @@ impl DashboardApp {
             mt5_auto_launch: false,
             mt5_auto_close: true,
             mt5_non_minimized_broker: Some(5),
+            mt5_display_monitor: Mt5DisplayMonitor::default(),
             always_on_top: true,
             show_mt5_stop_confirm_modal: false,
             terminal_manager: crate::runtime::TerminalManager::new(),
@@ -208,6 +211,7 @@ impl DashboardApp {
         self.mt5_auto_launch = state.mt5_auto_launch;
         self.mt5_auto_close = state.mt5_auto_close;
         self.mt5_non_minimized_broker = state.mt5_non_minimized_broker;
+        self.mt5_display_monitor = state.mt5_display_monitor.clone();
         self.always_on_top = state.always_on_top;
         self.chart_timezone = state.chart_timezone;
         self
@@ -308,6 +312,7 @@ impl DashboardApp {
             mt5_auto_launch: self.mt5_auto_launch,
             mt5_auto_close: self.mt5_auto_close,
             mt5_non_minimized_broker: self.mt5_non_minimized_broker,
+            mt5_display_monitor: self.mt5_display_monitor.clone(),
             always_on_top: self.always_on_top,
             chart_timezone: self.chart_timezone,
             window: self.window_geometry.clone(),
@@ -812,6 +817,7 @@ impl DashboardApp {
         let prev_mt5_auto_launch = self.mt5_auto_launch;
         let prev_mt5_auto_close = self.mt5_auto_close;
         let prev_mt5_non_minimized_broker = self.mt5_non_minimized_broker;
+        let prev_mt5_display_monitor = self.mt5_display_monitor.clone();
         let prev_always_on_top = self.always_on_top;
 
         // Poll MT5 process statuses periodically (throttled to 1s internally)
@@ -896,6 +902,7 @@ impl DashboardApp {
             || self.mt5_auto_launch != prev_mt5_auto_launch
             || self.mt5_auto_close != prev_mt5_auto_close
             || self.mt5_non_minimized_broker != prev_mt5_non_minimized_broker
+            || self.mt5_display_monitor != prev_mt5_display_monitor
             || self.always_on_top != prev_always_on_top
         {
             if self.candle_price_scale != prev_candle_scale {

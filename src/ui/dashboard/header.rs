@@ -146,7 +146,12 @@ pub fn render_top_header(
                     .collect();
                 let minimized = app.mt5_minimized;
                 let normal_id = app.mt5_non_minimized_broker;
-                app.terminal_manager.launch_multiple_with_normal(&stopped_targets, normal_id, minimized);
+                app.terminal_manager.launch_multiple_with_normal_on_monitor(
+                    &stopped_targets,
+                    normal_id,
+                    minimized,
+                    &app.mt5_display_monitor,
+                );
                 app.terminal_manager.poll_status(&app.broker_configs, &app.discovered_terminals, true);
             }
 

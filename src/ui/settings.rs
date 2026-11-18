@@ -209,6 +209,18 @@ const fn default_candle_price_line_broker() -> Option<BrokerId> {
     Some(5)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Mt5DisplayMonitor {
+    /// Always display the normal/maximized MT5 on the primary display.
+    #[default]
+    Primary,
+    /// Leave monitor placement to MT5's own saved state.
+    Auto,
+    /// Display on a specific Windows monitor device (e.g. `\\.\DISPLAY2`).
+    Device(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiState {
     #[serde(default = "default_active_pair")]
@@ -255,6 +267,8 @@ pub struct UiState {
     pub mt5_auto_close: bool,
     #[serde(default = "default_non_minimized_broker_id")]
     pub mt5_non_minimized_broker: Option<BrokerId>,
+    #[serde(default)]
+    pub mt5_display_monitor: Mt5DisplayMonitor,
     #[serde(default = "default_true")]
     pub always_on_top: bool,
     #[serde(default)]
@@ -288,6 +302,7 @@ impl Default for UiState {
             mt5_auto_launch: false,
             mt5_auto_close: true,
             mt5_non_minimized_broker: default_non_minimized_broker_id(),
+            mt5_display_monitor: Mt5DisplayMonitor::default(),
             always_on_top: true,
             chart_timezone: ChartTimeZone::default(),
             window: WindowGeometryState::default(),
@@ -608,6 +623,7 @@ mod tests {
             mt5_auto_launch: true,
             mt5_auto_close: false,
             mt5_non_minimized_broker: Some(1),
+            mt5_display_monitor: Mt5DisplayMonitor::Device("\\\\.\\DISPLAY2".to_string()),
             always_on_top: true,
             chart_timezone: ChartTimeZone::Jst,
             window: WindowGeometryState {
@@ -759,6 +775,7 @@ mod tests {
             mt5_auto_launch: false,
             mt5_auto_close: false,
             mt5_non_minimized_broker: Some(99), // Non-existent broker ID, should reconcile
+            mt5_display_monitor: Mt5DisplayMonitor::Primary,
             always_on_top: false,
             chart_timezone: ChartTimeZone::Jst,
             window: WindowGeometryState {
@@ -920,5 +937,6 @@ mod tests {
             deserialized.mt5_auto_close,
             "mt5_auto_close must default to true when omitted in JSON"
         );
+        assert_eq!(deserialized.mt5_display_monitor, Mt5DisplayMonitor::Primary);
     }
 }

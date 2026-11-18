@@ -7,6 +7,7 @@
 use crate::config::BrokerConfig;
 use crate::core::types::BrokerId;
 use crate::deploy::discovery::{read_origin, DiscoveredTerminal};
+use crate::ui::settings::Mt5DisplayMonitor;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
@@ -214,6 +215,28 @@ impl TerminalManager {
         }
     }
 
+    /// Launch terminal for a single broker with the specified window mode and target monitor.
+    /// # Errors
+    ///
+    /// Returns a message when no executable path is known for the broker, or when the terminal
+    /// process cannot be spawned.
+    pub fn launch_with_mode_on_monitor(
+        &mut self,
+        broker_id: BrokerId,
+        mode: TerminalLaunchMode,
+        target_monitor: &Mt5DisplayMonitor,
+    ) -> Result<u32, String> {
+        let exe_path = self
+            .get_exe_path(broker_id)
+            .ok_or_else(|| format!("MT5 executable path not found for broker ID {broker_id}"))?
+            .clone();
+
+        let pid = launch_terminal_process(&exe_path, mode, target_monitor.clone())?;
+        self.status_cache
+            .insert(broker_id, TerminalProcessStatus::Running { pid });
+        Ok(pid)
+    }
+
     /// Launch terminal for a single broker with the specified window mode.
     /// # Errors
     ///
@@ -224,15 +247,7 @@ impl TerminalManager {
         broker_id: BrokerId,
         mode: TerminalLaunchMode,
     ) -> Result<u32, String> {
-        let exe_path = self
-            .get_exe_path(broker_id)
-            .ok_or_else(|| format!("MT5 executable path not found for broker ID {broker_id}"))?
-            .clone();
-
-        let pid = launch_terminal_process(&exe_path, mode)?;
-        self.status_cache
-            .insert(broker_id, TerminalProcessStatus::Running { pid });
-        Ok(pid)
+        self.launch_with_mode_on_monitor(broker_id, mode, &Mt5DisplayMonitor::Primary)
     }
 
     /// Launch terminal for a single broker.
@@ -249,6 +264,26 @@ impl TerminalManager {
         self.launch_with_mode(broker_id, mode)
     }
 
+    /// Launch terminals for multiple brokers, placing and maximizing the selected normal-display broker
+    /// on the specified monitor.
+    pub fn launch_multiple_with_normal_on_monitor(
+        &mut self,
+        broker_ids: &[BrokerId],
+        normal_broker_id: Option<BrokerId>,
+        default_minimized: bool,
+        target_monitor: &Mt5DisplayMonitor,
+    ) -> Vec<(BrokerId, Result<u32, String>)> {
+        let mut results = Vec::new();
+        for &id in broker_ids {
+            let mode = Self::resolve_launch_mode(id, normal_broker_id, default_minimized);
+            results.push((
+                id,
+                self.launch_with_mode_on_monitor(id, mode, target_monitor),
+            ));
+        }
+        results
+    }
+
     /// Launch terminals for multiple brokers, launching the selected normal-display broker maximized.
     pub fn launch_multiple_with_normal(
         &mut self,
@@ -256,12 +291,24 @@ impl TerminalManager {
         normal_broker_id: Option<BrokerId>,
         default_minimized: bool,
     ) -> Vec<(BrokerId, Result<u32, String>)> {
-        let mut results = Vec::new();
-        for &id in broker_ids {
-            let mode = Self::resolve_launch_mode(id, normal_broker_id, default_minimized);
-            results.push((id, self.launch_with_mode(id, mode)));
+        self.launch_multiple_with_normal_on_monitor(
+            broker_ids,
+            normal_broker_id,
+            default_minimized,
+            &Mt5DisplayMonitor::Primary,
+        )
+    }
+
+    /// If the specified broker is already running and not minimized, move its main window
+    /// to `target_monitor` and maximize it.
+    pub fn apply_maximized_monitor_if_running(
+        &self,
+        broker_id: BrokerId,
+        target_monitor: &Mt5DisplayMonitor,
+    ) {
+        if let Some(pid) = self.get_status(broker_id).pid() {
+            reposition_running_terminal_to_monitor(pid, target_monitor);
         }
-        results
     }
 
     /// Launch terminals for multiple brokers.
@@ -384,7 +431,11 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
 }
 
 #[cfg(windows)]
-fn launch_terminal_process(exe_path: &Path, mode: TerminalLaunchMode) -> Result<u32, String> {
+fn launch_terminal_process(
+    exe_path: &Path,
+    mode: TerminalLaunchMode,
+    target_monitor: Mt5DisplayMonitor,
+) -> Result<u32, String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::core::BOOL;
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
@@ -457,13 +508,14 @@ fn launch_terminal_process(exe_path: &Path, mode: TerminalLaunchMode) -> Result<
             CloseHandle(pi.hThread);
         }
         log::info!(
-            "[TerminalManager] Launched MT5 terminal (PID: {}) at '{}' (mode: {:?})",
+            "[TerminalManager] Launched MT5 terminal (PID: {}) at '{}' (mode: {:?}, monitor: {:?})",
             pid,
             exe_path.display(),
-            mode
+            mode,
+            target_monitor
         );
         if mode == TerminalLaunchMode::Maximized {
-            spawn_maximize_watcher(pid);
+            spawn_maximize_watcher(pid, target_monitor);
         }
         Ok(pid)
     } else {
@@ -476,19 +528,14 @@ fn launch_terminal_process(exe_path: &Path, mode: TerminalLaunchMode) -> Result<
     }
 }
 
-/// Ensures an MT5 terminal launched in `Maximized` mode actually ends up maximized even if
-/// `terminal64.exe` restores an unmaximized `WINDOWPLACEMENT` from its own `terminal.ini`.
 #[cfg(windows)]
-fn spawn_maximize_watcher(pid: u32) {
+fn find_mt5_main_window(pid: u32) -> windows_sys::Win32::Foundation::HWND {
     use windows_sys::core::BOOL;
-    use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, WAIT_TIMEOUT};
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
-    };
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetAncestor, GetClassNameW, GetWindow, GetWindowLongW,
-        GetWindowThreadProcessId, IsWindowVisible, IsZoomed, ShowWindowAsync, GA_ROOT, GWL_STYLE,
-        GW_OWNER, SW_MAXIMIZE, WS_CAPTION, WS_MAXIMIZEBOX,
+        GetWindowThreadProcessId, IsWindowVisible, GA_ROOT, GWL_STYLE, GW_OWNER, WS_CAPTION,
+        WS_MAXIMIZEBOX,
     };
 
     #[repr(C)]
@@ -528,33 +575,119 @@ fn spawn_maximize_watcher(pid: u32) {
         0
     }
 
+    let mut search = Search {
+        pid,
+        found: std::ptr::null_mut(),
+    };
+    unsafe {
+        EnumWindows(
+            Some(find_main_window_proc),
+            std::ptr::from_mut(&mut search) as LPARAM,
+        );
+    }
+    search.found
+}
+
+/// Ensures `hwnd` is placed on `target_monitor` (if specified) and maximized.
+/// Returns `true` when the window is already on the target monitor and zoomed.
+#[cfg(windows)]
+unsafe fn ensure_hwnd_on_monitor_and_maximized(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    target_monitor: &Mt5DisplayMonitor,
+) -> bool {
+    use windows_sys::Win32::Foundation::{POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        MonitorFromPoint, MonitorFromWindow, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, IsZoomed, SetWindowPos, ShowWindow, ShowWindowAsync, SWP_NOACTIVATE,
+        SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
+    };
+
+    let monitors = crate::ui::dpi::list_monitors();
+    if let Some([wl, wt, wr, wb]) =
+        crate::ui::dpi::resolve_target_monitor_work_rect(target_monitor, &monitors)
+    {
+        let target_hmon = MonitorFromPoint(
+            POINT {
+                x: (wl + wr) / 2,
+                y: (wt + wb) / 2,
+            },
+            MONITOR_DEFAULTTONEAREST,
+        );
+        let curr_hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let is_zoomed = IsZoomed(hwnd) != 0;
+
+        if curr_hmon != target_hmon {
+            if is_zoomed {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+            let mut rect: RECT = std::mem::zeroed();
+            let (cur_w, cur_h) = if GetWindowRect(hwnd, &raw mut rect) != 0 {
+                (
+                    (rect.right - rect.left).max(640),
+                    (rect.bottom - rect.top).max(480),
+                )
+            } else {
+                (1024, 720)
+            };
+            let work_w = (wr - wl).max(640);
+            let work_h = (wb - wt).max(480);
+            let w = cur_w.min((work_w - 80).max(640));
+            let h = cur_h.min((work_h - 80).max(480));
+            let x = wl + ((work_w - w) / 2).max(0);
+            let y = wt + ((work_h - h) / 2).max(0);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                x,
+                y,
+                w,
+                h,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            ShowWindow(hwnd, SW_MAXIMIZE);
+            return false;
+        } else if !is_zoomed {
+            ShowWindowAsync(hwnd, SW_MAXIMIZE);
+            return false;
+        }
+        true
+    } else if IsZoomed(hwnd) == 0 {
+        ShowWindowAsync(hwnd, SW_MAXIMIZE);
+        false
+    } else {
+        true
+    }
+}
+
+/// Ensures an MT5 terminal launched in `Maximized` mode is placed on `target_monitor`
+/// and ends up maximized even if `terminal64.exe` restores its own `terminal.ini` placement.
+#[cfg(windows)]
+fn spawn_maximize_watcher(pid: u32, target_monitor: Mt5DisplayMonitor) {
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+
     std::thread::spawn(move || unsafe {
         let process_handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
-        let mut zoomed_stable_ticks: u32 = 0;
+        let mut stable_ticks: u32 = 0;
 
         for _ in 0..150 {
             if !process_handle.is_null() && WaitForSingleObject(process_handle, 0) != WAIT_TIMEOUT {
                 break;
             }
 
-            let mut search = Search {
-                pid,
-                found: std::ptr::null_mut(),
-            };
-            EnumWindows(
-                Some(find_main_window_proc),
-                std::ptr::from_mut(&mut search) as LPARAM,
-            );
-
-            if !search.found.is_null() {
-                if IsZoomed(search.found) == 0 {
-                    ShowWindowAsync(search.found, SW_MAXIMIZE);
-                    zoomed_stable_ticks = 0;
-                } else {
-                    zoomed_stable_ticks += 1;
-                    if zoomed_stable_ticks >= 5 {
+            let hwnd = find_mt5_main_window(pid);
+            if !hwnd.is_null() {
+                if ensure_hwnd_on_monitor_and_maximized(hwnd, &target_monitor) {
+                    stable_ticks += 1;
+                    if stable_ticks >= 5 {
                         break;
                     }
+                } else {
+                    stable_ticks = 0;
                 }
             }
 
@@ -567,8 +700,29 @@ fn spawn_maximize_watcher(pid: u32) {
     });
 }
 
+#[cfg(windows)]
+fn reposition_running_terminal_to_monitor(pid: u32, target_monitor: &Mt5DisplayMonitor) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsIconic;
+
+    let hwnd = find_mt5_main_window(pid);
+    if !hwnd.is_null() {
+        unsafe {
+            if IsIconic(hwnd) == 0 {
+                let _ = ensure_hwnd_on_monitor_and_maximized(hwnd, target_monitor);
+            }
+        }
+    }
+}
+
 #[cfg(not(windows))]
-fn launch_terminal_process(exe_path: &Path, _mode: TerminalLaunchMode) -> Result<u32, String> {
+fn reposition_running_terminal_to_monitor(_pid: u32, _target_monitor: &Mt5DisplayMonitor) {}
+
+#[cfg(not(windows))]
+fn launch_terminal_process(
+    exe_path: &Path,
+    _mode: TerminalLaunchMode,
+    _target_monitor: Mt5DisplayMonitor,
+) -> Result<u32, String> {
     Err(format!(
         "Terminal process launching is only supported on Windows: {}",
         exe_path.display()
@@ -583,23 +737,54 @@ fn stop_terminal_process(pid: u32, timeout: Duration) -> Option<JoinHandle<()>> 
         OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowThreadProcessId, PostMessageW, WM_CLOSE,
+        EnumWindows, GetAncestor, GetWindow, GetWindowThreadProcessId, IsWindowVisible,
+        PostMessageW, GA_ROOT, GW_OWNER, WM_CLOSE,
     };
 
-    unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    #[repr(C)]
+    struct CloseSearch {
+        pid: u32,
+        posted_primary: u32,
+    }
+
+    unsafe extern "system" fn enum_primary_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let search = &mut *(lparam as *mut CloseSearch);
+        let mut win_pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, &raw mut win_pid);
+        if win_pid == search.pid
+            && GetAncestor(hwnd, GA_ROOT) == hwnd
+            && GetWindow(hwnd, GW_OWNER).is_null()
+            && IsWindowVisible(hwnd) != 0
+        {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            search.posted_primary += 1;
+        }
+        1
+    }
+
+    unsafe extern "system" fn enum_fallback_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let target_pid = lparam as u32;
         let mut win_pid: u32 = 0;
         GetWindowThreadProcessId(hwnd, &raw mut win_pid);
-        if win_pid == target_pid {
+        if win_pid == target_pid && GetAncestor(hwnd, GA_ROOT) == hwnd {
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
         }
-        1 // Continue enumeration
+        1
     }
 
     Some(std::thread::spawn(move || unsafe {
         log::info!("[TerminalManager] Posting WM_CLOSE to MT5 terminal (PID: {pid})...");
-        // Post WM_CLOSE to all top-level windows of target process
-        EnumWindows(Some(enum_windows_proc), pid as LPARAM);
+        let mut search = CloseSearch {
+            pid,
+            posted_primary: 0,
+        };
+        EnumWindows(
+            Some(enum_primary_windows_proc),
+            std::ptr::from_mut(&mut search) as LPARAM,
+        );
+        if search.posted_primary == 0 {
+            EnumWindows(Some(enum_fallback_windows_proc), pid as LPARAM);
+        }
 
         let process_handle = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, 0, pid);
         if process_handle.is_null() {

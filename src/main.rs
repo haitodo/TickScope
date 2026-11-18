@@ -151,7 +151,12 @@ fn main() -> eframe::Result<()> {
             .collect();
         let minimized = ui_state.mt5_minimized;
         let normal_id = ui_state.mt5_non_minimized_broker;
-        let _ = tm.launch_multiple_with_normal(&stopped_targets, normal_id, minimized);
+        let _ = tm.launch_multiple_with_normal_on_monitor(
+            &stopped_targets,
+            normal_id,
+            minimized,
+            &ui_state.mt5_display_monitor,
+        );
     }
 
     let exchange = coordinator.exchange.clone();

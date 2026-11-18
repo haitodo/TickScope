@@ -393,7 +393,11 @@ pub fn render_broker_overview(app: &mut DashboardApp, ui: &mut egui::Ui, snapsho
                                                     );
                                                     let _ = app
                                                         .terminal_manager
-                                                        .launch_with_mode(id, mode);
+                                                        .launch_with_mode_on_monitor(
+                                                            id,
+                                                            mode,
+                                                            &app.mt5_display_monitor,
+                                                        );
                                                     app.terminal_manager.poll_status(
                                                         &app.broker_configs,
                                                         &app.discovered_terminals,

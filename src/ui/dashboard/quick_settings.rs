@@ -1,8 +1,9 @@
 use super::DashboardApp;
 use crate::core::models::UiSnapshot;
 use crate::ui::chart::ChartXAxisMode;
+use crate::ui::dpi::{format_monitor_label, list_monitors};
 use crate::ui::settings::{
-    CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, ChartTimeZone,
+    CandleFollowCriteria, CandlePriceMode, CandlePriceScaleMode, ChartTimeZone, Mt5DisplayMonitor,
     VALID_CANDLE_BAR_WIDTHS, VALID_CANDLE_FIXED_PIPS,
 };
 use crate::ui::shared::format_pips;
@@ -357,6 +358,69 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
                             }
                         }
                     });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("MT5表示モニター:")
+                    .on_hover_text("通常表示（最大表示）に指定したMT5を開くモニターを選択します。");
+                let monitors = list_monitors();
+                let selected_monitor_text = match &app.mt5_display_monitor {
+                    Mt5DisplayMonitor::Primary => "メインディスプレイ (固定)".to_string(),
+                    Mt5DisplayMonitor::Auto => "自動 (MT5の前回位置)".to_string(),
+                    Mt5DisplayMonitor::Device(dev) => monitors
+                        .iter()
+                        .enumerate()
+                        .find(|(_, m)| m.device_name == *dev)
+                        .map_or_else(
+                            || format!("指定モニター ({dev} / 未接続時はメイン)"),
+                            |(idx, m)| format_monitor_label(idx, m, &monitors),
+                        ),
+                };
+                let mut monitor_changed = false;
+                egui::ComboBox::from_id_salt("mt5_display_monitor_combo")
+                    .selected_text(selected_monitor_text)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_value(
+                                &mut app.mt5_display_monitor,
+                                Mt5DisplayMonitor::Primary,
+                                "メインディスプレイ (固定)",
+                            )
+                            .clicked()
+                        {
+                            monitor_changed = true;
+                        }
+                        for (idx, m) in monitors.iter().enumerate() {
+                            let label = format_monitor_label(idx, m, &monitors);
+                            if ui
+                                .selectable_value(
+                                    &mut app.mt5_display_monitor,
+                                    Mt5DisplayMonitor::Device(m.device_name.clone()),
+                                    label,
+                                )
+                                .clicked()
+                            {
+                                monitor_changed = true;
+                            }
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut app.mt5_display_monitor,
+                                Mt5DisplayMonitor::Auto,
+                                "自動 (MT5の前回位置)",
+                            )
+                            .clicked()
+                        {
+                            monitor_changed = true;
+                        }
+                    });
+                if monitor_changed {
+                    app.state_dirty = true;
+                    if let Some(normal_id) = app.mt5_non_minimized_broker {
+                        app.terminal_manager
+                            .apply_maximized_monitor_if_running(normal_id, &app.mt5_display_monitor);
+                    }
+                }
             });
 
             ui.collapsing("Resolved MT5 Executable Paths", |ui| {
