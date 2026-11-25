@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const MIN_BATCH_SIZE: usize = 256;
 pub const MAX_BATCH_SIZE: usize = 4096;
@@ -56,6 +56,10 @@ impl PlaybackPump {
         run_id: RunId,
         next_sequences: &mut HashMap<BrokerId, u64>,
     ) {
+        // Batch frames safely below `max_frames_per_broker` so merge runs once per chunk
+        // without risking false MERGE_BACKPRESSURE overload diagnostics.
+        let max_batch_frames = eng.config.ingress.max_frames_per_broker.clamp(1, 64);
+        let mut batch = Vec::with_capacity(max_batch_frames);
         let mut start = 0;
         while start < ticks.len() {
             let b_id = ticks[start].broker_id;
@@ -75,8 +79,14 @@ impl PlaybackPump {
             });
             let item = make_ingress_tick_batch(b_id, session, group, *seq, false, run_id);
             *seq += group.len() as u64;
-            eng.on_ingress_item(item);
+            batch.push(item);
+            if batch.len() >= max_batch_frames {
+                eng.on_ingress_batch(batch.drain(..), MonoNs::ZERO);
+            }
             start = end;
+        }
+        if !batch.is_empty() {
+            eng.on_ingress_batch(batch.drain(..), MonoNs::ZERO);
         }
     }
 
@@ -98,6 +108,8 @@ impl PlaybackPump {
         let mut current_batch_limit = MIN_BATCH_SIZE;
         let mut tick_buf = Vec::with_capacity(MAX_BATCH_SIZE);
         let mut last_drained_utc = i64::MIN;
+        let mut last_idle_watermark_push = Instant::now();
+        let mut has_unflushed_pending = false;
 
         while running.load(Ordering::SeqCst) {
             let current_session = session_epoch.load(Ordering::SeqCst);
@@ -106,6 +118,7 @@ impl PlaybackPump {
                 last_session = current_session;
                 current_batch_limit = MIN_BATCH_SIZE;
                 last_drained_utc = i64::MIN;
+                has_unflushed_pending = false;
             }
 
             let is_playing = clock.is_playing();
@@ -138,34 +151,51 @@ impl PlaybackPump {
                 current_batch_limit = (current_batch_limit / 2).max(MIN_BATCH_SIZE);
             }
 
-            let current_mono = MonoNs((current_utc.max(0) as u64).saturating_mul(1_000_000));
+            let needs_engine_pass = !tick_buf.is_empty()
+                || !is_playing
+                || has_unflushed_pending
+                || last_idle_watermark_push.elapsed() >= Duration::from_millis(16);
 
-            let mut eng = engine.lock();
-            if session_epoch.load(Ordering::SeqCst) != current_session {
-                drop(eng);
-                continue;
+            if needs_engine_pass {
+                let current_mono = MonoNs((current_utc.max(0) as u64).saturating_mul(1_000_000));
+
+                let (should_wake, still_pending) = {
+                    let mut eng = engine.lock();
+                    if session_epoch.load(Ordering::SeqCst) != current_session {
+                        continue;
+                    }
+                    let rev_before = eng.projection_revision;
+                    if !tick_buf.is_empty() {
+                        Self::dispatch_replay_ticks(
+                            &mut eng,
+                            &tick_buf,
+                            current_session,
+                            run_id,
+                            &mut next_sequences,
+                        );
+                    }
+
+                    // Advance watermark for all connected channels to current_mono and drain merge in a single pass
+                    eng.advance_connected_watermarks(current_mono);
+                    (
+                        eng.projection_revision != rev_before || !is_playing,
+                        eng.has_pending_frames(),
+                    )
+                };
+
+                has_unflushed_pending = still_pending;
+                last_idle_watermark_push = Instant::now();
+
+                if should_wake {
+                    // Signal snapshot publisher immediately to reflect latest quotes & candles
+                    let (lock, cvar) = &*tick_wake;
+                    let mut pending = lock.lock();
+                    if !*pending {
+                        *pending = true;
+                        cvar.notify_one();
+                    }
+                }
             }
-
-            if !tick_buf.is_empty() {
-                Self::dispatch_replay_ticks(
-                    &mut eng,
-                    &tick_buf,
-                    current_session,
-                    run_id,
-                    &mut next_sequences,
-                );
-            }
-
-            // Advance watermark for all connected channels to current_mono and drain merge in a single pass
-            eng.advance_connected_watermarks(current_mono);
-
-            drop(eng);
-
-            // Signal snapshot publisher immediately to reflect latest quotes & candles
-            let (lock, cvar) = &*tick_wake;
-            let mut pending = lock.lock();
-            *pending = true;
-            cvar.notify_one();
 
             // Record last drained timestamp when pause drain has caught up
             if !is_playing && !has_more {

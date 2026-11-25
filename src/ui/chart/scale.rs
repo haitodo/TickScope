@@ -140,8 +140,19 @@ pub fn resolve_candle_follow_scale(
         CandleFollowCriteria::Median => {
             *margin_edge_latch = None;
             let len = candidates.len();
-            let mut prices: Vec<f64> = candidates.iter().map(|c| c.bid).collect();
-            let cmp = |a: &f64, b: &f64| a.partial_cmp(b).unwrap_or(Ordering::Equal);
+            let mut stack_prices = [0.0f64; 32];
+            let mut heap_prices = Vec::new();
+            let prices: &mut [f64] = if len <= stack_prices.len() {
+                for (slot, c) in stack_prices.iter_mut().zip(candidates.iter()) {
+                    *slot = c.bid;
+                }
+                &mut stack_prices[..len]
+            } else {
+                heap_prices.reserve(len);
+                heap_prices.extend(candidates.iter().map(|c| c.bid));
+                &mut heap_prices[..]
+            };
+            let cmp = f64::total_cmp;
             let mid = len / 2;
             let (left, mid_val, _) = prices.select_nth_unstable_by(mid, cmp);
             let hi = *mid_val;

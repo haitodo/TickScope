@@ -69,25 +69,30 @@ pub fn render_top_header(
                 crate::ui::style::STATUS_ALERT
             };
 
-            let mut tooltip = "Toggle Broker Overview table [Key: B]".to_string();
-            if let Some(comp) = &snapshot.active_pair_comparison {
-                if let Some(m) = &comp.latest_match {
-                    let leader_name = broker_name(&snapshot.broker_overviews, m.leader, "Leader");
-                    let ema_text = comp
-                        .ema_lead_lag_ms.map_or_else(|| "N/A".to_string(), |e| format!("{e:+.2} ms"));
-                    let _ = write!(tooltip,
-                        "\n\n⚡ Lead/Lag [{} vs {}]:\nLeader: {}\nRaw Lead: {:.2} ms\nEMA Lead: {}\n(Key: [5] Lead/Lag view)",
-                        name_a, name_b, leader_name, m.raw_delta_ms.abs(), ema_text
-                    );
-                }
-            }
-
             let toggle_btn = ui.selectable_label(
                 app.show_broker_overview,
                 RichText::new(overview_text).color(overview_color).strong(),
             );
             if toggle_btn
-                .on_hover_text(tooltip)
+                .on_hover_ui(|ui| {
+                    let mut tooltip = "Toggle Broker Overview table [Key: B]".to_string();
+                    if let Some(comp) = &snapshot.active_pair_comparison {
+                        if let Some(m) = &comp.latest_match {
+                            let leader_name =
+                                broker_name(&snapshot.broker_overviews, m.leader, "Leader");
+                            let ema_text = comp.ema_lead_lag_ms.map_or_else(
+                                || "N/A".to_string(),
+                                |e| format!("{e:+.2} ms"),
+                            );
+                            let _ = write!(
+                                tooltip,
+                                "\n\n⚡ Lead/Lag [{} vs {}]:\nLeader: {}\nRaw Lead: {:.2} ms\nEMA Lead: {}\n(Key: [5] Lead/Lag view)",
+                                name_a, name_b, leader_name, m.raw_delta_ms.abs(), ema_text
+                            );
+                        }
+                    }
+                    ui.label(tooltip);
+                })
                 .clicked()
             {
                 app.show_broker_overview = !app.show_broker_overview;
@@ -96,15 +101,12 @@ pub fn render_top_header(
             ui.separator();
 
             // MT5 Process Quick Action Buttons
-            let target_ids: Vec<crate::core::types::BrokerId> = app.mt5_launch_targets.clone();
-            let running_count = target_ids
+            let running_count = app
+                .mt5_launch_targets
                 .iter()
                 .filter(|&&id| app.terminal_manager.get_status(id).is_running())
                 .count();
-            let stopped_count = target_ids
-                .iter()
-                .filter(|&&id| !app.terminal_manager.get_status(id).is_running())
-                .count();
+            let stopped_count = app.mt5_launch_targets.len().saturating_sub(running_count);
 
             let launch_btn = ui.add_enabled(
                 stopped_count > 0,
@@ -118,28 +120,35 @@ pub fn render_top_header(
                         .strong(),
                 ),
             );
+            let mt5_minimized = app.mt5_minimized;
             let normal_broker_name = app.mt5_non_minimized_broker.and_then(|id| {
-                app.broker_configs.iter().find(|b| b.id == id).map(|b| b.name.as_str())
+                app.broker_configs
+                    .iter()
+                    .find(|b| b.id == id)
+                    .map(|b| b.name.as_str())
             });
-            let hover_text = match normal_broker_name {
-                Some(name) => format!(
-                    "選択中の未起動MT5（{}台）を一括起動します（「{}」は最大表示、他は最小化: {}）",
-                    stopped_count,
-                    name,
-                    if app.mt5_minimized { "オン" } else { "オフ" }
-                ),
-                None => format!(
-                    "選択中の未起動MT5（{}台）を一括起動します（最小化: {}）",
-                    stopped_count,
-                    if app.mt5_minimized { "オン" } else { "オフ" }
-                ),
-            };
+            let launch_clicked = launch_btn
+                .on_hover_ui(|ui| {
+                    let hover_text = match normal_broker_name {
+                        Some(name) => format!(
+                            "選択中の未起動MT5（{}台）を一括起動します（「{}」は最大表示、他は最小化: {}）",
+                            stopped_count,
+                            name,
+                            if mt5_minimized { "オン" } else { "オフ" }
+                        ),
+                        None => format!(
+                            "選択中の未起動MT5（{}台）を一括起動します（最小化: {}）",
+                            stopped_count,
+                            if mt5_minimized { "オン" } else { "オフ" }
+                        ),
+                    };
+                    ui.label(hover_text);
+                })
+                .clicked();
 
-            if launch_btn
-                .on_hover_text(hover_text)
-                .clicked()
-            {
-                let stopped_targets: Vec<crate::core::types::BrokerId> = target_ids
+            if launch_clicked {
+                let stopped_targets: Vec<crate::core::types::BrokerId> = app
+                    .mt5_launch_targets
                     .iter()
                     .copied()
                     .filter(|&id| !app.terminal_manager.get_status(id).is_running())
@@ -152,7 +161,8 @@ pub fn render_top_header(
                     minimized,
                     &app.mt5_display_monitor,
                 );
-                app.terminal_manager.poll_status(&app.broker_configs, &app.discovered_terminals, true);
+                app.terminal_manager
+                    .request_async_refresh(&app.broker_configs, &app.discovered_terminals);
             }
 
             let stop_btn = ui.add_enabled(
@@ -168,9 +178,11 @@ pub fn render_top_header(
                 ),
             );
             if stop_btn
-                .on_hover_text(format!(
-                    "選択中の起動中MT5（{running_count}台）をクリーン終了（WM_CLOSE）します"
-                ))
+                .on_hover_ui(|ui| {
+                    ui.label(format!(
+                        "選択中の起動中MT5（{running_count}台）をクリーン終了（WM_CLOSE）します"
+                    ));
+                })
                 .clicked()
             {
                 app.show_mt5_stop_confirm_modal = true;

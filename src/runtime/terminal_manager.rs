@@ -8,8 +8,13 @@ use crate::config::BrokerConfig;
 use crate::core::types::BrokerId;
 use crate::deploy::discovery::{read_origin, DiscoveredTerminal};
 use crate::ui::settings::Mt5DisplayMonitor;
+use crossbeam_channel::{bounded, Receiver, Sender};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -42,12 +47,84 @@ impl TerminalProcessStatus {
     }
 }
 
+struct BgPollWorker {
+    req_tx: Option<Sender<()>>,
+    res_rx: Receiver<HashMap<PathBuf, u32>>,
+    in_flight: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl BgPollWorker {
+    fn spawn() -> Option<Self> {
+        let (req_tx, req_rx) = bounded::<()>(1);
+        let (res_tx, res_rx) = bounded::<HashMap<PathBuf, u32>>(1);
+        let in_flight = Arc::new(AtomicBool::new(false));
+        let in_flight_worker = Arc::clone(&in_flight);
+
+        let handle = std::thread::Builder::new()
+            .name("mt5-proc-poll".to_string())
+            .spawn(move || {
+                while req_rx.recv().is_ok() {
+                    let running = query_running_terminals();
+                    let _ = res_tx.try_send(running);
+                    in_flight_worker.store(false, Ordering::Release);
+                }
+            })
+            .ok()?;
+
+        Some(Self {
+            req_tx: Some(req_tx),
+            res_rx,
+            in_flight,
+            handle: Some(handle),
+        })
+    }
+
+    fn try_trigger(&self) -> bool {
+        if self
+            .in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return false;
+        }
+        if let Some(tx) = &self.req_tx {
+            if tx.try_send(()).is_ok() {
+                return true;
+            }
+        }
+        self.in_flight.store(false, Ordering::Release);
+        false
+    }
+}
+
+impl Drop for BgPollWorker {
+    fn drop(&mut self) {
+        self.req_tx.take();
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn discovered_fingerprint(discovered: &[DiscoveredTerminal]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    discovered.len().hash(&mut hasher);
+    for term in discovered {
+        term.friendly_name.hash(&mut hasher);
+        term.terminal_dir.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 pub struct TerminalManager {
     broker_terminals: HashMap<BrokerId, Option<PathBuf>>,
     canonical_terminals: HashMap<BrokerId, Option<PathBuf>>,
+    resolved_signatures: HashMap<BrokerId, (Option<String>, u64)>,
     status_cache: HashMap<BrokerId, TerminalProcessStatus>,
     last_scan: Option<Instant>,
     scan_interval: Duration,
+    bg_worker: Option<BgPollWorker>,
 }
 
 impl Default for TerminalManager {
@@ -62,9 +139,11 @@ impl TerminalManager {
         Self {
             broker_terminals: HashMap::new(),
             canonical_terminals: HashMap::new(),
+            resolved_signatures: HashMap::new(),
             status_cache: HashMap::new(),
             last_scan: None,
             scan_interval: Duration::from_millis(1000),
+            bg_worker: None,
         }
     }
 
@@ -125,34 +204,25 @@ impl TerminalManager {
         None
     }
 
-    /// Update terminal paths and process statuses for all configured brokers.
-    pub fn poll_status(
+    fn update_broker_paths(
         &mut self,
         brokers: &[BrokerConfig],
         discovered: &[DiscoveredTerminal],
         force: bool,
-    ) {
-        let now = Instant::now();
-        if !force {
-            if let Some(last) = self.last_scan {
-                if now.duration_since(last) < self.scan_interval {
-                    return;
-                }
-            }
-        }
-        self.last_scan = Some(now);
+    ) -> bool {
+        let disc_fp = discovered_fingerprint(discovered);
+        let mut any_resolved = false;
 
-        // Update path mapping and pre-canonicalize once on discovery
         for broker in brokers {
-            let current_cached = self
-                .broker_terminals
+            let sig = (broker.terminal_path.as_deref(), disc_fp);
+            let cached_entry = self.broker_terminals.get(&broker.id);
+            let sig_matches = self
+                .resolved_signatures
                 .get(&broker.id)
-                .and_then(|p| p.as_ref());
-            let explicit_differs = broker
-                .terminal_path
-                .as_ref()
-                .is_some_and(|p| current_cached.is_none_or(|cur| cur != p));
-            let needs_resolution = explicit_differs || current_cached.is_none();
+                .is_some_and(|(p, fp)| p.as_deref() == sig.0 && *fp == sig.1);
+            let is_unresolved = cached_entry.is_none_or(Option::is_none);
+            let needs_resolution = !sig_matches || (force && is_unresolved);
+
             if needs_resolution {
                 let resolved = Self::resolve_terminal_path(broker, discovered);
                 let canon = resolved
@@ -160,11 +230,23 @@ impl TerminalManager {
                     .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()));
                 self.broker_terminals.insert(broker.id, resolved);
                 self.canonical_terminals.insert(broker.id, canon);
+                self.resolved_signatures
+                    .insert(broker.id, (broker.terminal_path.clone(), disc_fp));
+            }
+
+            if self
+                .canonical_terminals
+                .get(&broker.id)
+                .is_some_and(Option::is_some)
+            {
+                any_resolved = true;
             }
         }
 
-        let running_map = query_running_terminals();
+        any_resolved
+    }
 
+    fn apply_running_map(&mut self, brokers: &[BrokerConfig], running_map: &HashMap<PathBuf, u32>) {
         for broker in brokers {
             let canon_opt = self
                 .canonical_terminals
@@ -181,6 +263,119 @@ impl TerminalManager {
                 }
             };
             self.status_cache.insert(broker.id, status);
+        }
+    }
+
+    /// Update terminal paths and process statuses for all configured brokers synchronously.
+    pub fn poll_status(
+        &mut self,
+        brokers: &[BrokerConfig],
+        discovered: &[DiscoveredTerminal],
+        force: bool,
+    ) {
+        let now = Instant::now();
+        if !force {
+            if let Some(last) = self.last_scan {
+                if now.duration_since(last) < self.scan_interval {
+                    return;
+                }
+            }
+        }
+        self.last_scan = Some(now);
+
+        let any_resolved = self.update_broker_paths(brokers, discovered, force);
+        if !any_resolved {
+            for broker in brokers {
+                self.status_cache
+                    .insert(broker.id, TerminalProcessStatus::NotFound);
+            }
+            return;
+        }
+
+        let running_map = query_running_terminals();
+        self.apply_running_map(brokers, &running_map);
+    }
+
+    /// Non-blocking status poll for the UI thread: applies any completed background process scan
+    /// and triggers a fresh background scan when `scan_interval` has elapsed.
+    pub fn poll_status_async(
+        &mut self,
+        brokers: &[BrokerConfig],
+        discovered: &[DiscoveredTerminal],
+    ) {
+        self.poll_status_async_inner(brokers, discovered, false);
+    }
+
+    /// Trigger an immediate non-blocking refresh of MT5 process statuses (e.g. after a launch click).
+    pub fn request_async_refresh(
+        &mut self,
+        brokers: &[BrokerConfig],
+        discovered: &[DiscoveredTerminal],
+    ) {
+        self.poll_status_async_inner(brokers, discovered, true);
+    }
+
+    fn poll_status_async_inner(
+        &mut self,
+        brokers: &[BrokerConfig],
+        discovered: &[DiscoveredTerminal],
+        force: bool,
+    ) {
+        // 1. Drain any completed scan result without blocking the UI thread.
+        let mut latest_running = None;
+        if let Some(worker) = &self.bg_worker {
+            while let Ok(map) = worker.res_rx.try_recv() {
+                latest_running = Some(map);
+            }
+        }
+        if let Some(running_map) = latest_running {
+            self.apply_running_map(brokers, &running_map);
+        }
+
+        let now = Instant::now();
+        if !force {
+            if let Some(last) = self.last_scan {
+                if now.duration_since(last) < self.scan_interval {
+                    return;
+                }
+            }
+        }
+
+        let any_resolved = self.update_broker_paths(brokers, discovered, force);
+        if !any_resolved {
+            self.last_scan = Some(now);
+            for broker in brokers {
+                self.status_cache
+                    .insert(broker.id, TerminalProcessStatus::NotFound);
+            }
+            return;
+        }
+
+        // Seed initial status for newly discovered brokers before the first background scan returns.
+        for broker in brokers {
+            let has_path = self
+                .canonical_terminals
+                .get(&broker.id)
+                .is_some_and(Option::is_some);
+            self.status_cache.entry(broker.id).or_insert(if has_path {
+                TerminalProcessStatus::Stopped
+            } else {
+                TerminalProcessStatus::NotFound
+            });
+        }
+
+        if self.bg_worker.is_none() {
+            self.bg_worker = BgPollWorker::spawn();
+        }
+        if let Some(worker) = &self.bg_worker {
+            if worker.try_trigger() {
+                self.last_scan = Some(now);
+            }
+        } else {
+            // Fallback to synchronous scan only if OS thread creation failed.
+            self.last_scan = Some(now);
+            let running_map = query_running_terminals();
+            self.apply_running_map(brokers, &running_map);
         }
     }
 
@@ -355,6 +550,15 @@ impl TerminalManager {
 // ---------------------------------------------------------------------------
 
 #[cfg(windows)]
+fn eq_utf16_ascii_case(wide: &[u16], ascii: &str) -> bool {
+    wide.len() == ascii.len()
+        && wide
+            .iter()
+            .zip(ascii.bytes())
+            .all(|(&w, b)| w <= 0x7f && (w as u8).eq_ignore_ascii_case(&b))
+}
+
+#[cfg(windows)]
 fn query_running_terminals() -> HashMap<PathBuf, u32> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -379,16 +583,15 @@ fn query_running_terminals() -> HashMap<PathBuf, u32> {
 
         if Process32FirstW(snapshot, &raw mut entry) != 0 {
             loop {
-                // Convert szExeFile to string
                 let len = entry
                     .szExeFile
                     .iter()
                     .position(|&c| c == 0)
                     .unwrap_or(entry.szExeFile.len());
-                let exe_name = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                let exe_wide = &entry.szExeFile[..len];
 
-                if exe_name.eq_ignore_ascii_case("terminal64.exe")
-                    || exe_name.eq_ignore_ascii_case("terminal.exe")
+                if eq_utf16_ascii_case(exe_wide, "terminal64.exe")
+                    || eq_utf16_ascii_case(exe_wide, "terminal.exe")
                 {
                     let pid = entry.th32ProcessID;
                     let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);

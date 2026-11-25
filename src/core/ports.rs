@@ -1,12 +1,17 @@
 //! Abstract ports and sinks for inter-module communication.
 
 use super::models::UiSnapshot;
-use super::types::{BrokerId, ClockReading, Diagnostic, HealthState, LogRecord};
+use super::types::{BrokerId, ClockReading, Diagnostic, HealthState, LogRecord, MonoNs};
 use crate::protocol::IngressItem;
 use std::sync::Arc;
 
 pub trait ClockPort: Send + Sync {
     fn sample(&self) -> ClockReading;
+
+    /// Fast monotonic-only reading for hot paths that do not need wall-clock Unix time.
+    fn mono_ns(&self) -> MonoNs {
+        self.sample().mono_ns
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

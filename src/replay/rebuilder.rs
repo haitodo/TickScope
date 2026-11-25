@@ -115,6 +115,9 @@ impl StateRebuilder {
                 broker_groups.entry(t.broker_id).or_default().push(*t);
             }
 
+            // Suppress per-tick quote-history construction during warmup since
+            // `rebuild_quote_history_from_replay_ticks` replaces it immediately after.
+            eng.set_suppress_quote_history(true);
             for (b_id, b_ticks) in broker_groups {
                 let mut seq = eng
                     .channels
@@ -143,6 +146,7 @@ impl StateRebuilder {
                 );
                 eng.on_ingress_item(live_item);
             }
+            eng.set_suppress_quote_history(false);
 
             // Reconstruct Realtime Quote Path history across the full screen width upon seek
             eng.rebuild_quote_history_from_replay_ticks(&warmup_ticks, target_utc_ms);

@@ -398,10 +398,9 @@ pub fn render_broker_overview(app: &mut DashboardApp, ui: &mut egui::Ui, snapsho
                                                             mode,
                                                             &app.mt5_display_monitor,
                                                         );
-                                                    app.terminal_manager.poll_status(
+                                                    app.terminal_manager.request_async_refresh(
                                                         &app.broker_configs,
                                                         &app.discovered_terminals,
-                                                        true,
                                                     );
                                                     ui.close();
                                                 }

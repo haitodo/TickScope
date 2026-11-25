@@ -226,12 +226,25 @@ impl CandleBook {
         num_slots: usize,
         current_utc_now: UtcMs,
     ) -> CandleView {
+        if num_slots == 0 || period_ms <= 0 {
+            let mut slots_by_broker = HashMap::with_capacity(broker_ids.len());
+            for &broker_id in broker_ids {
+                slots_by_broker.insert(broker_id, Vec::new());
+            }
+            return CandleView {
+                period_ms,
+                slot_starts: Vec::new(),
+                slots_by_broker,
+            };
+        }
+
         let current_slot_start = calculate_slot_start(current_utc_now, period_ms);
+        let first_slot_start =
+            UtcMs(current_slot_start.0 - ((num_slots - 1) as i64 * period_ms));
         let mut slot_starts = Vec::with_capacity(num_slots);
 
-        for i in (0..num_slots).rev() {
-            let start = current_slot_start.0 - (i as i64 * period_ms);
-            slot_starts.push(UtcMs(start));
+        for i in 0..num_slots {
+            slot_starts.push(UtcMs(first_slot_start.0 + (i as i64 * period_ms)));
         }
 
         let mut slots_by_broker = HashMap::with_capacity(broker_ids.len());
@@ -239,34 +252,41 @@ impl CandleBook {
 
         for &broker_id in broker_ids {
             let mut broker_slots = Vec::with_capacity(num_slots);
-            let b_slots = broker_map.and_then(|bm| bm.get(&broker_id));
-
             for &start in &slot_starts {
-                if let Some(slot) = b_slots.and_then(|m| m.get(&start)) {
-                    let mut s = *slot;
-                    if s.state == SlotState::Active
-                        && s.start_utc_ms.0 + period_ms <= current_utc_now.0
-                    {
-                        s.state = SlotState::Closed;
-                    }
-                    broker_slots.push(s);
+                let state = if start.0 + period_ms <= current_utc_now.0 {
+                    SlotState::Empty
                 } else {
-                    let state = if start.0 + period_ms <= current_utc_now.0 {
-                        SlotState::Empty
-                    } else {
-                        SlotState::Active
-                    };
-                    broker_slots.push(CandleSlot {
-                        broker_id,
-                        segment_id: 0,
-                        period_ms,
-                        start_utc_ms: start,
-                        state,
-                        ohlc: None,
-                        tick_count: 0,
-                        revision: 0,
-                        coverage: SlotCoverage::Full,
-                    });
+                    SlotState::Active
+                };
+                broker_slots.push(CandleSlot {
+                    broker_id,
+                    segment_id: 0,
+                    period_ms,
+                    start_utc_ms: start,
+                    state,
+                    ohlc: None,
+                    tick_count: 0,
+                    revision: 0,
+                    coverage: SlotCoverage::Full,
+                });
+            }
+
+            // Single B-tree range scan per broker instead of num_slots point lookups.
+            if let Some(b_slots) = broker_map.and_then(|bm| bm.get(&broker_id)) {
+                for (&start, slot) in b_slots.range(first_slot_start..=current_slot_start) {
+                    let offset = start.0 - first_slot_start.0;
+                    if offset >= 0 && offset % period_ms == 0 {
+                        let idx = (offset / period_ms) as usize;
+                        if idx < num_slots {
+                            let mut s = *slot;
+                            if s.state == SlotState::Active
+                                && s.start_utc_ms.0 + period_ms <= current_utc_now.0
+                            {
+                                s.state = SlotState::Closed;
+                            }
+                            broker_slots[idx] = s;
+                        }
+                    }
                 }
             }
             slots_by_broker.insert(broker_id, broker_slots);

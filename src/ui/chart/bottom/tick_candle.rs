@@ -28,7 +28,8 @@ pub fn generate_tick_candles(
     }
 
     let epsilon = (pip_size * 0.01).max(1e-9);
-    let mut candles: Vec<TickCandleBar> = Vec::with_capacity(max_candles);
+    let mut candles: std::collections::VecDeque<TickCandleBar> =
+        std::collections::VecDeque::with_capacity(max_candles);
 
     let mut last_price = 0.0;
     let mut has_unconfirmed = false;
@@ -91,13 +92,13 @@ pub fn generate_tick_candles(
             is_reusing_candle = false;
         } else {
             if candles.len() >= max_candles {
-                candles.remove(0);
+                candles.pop_front();
             }
 
-            let prev_minute = candles.last().map(|c| c.time_sec / 60);
+            let prev_minute = candles.back().map(|c| c.time_sec / 60);
             let is_minute_changed = prev_minute.is_some_and(|pm| time_sec / 60 != pm);
 
-            candles.push(TickCandleBar {
+            candles.push_back(TickCandleBar {
                 open: last_price,
                 high: last_price.max(price),
                 low: last_price.min(price),
@@ -112,7 +113,7 @@ pub fn generate_tick_candles(
         last_price = price;
     }
 
-    candles
+    candles.into()
 }
 
 /// Draw the noise-cancelled tick candlestick chart.
@@ -208,18 +209,21 @@ pub fn draw_tick_candle_view(
     }
     let ongoing_block_count = current_block_len;
 
-    // Hover detection
+    // O(1) hover detection using direct bar-index projection
     let mut hovered_candle: Option<(&TickCandleBar, f32)> = None;
     if let Some(pos) = pointer_pos {
-        if plot_rect.contains(pos) {
-            for (i_from_end, candle) in candles.iter().rev().enumerate() {
-                let center_x = right_edge - (i_from_end as f32) * step_x;
-                if center_x < plot_rect.left() - candle_width {
-                    break;
-                }
-                if (pos.x - center_x).abs() <= step_x * 0.5 {
-                    hovered_candle = Some((candle, center_x));
-                    break;
+        if plot_rect.contains(pos) && step_x > 0.0 {
+            let raw_idx = ((right_edge - pos.x) / step_x).round();
+            if raw_idx >= 0.0 {
+                let i_from_end = raw_idx as usize;
+                if i_from_end < candles.len() {
+                    let center_x = right_edge - (i_from_end as f32) * step_x;
+                    if center_x >= plot_rect.left() - candle_width
+                        && (pos.x - center_x).abs() <= step_x * 0.5
+                    {
+                        hovered_candle =
+                            Some((&candles[candles.len() - 1 - i_from_end], center_x));
+                    }
                 }
             }
         }
@@ -307,6 +311,13 @@ pub fn draw_tick_candle_view(
         // 1-minute boundary line & timestamp caption
         // Positioned cleanly in the gap BETWEEN the previous candle and the new minute candle
         if candle.is_minute_changed {
+            // Always pop in lockstep with completed 1-minute blocks even if the boundary line
+            // falls outside the visible plot clip rect.
+            let bars_in_min = if i_from_end + 1 < candles.len() {
+                block_counts.pop()
+            } else {
+                None
+            };
             let line_x = center_x - step_x * 0.5;
             if line_x >= plot_rect.left() && line_x <= plot_rect.right() {
                 let day_sec = candle.time_sec.rem_euclid(86400);
@@ -349,7 +360,7 @@ pub fn draw_tick_candle_view(
                 );
 
                 // Volatility / Activity badge at top of the boundary (number of bars formed in completed minute)
-                if let Some(bars_in_min) = block_counts.pop() {
+                if let Some(bars_in_min) = bars_in_min {
                     let badge_color = if bars_in_min >= 20 {
                         Color32::from_rgb(255, 190, 60) // High Volatility (Gold)
                     } else if bars_in_min >= 10 {

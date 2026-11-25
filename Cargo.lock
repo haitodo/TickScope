@@ -2707,7 +2707,6 @@ dependencies = [
  "arc-swap",
  "arrow",
  "chrono",
- "crc32fast",
  "crossbeam-channel",
  "data-encoding",
  "eframe",

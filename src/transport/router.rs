@@ -10,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const ROUTE_HELLO_MAGIC: [u8; 4] = *b"TSCP";
 const ROUTE_HELLO_LENGTH: usize = 8;
@@ -42,7 +42,6 @@ pub struct TransportRouter {
     active_sockets: Arc<Mutex<HashMap<BrokerId, TcpStream>>>,
     generations: HashMap<BrokerId, AtomicU64>,
     connection_threads: Mutex<Vec<thread::JoinHandle<()>>>,
-    progress_interval: Duration,
     running: AtomicBool,
 }
 
@@ -55,7 +54,7 @@ impl TransportRouter {
     /// non-blocking mode.
     pub fn bind_loopback(
         receivers: HashMap<BrokerId, Arc<TransportReceiver>>,
-        progress_interval_ms: u64,
+        _progress_interval_ms: u64,
     ) -> Result<Self, String> {
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .map_err(|error| format!("Failed to bind the shared MT5 loopback port: {error}"))?;
@@ -82,7 +81,6 @@ impl TransportRouter {
             active_sockets,
             generations,
             connection_threads: Mutex::new(Vec::new()),
-            progress_interval: Duration::from_millis(progress_interval_ms.max(1)),
             running: AtomicBool::new(true),
         })
     }
@@ -99,18 +97,13 @@ impl TransportRouter {
     }
 
     pub fn run(&self) {
-        let mut last_progress = Instant::now();
         while self.running.load(Ordering::Acquire) {
             match self.listener.accept() {
                 Ok((stream, _peer_addr)) => self.route(stream),
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if last_progress.elapsed() >= self.progress_interval {
-                        for receiver in self.receivers.values() {
-                            receiver.report_idle_progress();
-                        }
-                        last_progress = Instant::now();
-                    }
-                    thread::sleep(Duration::from_millis(1));
+                    // Connected broker threads advance their own watermarks directly;
+                    // disconnected brokers do not participate in the merge watermark.
+                    thread::sleep(Duration::from_millis(5));
                 }
                 Err(error) => {
                     log::error!("Shared MT5 listener accept failed: {error}");
@@ -126,9 +119,6 @@ impl TransportRouter {
     }
 
     fn route(&self, mut stream: TcpStream) {
-        if let Err(error) = stream.set_nodelay(true) {
-            log::warn!("Failed to enable TCP_NODELAY on the routed EA connection: {error}");
-        }
         if let Err(error) = stream.set_read_timeout(Some(Duration::from_secs(2))) {
             log::warn!("Failed to configure route handshake timeout: {error}");
             return;
@@ -149,18 +139,11 @@ impl TransportRouter {
             log::warn!("Rejected MT5 connection for unknown broker id {broker_id}.");
             return;
         };
-        if let Err(error) = stream.set_nonblocking(true) {
-            log::warn!("Failed to configure broker {broker_id} connection: {error}");
-            return;
-        }
 
         let generation = self
             .generations
             .get(&broker_id)
             .map_or(1, |counter| counter.fetch_add(1, Ordering::AcqRel) + 1);
-        if let Err(error) = stream.set_read_timeout(None) {
-            log::warn!("Failed to clear the read timeout on the routed EA connection: {error}");
-        }
 
         // Connection Takeover: if a previous connection is still active for this broker,
         // shut down its socket so its receiver loop unblocks immediately and terminates.

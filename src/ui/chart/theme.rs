@@ -109,19 +109,28 @@ pub const fn broker_color_for(theme: &ChartTheme, index: usize) -> Color32 {
     theme.broker_colors[index % theme.broker_colors.len()]
 }
 
+#[inline]
+fn contains_ascii_ignore_case(haystack: &str, needle_ascii: &str) -> bool {
+    let h = haystack.as_bytes();
+    let n = needle_ascii.as_bytes();
+    if n.is_empty() {
+        return true;
+    }
+    h.len() >= n.len() && h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
+}
+
 /// Match broker brand identity color based on broker name.
 #[must_use]
 pub fn broker_color_by_name(name: &str) -> Option<Color32> {
-    let lower = name.to_lowercase();
-    if lower.contains("oanda") {
+    if contains_ascii_ignore_case(name, "oanda") {
         Some(COLOR_OANDA)
-    } else if lower.contains("axiory") {
+    } else if contains_ascii_ignore_case(name, "axiory") {
         Some(COLOR_AXIORY)
-    } else if lower.contains("tradeview") {
+    } else if contains_ascii_ignore_case(name, "tradeview") {
         Some(COLOR_TRADEVIEW)
-    } else if lower.contains("jfx") {
+    } else if contains_ascii_ignore_case(name, "jfx") {
         Some(COLOR_JFX)
-    } else if lower.contains("dukascopy") || lower.contains("dukas") {
+    } else if contains_ascii_ignore_case(name, "dukas") {
         Some(COLOR_DUKASCOPY)
     } else {
         None
@@ -156,11 +165,15 @@ mod tests {
     #[test]
     fn test_broker_brand_colors() {
         assert_eq!(broker_color_by_name("OANDA"), Some(COLOR_OANDA));
+        assert_eq!(broker_color_by_name("oanda_mt5"), Some(COLOR_OANDA));
         assert_eq!(broker_color_by_name("Axiory"), Some(COLOR_AXIORY));
+        assert_eq!(broker_color_by_name("AXIORY Edge"), Some(COLOR_AXIORY));
         assert_eq!(broker_color_by_name("Tradeview"), Some(COLOR_TRADEVIEW));
         assert_eq!(broker_color_by_name("JFX"), Some(COLOR_JFX));
         assert_eq!(broker_color_by_name("Dukascopy"), Some(COLOR_DUKASCOPY));
+        assert_eq!(broker_color_by_name("dukas"), Some(COLOR_DUKASCOPY));
         assert_eq!(broker_color_by_name("Unknown"), None);
+        assert_eq!(broker_color_by_name(""), None);
 
         let theme = ChartTheme::default();
         assert_eq!(broker_color_for_name(&theme, Some("OANDA"), 0), COLOR_OANDA);

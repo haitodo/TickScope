@@ -430,13 +430,24 @@ impl BrokerParquetSource {
 
         let mut result = Vec::new();
 
-        // Check if from_utc_ms falls in the previous partition
-        if let Some(curr_idx) = self.current_partition_idx {
-            if curr_idx > 0 {
-                let prev_idx = curr_idx - 1;
-                if let Ok(true) = self.ensure_partition_cached(prev_idx) {
-                    if let Some(prev_ticks) = self.partition_cache.get(&prev_idx) {
-                        result.extend_from_slice(slice_tick_range(prev_ticks, from_utc_ms, to_utc_ms));
+        // Only load the previous partition when the warmup window extends before
+        // the earliest tick of the currently loaded partition (e.g. near a month boundary).
+        let needs_prev_partition = self
+            .current_ticks
+            .first()
+            .is_none_or(|first| from_utc_ms < first.utc_ms);
+        if needs_prev_partition {
+            if let Some(curr_idx) = self.current_partition_idx {
+                if curr_idx > 0 {
+                    let prev_idx = curr_idx - 1;
+                    if let Ok(true) = self.ensure_partition_cached(prev_idx) {
+                        if let Some(prev_ticks) = self.partition_cache.get(&prev_idx) {
+                            result.extend_from_slice(slice_tick_range(
+                                prev_ticks,
+                                from_utc_ms,
+                                to_utc_ms,
+                            ));
+                        }
                     }
                 }
             }
@@ -497,6 +508,13 @@ fn for_each_parquet_tick(
         )
     })?;
 
+    let total_rows = builder
+        .metadata()
+        .file_metadata()
+        .num_rows()
+        .max(0) as usize;
+    ticks_hint_out.reserve(total_rows);
+
     let file_schema = builder.schema();
     let wanted = ["utc_ms", "mt5_ms", "bid", "ask"];
     let mut root_indices = Vec::new();
@@ -517,17 +535,29 @@ fn for_each_parquet_tick(
         .build()
         .map_err(|e| format!("Failed to build parquet reader: {e}"))?;
 
+    // Resolve projected column indices once outside the batch loop.
+    let mut resolved_indices: Option<(Option<usize>, Option<usize>, usize, usize)> = None;
+    let mut cached_mt5_offset_day: Option<(i64, i64)> = None;
+    let mut cached_utc_offset_day: Option<(i64, i64)> = None;
+
     for batch_res in reader {
         let batch = batch_res.map_err(|e| format!("Error reading record batch: {e}"))?;
-        let schema = batch.schema();
-
-        let utc_idx = schema.index_of("utc_ms").ok();
-        let mt5_idx = schema.index_of("mt5_ms").ok();
-        let bid_idx = schema.index_of("bid").ok();
-        let ask_idx = schema.index_of("ask").ok();
-
-        let (Some(b_idx), Some(a_idx)) = (bid_idx, ask_idx) else {
-            continue;
+        let (utc_idx, mt5_idx, b_idx, a_idx) = match resolved_indices {
+            Some(indices) => indices,
+            None => {
+                let schema = batch.schema();
+                let utc_idx = schema.index_of("utc_ms").ok();
+                let mt5_idx = schema.index_of("mt5_ms").ok();
+                let Some(b_idx) = schema.index_of("bid").ok() else {
+                    continue;
+                };
+                let Some(a_idx) = schema.index_of("ask").ok() else {
+                    continue;
+                };
+                let indices = (utc_idx, mt5_idx, b_idx, a_idx);
+                resolved_indices = Some(indices);
+                indices
+            }
         };
 
         let bid_col = batch.column(b_idx).as_any().downcast_ref::<Float64Array>();
@@ -540,8 +570,6 @@ fn for_each_parquet_tick(
         };
 
         let num_rows = batch.num_rows();
-        ticks_hint_out.reserve(num_rows);
-
         for row in 0..num_rows {
             let bid = b_arr.value(row);
             let ask = a_arr.value(row);
@@ -549,9 +577,27 @@ fn for_each_parquet_tick(
             let mut mt5_ms = mt5_col.map_or(0, |c| c.value(row));
 
             if utc_ms == 0 && mt5_ms > 0 {
-                utc_ms = mt5_to_utc_ms(mt5_ms);
+                let day = mt5_ms / 86_400_000;
+                let offset_ms = match cached_mt5_offset_day {
+                    Some((d, off)) if d == day => off,
+                    _ => {
+                        let off = mt5_ms - mt5_to_utc_ms(mt5_ms);
+                        cached_mt5_offset_day = Some((day, off));
+                        off
+                    }
+                };
+                utc_ms = mt5_ms - offset_ms;
             } else if mt5_ms == 0 && utc_ms > 0 {
-                mt5_ms = utc_to_mt5_ms(utc_ms);
+                let day = utc_ms / 86_400_000;
+                let offset_ms = match cached_utc_offset_day {
+                    Some((d, off)) if d == day => off,
+                    _ => {
+                        let off = utc_to_mt5_ms(utc_ms) - utc_ms;
+                        cached_utc_offset_day = Some((day, off));
+                        off
+                    }
+                };
+                mt5_ms = utc_ms + offset_ms;
             }
 
             if bid > 0.0 && ask >= bid && bid.is_finite() && ask.is_finite() && utc_ms > 0 {
@@ -582,8 +628,10 @@ fn read_parquet_ticks(broker_id: BrokerId, path: &Path) -> Result<Vec<ReplayTick
         },
     )?;
 
-    // Ensure sorted strictly by utc_ms
-    ticks.sort_by_key(|t| t.utc_ms);
+    // Ensure sorted strictly by utc_ms (fast O(N) check skips sort on already-ordered files).
+    if !ticks.is_sorted_by_key(|t| t.utc_ms) {
+        ticks.sort_by_key(|t| t.utc_ms);
+    }
     Ok(ticks)
 }
 
@@ -617,7 +665,9 @@ fn read_parquet_ticks_pseudo_jfx(
         },
     )?;
 
-    ticks.sort_by_key(|t| t.utc_ms);
+    if !ticks.is_sorted_by_key(|t| t.utc_ms) {
+        ticks.sort_by_key(|t| t.utc_ms);
+    }
     log::info!(
         "[BrokerParquetSource] Broker {broker_id} synthesized {len} JFX ticks from OANDA ({year:04}-{month:02})",
         len = ticks.len()

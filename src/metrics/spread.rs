@@ -42,9 +42,15 @@ impl SpreadTracker {
             None => spread,
         });
 
-        self.recent_ticks.push_back(rx_mono);
-        // Prune older than 1 second (1_000_000_000 ns)
-        let one_sec_ago = rx_mono.0.saturating_sub(1_000_000_000);
+        if self.recent_ticks.back().is_some_and(|&last| rx_mono < last) {
+            let pos = self.recent_ticks.partition_point(|&t| t <= rx_mono);
+            self.recent_ticks.insert(pos, rx_mono);
+        } else {
+            self.recent_ticks.push_back(rx_mono);
+        }
+        // Prune older than 1 second (1_000_000_000 ns) relative to the newest timestamp.
+        let latest = self.recent_ticks.back().copied().unwrap_or(rx_mono);
+        let one_sec_ago = latest.0.saturating_sub(1_000_000_000);
         while let Some(front) = self.recent_ticks.front() {
             if front.0 < one_sec_ago {
                 self.recent_ticks.pop_front();
@@ -72,9 +78,7 @@ impl SpreadTracker {
     #[must_use]
     pub fn tick_rate_1s_at(&self, now_mono: MonoNs) -> f64 {
         let cutoff = now_mono.0.saturating_sub(1_000_000_000);
-        self.recent_ticks
-            .iter()
-            .filter(|tick| tick.0 >= cutoff)
-            .count() as f64
+        let start = self.recent_ticks.partition_point(|tick| tick.0 < cutoff);
+        (self.recent_ticks.len() - start) as f64
     }
 }

@@ -12,7 +12,16 @@ use egui::RichText;
 
 pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapshot: &UiSnapshot) {
     if !app.show_quick_settings {
+        app.last_monitor_refresh = None;
         return;
+    }
+
+    if app
+        .last_monitor_refresh
+        .is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(2))
+    {
+        app.cached_monitors = list_monitors();
+        app.last_monitor_refresh = Some(std::time::Instant::now());
     }
 
     let screen_rect = ctx.content_rect();
@@ -363,7 +372,7 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
             ui.horizontal(|ui| {
                 ui.label("MT5表示モニター:")
                     .on_hover_text("通常表示（最大表示）に指定したMT5を開くモニターを選択します。");
-                let monitors = list_monitors();
+                let monitors = &app.cached_monitors;
                 let selected_monitor_text = match &app.mt5_display_monitor {
                     Mt5DisplayMonitor::Primary => "メインディスプレイ (固定)".to_string(),
                     Mt5DisplayMonitor::Auto => "自動 (MT5の前回位置)".to_string(),
@@ -373,7 +382,7 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
                         .find(|(_, m)| m.device_name == *dev)
                         .map_or_else(
                             || format!("指定モニター ({dev} / 未接続時はメイン)"),
-                            |(idx, m)| format_monitor_label(idx, m, &monitors),
+                            |(idx, m)| format_monitor_label(idx, m, monitors),
                         ),
                 };
                 let mut monitor_changed = false;
@@ -391,7 +400,7 @@ pub fn render_quick_settings(app: &mut DashboardApp, ctx: &egui::Context, snapsh
                             monitor_changed = true;
                         }
                         for (idx, m) in monitors.iter().enumerate() {
-                            let label = format_monitor_label(idx, m, &monitors);
+                            let label = format_monitor_label(idx, m, monitors);
                             if ui
                                 .selectable_value(
                                     &mut app.mt5_display_monitor,

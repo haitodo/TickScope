@@ -214,6 +214,17 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         );
     }
 
+    // Skip out-of-window points once via binary search / offset instead of scanning all
+    // points once per broker plus once for consensus.
+    let first_visible_idx = match x_axis_mode {
+        ChartXAxisMode::ReceiveTime => {
+            let (start_ns, _) = super::common::fixed_time_window(now_mono, visible_seconds);
+            quote_points.partition_point(|p| p.mono_ns.0 < start_ns)
+        }
+        ChartXAxisMode::TickCount => quote_points.len().saturating_sub(visible_ticks.max(1)),
+    };
+    let visible_slice = &quote_points[first_visible_idx..];
+
     // Draw background brokers first. The selected pair is drawn last in full
     // color, while every broker keeps the same line width.
     for (index, broker) in &ordered_brokers {
@@ -224,9 +235,10 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
         } else {
             dim_color(color, if is_live(broker) { 105 } else { 55 })
         };
-        let mut points: Vec<Pos2> = Vec::with_capacity(quote_points.len());
+        let mut points: Vec<Pos2> = Vec::with_capacity(visible_slice.len());
         let mut last_x = f32::NEG_INFINITY;
-        for (sample_index, pt) in quote_points.iter().enumerate() {
+        for (rel_index, pt) in visible_slice.iter().enumerate() {
+            let sample_index = first_visible_idx + rel_index;
             if let Some(&mid) = pt.broker_mids.get(&broker.broker_id).filter(|m| m.is_finite()) {
                 if let Some(x) = x_axis_coordinate(
                     x_axis_mode,
@@ -257,9 +269,10 @@ pub fn draw_realtime_quote_path_chart_with_visibility(
 
     // Draw Broker Median (consensus_mid) as one continuous line.
     {
-        let mut points: Vec<Pos2> = Vec::with_capacity(quote_points.len());
+        let mut points: Vec<Pos2> = Vec::with_capacity(visible_slice.len());
         let mut last_x = f32::NEG_INFINITY;
-        for (index, pt) in quote_points.iter().enumerate() {
+        for (rel_index, pt) in visible_slice.iter().enumerate() {
+            let index = first_visible_idx + rel_index;
             if let Some(mid) = pt.consensus_mid.filter(|m| m.is_finite()) {
                 if let Some(x) = x_axis_coordinate(
                     x_axis_mode,

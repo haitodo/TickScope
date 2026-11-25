@@ -147,19 +147,29 @@ impl TickEngine {
 
         let mut candle_views = HashMap::with_capacity(self.config.history.retentions.len());
         let mut mid_candle_views = HashMap::with_capacity(self.config.history.retentions.len());
-        let broker_ids: Vec<BrokerId> = self.config.brokers.iter().map(|b| b.id).collect();
+        let mut stack_broker_ids = [0 as BrokerId; 16];
+        let mut heap_broker_ids = Vec::new();
+        let broker_ids: &[BrokerId] = if self.config.brokers.len() <= stack_broker_ids.len() {
+            for (i, b) in self.config.brokers.iter().enumerate() {
+                stack_broker_ids[i] = b.id;
+            }
+            &stack_broker_ids[..self.config.brokers.len()]
+        } else {
+            heap_broker_ids.extend(self.config.brokers.iter().map(|b| b.id));
+            &heap_broker_ids
+        };
         for retention in &self.config.history.retentions {
             let period = retention.period_ms;
             let cv = self.candle_book.get_candle_view(
                 period,
-                &broker_ids,
+                broker_ids,
                 retention.slots,
                 current_utc_now,
             );
             candle_views.insert(period, cv);
             let mid_cv = self.mid_candle_book.get_candle_view(
                 period,
-                &broker_ids,
+                broker_ids,
                 retention.slots,
                 current_utc_now,
             );
@@ -167,22 +177,35 @@ impl TickEngine {
         }
 
         // 1. Observed Broker Consensus & Dispersion
-        let stale_brokers: Vec<BrokerId> = self
-            .config
-            .brokers
-            .iter()
-            .filter(|b| {
-                !self.channels.get(&b.id).is_some_and(|ch| ch.is_connected)
-                    || !self.latest_quotes.get(&b.id).is_some_and(|q| {
-                        q.is_valid
-                            && !q.is_warmup
-                            && q.mid.is_finite()
-                            && now_mono.0.saturating_sub(q.rx_mono_ns.0)
-                                <= self.config.health.stale_after_ms.saturating_mul(1_000_000)
-                    })
-            })
-            .map(|b| b.id)
-            .collect();
+        let mut stack_stale = [0 as BrokerId; 16];
+        let mut stale_len = 0usize;
+        let mut heap_stale = Vec::new();
+        let stale_after_ns = self.config.health.stale_after_ms.saturating_mul(1_000_000);
+        for b in &self.config.brokers {
+            let is_stale = !self.channels.get(&b.id).is_some_and(|ch| ch.is_connected)
+                || !self.latest_quotes.get(&b.id).is_some_and(|q| {
+                    q.is_valid
+                        && !q.is_warmup
+                        && q.mid.is_finite()
+                        && now_mono.0.saturating_sub(q.rx_mono_ns.0) <= stale_after_ns
+                });
+            if is_stale {
+                if stale_len < stack_stale.len() && heap_stale.is_empty() {
+                    stack_stale[stale_len] = b.id;
+                    stale_len += 1;
+                } else {
+                    if heap_stale.is_empty() {
+                        heap_stale.extend_from_slice(&stack_stale[..stale_len]);
+                    }
+                    heap_stale.push(b.id);
+                }
+            }
+        }
+        let stale_brokers: &[BrokerId] = if heap_stale.is_empty() {
+            &stack_stale[..stale_len]
+        } else {
+            &heap_stale
+        };
         let mut consensus = self.consensus_calc.compute(
             self.latest_quotes
                 .values()
@@ -194,7 +217,7 @@ impl TickEngine {
         // 2. Breadth & Active Burst Clusters
         let current_breadth = Some(self.burst_detector.compute_breadth_with_stale_brokers(
             self.config.brokers.len(),
-            &stale_brokers,
+            stale_brokers,
             now_mono,
         ));
         let mut active_clusters = Vec::new();
@@ -203,7 +226,7 @@ impl TickEngine {
             self.config.brokers.len(),
             consensus.fresh_count,
             now_mono,
-            &stale_brokers,
+            stale_brokers,
         ) {
             active_clusters.push(c_up);
         }
@@ -212,7 +235,7 @@ impl TickEngine {
             self.config.brokers.len(),
             consensus.fresh_count,
             now_mono,
-            &stale_brokers,
+            stale_brokers,
         ) {
             active_clusters.push(c_down);
         }
@@ -253,6 +276,15 @@ impl TickEngine {
             tick_candles.insert(bid, bars);
         }
 
+        // Runtime 60Hz snapshots only render the latest 10 diagnostics in the Debug overlay;
+        // cloning all 2,048 entries on every frame wastes thousands of String allocations per second.
+        let global_diagnostics = if include_analytics {
+            self.diagnostics.iter().cloned().collect()
+        } else {
+            let skip = self.diagnostics.len().saturating_sub(32);
+            self.diagnostics.iter().skip(skip).cloned().collect()
+        };
+
         EngineProjection {
             revision: self.projection_revision,
             watermark_ns: self.current_watermark,
@@ -261,7 +293,7 @@ impl TickEngine {
             active_pair_comparison,
             candle_views,
             mid_candle_views,
-            global_diagnostics: self.diagnostics.iter().cloned().collect(),
+            global_diagnostics,
             consensus: Some(consensus),
             active_clusters,
             current_breadth,

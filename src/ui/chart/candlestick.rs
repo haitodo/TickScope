@@ -350,20 +350,46 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     let max_visible_slots = ((available_width / slot_width).ceil() as usize).max(1);
     let start_idx = total_slots.saturating_sub(max_visible_slots);
 
+    // Precompute per-broker slice & colors once per frame instead of per-candle lookups.
+    struct BrokerRenderInfo<'a> {
+        broker_id: BrokerId,
+        slots: &'a [crate::core::models::CandleSlot],
+        name: &'a str,
+        color: Color32,
+        dim_color: Color32,
+    }
+    let mut broker_infos: Vec<BrokerRenderInfo<'_>> = Vec::with_capacity(broker_ids.len());
+    for (broker_index, &broker_id) in broker_ids.iter().enumerate() {
+        if let Some(slots) = view.slots_by_broker.get(&broker_id) {
+            let color_index =
+                crate::ui::shared::broker_index(broker_overviews, broker_id, broker_index);
+            let overview_name = broker_overviews
+                .iter()
+                .find(|b| b.broker_id == broker_id)
+                .map(|b| b.name.as_str());
+            let color = broker_color_for_name(theme, overview_name, color_index);
+            broker_infos.push(BrokerRenderInfo {
+                broker_id,
+                slots: slots.as_slice(),
+                name: overview_name.unwrap_or("Broker"),
+                color,
+                dim_color: dim_candle_color(color),
+            });
+        }
+    }
+
     // Find min and max prices across visible broker slots only
     let mut min_price = f64::MAX;
     let mut max_price = f64::MIN;
 
-    for broker_id in broker_ids {
-        if let Some(slots) = view.slots_by_broker.get(broker_id) {
-            for (i, s) in slots.iter().enumerate().skip(start_idx) {
-                let offset_from_latest = (total_slots - 1).saturating_sub(i) as f32;
-                let slot_center_x = right_slot_center_x - offset_from_latest * slot_width;
-                if slot_center_x + slot_width * 0.5 >= plot_rect.left() {
-                    if let Some(ohlc) = &s.ohlc {
-                        min_price = min_price.min(ohlc.low);
-                        max_price = max_price.max(ohlc.high);
-                    }
+    for info in &broker_infos {
+        for (i, s) in info.slots.iter().enumerate().skip(start_idx) {
+            let offset_from_latest = (total_slots - 1).saturating_sub(i) as f32;
+            let slot_center_x = right_slot_center_x - offset_from_latest * slot_width;
+            if slot_center_x + slot_width * 0.5 >= plot_rect.left() {
+                if let Some(ohlc) = &s.ohlc {
+                    min_price = min_price.min(ohlc.low);
+                    max_price = max_price.max(ohlc.high);
                 }
             }
         }
@@ -371,27 +397,17 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
 
     // Fallback if no visible slots have OHLC yet: inspect all available slots
     if min_price > max_price || min_price == f64::MAX {
-        for broker_id in broker_ids {
-            if let Some(slots) = view.slots_by_broker.get(broker_id) {
-                for s in slots {
-                    if let Some(ohlc) = &s.ohlc {
-                        min_price = min_price.min(ohlc.low);
-                        max_price = max_price.max(ohlc.high);
-                    }
+        for info in &broker_infos {
+            for s in info.slots {
+                if let Some(ohlc) = &s.ohlc {
+                    min_price = min_price.min(ohlc.low);
+                    max_price = max_price.max(ohlc.high);
                 }
             }
         }
     }
 
     let has_ohlc = min_price <= max_price && min_price < f64::MAX;
-
-    let candidates = extract_valid_quote_candidates_for_mode(
-        broker_ids,
-        broker_overviews,
-        chart_max_quote_age_ms,
-        now_mono,
-        price_mode,
-    );
 
     let mut follow_status: Option<FollowStatusInfo> = None;
 
@@ -426,6 +442,13 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             }
         }
         CandlePriceScaleMode::Fixed(span_pips) => {
+            let candidates = extract_valid_quote_candidates_for_mode(
+                broker_ids,
+                broker_overviews,
+                chart_max_quote_age_ms,
+                now_mono,
+                price_mode,
+            );
             let (bounds, status) = resolve_candle_follow_scale(
                 follow_criteria,
                 &candidates,
@@ -603,45 +626,37 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
             continue;
         }
 
-        for (broker_index, broker_id) in broker_ids.iter().enumerate() {
-            if let Some(s) = view
-                .slots_by_broker
-                .get(broker_id)
-                .and_then(|slots| slots.get(i))
-            {
+        let group_left = slot_center_x - candle_group_width * 0.5;
+        for (broker_index, info) in broker_infos.iter().enumerate() {
+            if let Some(s) = info.slots.get(i) {
                 if s.state != SlotState::Empty {
                     if let Some(ohlc) = &s.ohlc {
-                        let group_left = slot_center_x - candle_group_width * 0.5;
                         let cx = (group_left
                             + broker_index as f32 * (bar_width + candle_gap)
                             + bar_width * 0.5)
                             .round();
-                        let color_index = crate::ui::shared::broker_index(
-                            broker_overviews,
-                            *broker_id,
-                            broker_index,
-                        );
-                        let broker_name = broker_overviews
-                            .iter()
-                            .find(|b| b.broker_id == *broker_id)
-                            .map(|b| b.name.as_str());
-                        let color = broker_color_for_name(theme, broker_name, color_index);
                         draw_single_candle(
                             &plot_painter,
                             cx,
                             bar_width,
                             ohlc,
                             price_to_y,
-                            color,
-                            dim_candle_color(color),
+                            info.color,
+                            info.dim_color,
                         );
 
                         // Draw out-of-bounds clip indicators if candle exceeds chart boundaries
                         if ohlc.high > chart_max {
-                            draw_clip_marker(painter, cx, plot_rect.top() + 3.0, true, color);
+                            draw_clip_marker(painter, cx, plot_rect.top() + 3.0, true, info.color);
                         }
                         if ohlc.low < chart_min {
-                            draw_clip_marker(painter, cx, plot_rect.bottom() - 3.0, false, color);
+                            draw_clip_marker(
+                                painter,
+                                cx,
+                                plot_rect.bottom() - 3.0,
+                                false,
+                                info.color,
+                            );
                         }
                     }
                 }
@@ -654,12 +669,8 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
     let mut legend_x = rect.left() + 8.0;
     let mut legend_y = rect.top() + 6.0;
     let mut hidden_legends = 0;
-    for (broker_index, broker_id) in broker_ids.iter().enumerate() {
-        let color_index =
-            crate::ui::shared::broker_index(broker_overviews, *broker_id, broker_index);
-        let name = broker_name(broker_overviews, *broker_id, "Broker");
-        let color = broker_color_for_name(theme, Some(name), color_index);
-        let label = format!("{name} [{broker_id}]");
+    for info in &broker_infos {
+        let label = format!("{} [{}]", info.name, info.broker_id);
         let width = 8.0 + label.len() as f32 * 7.0 + 12.0;
         if legend_x + width > rect.right() - 8.0 {
             legend_x = rect.left() + 8.0;
@@ -675,14 +686,14 @@ fn draw_candlestick_chart_for_brokers_with_trades_impl(
                 egui::Vec2::new(7.0, 7.0),
             ),
             1.0,
-            color,
+            info.color,
         );
         painter.text(
             Pos2::new(legend_x + 11.0, legend_y),
             egui::Align2::LEFT_TOP,
             label,
             egui::FontId::monospace(10.0),
-            color,
+            info.color,
         );
         legend_x += width;
     }

@@ -252,20 +252,23 @@ pub fn draw_chart_clock_badge(
                 ChartTimeDisplayMode::Server => ChartTimeDisplayMode::Jst,
             };
         }
-        let remaining = 60 - secs;
-        let hover_text = if is_replay {
-            let next_mode = match *time_mode {
-                ChartTimeDisplayMode::Jst => "SERVER時間 (MT5時間)",
-                ChartTimeDisplayMode::Server => "JST (日本時間)",
+        let current_mode = *time_mode;
+        response.on_hover_ui(|ui| {
+            let remaining = 60 - secs;
+            let hover_text = if is_replay {
+                let next_mode = match current_mode {
+                    ChartTimeDisplayMode::Jst => "SERVER時間 (MT5時間)",
+                    ChartTimeDisplayMode::Server => "JST (日本時間)",
+                };
+                format!(
+                    "リプレイ時刻: {hrs:02}:{mins:02}:{secs:02}.{millis:03} ({mode_label})\n[クリック] {next_mode} に切替\n次の00秒まで: あと {remaining} 秒\n※55〜59秒で黄色に予告、00秒ジャストで緑にフラッシュします"
+                )
+            } else {
+                format!(
+                    "現在時刻: {hrs:02}:{mins:02}:{secs:02}.{millis:03} (JST)\n次の00秒まで: あと {remaining} 秒\n※55〜59秒で黄色に予告、00秒ジャストで緑にフラッシュします"
+                )
             };
-            format!(
-                "リプレイ時刻: {hrs:02}:{mins:02}:{secs:02}.{millis:03} ({mode_label})\n[クリック] {next_mode} に切替\n次の00秒まで: あと {remaining} 秒\n※55〜59秒で黄色に予告、00秒ジャストで緑にフラッシュします"
-            )
-        } else {
-            format!(
-                "現在時刻: {hrs:02}:{mins:02}:{secs:02}.{millis:03} (JST)\n次の00秒まで: あと {remaining} 秒\n※55〜59秒で黄色に予告、00秒ジャストで緑にフラッシュします"
-            )
-        };
-        response.on_hover_text(hover_text);
+            ui.label(hover_text);
+        });
     }
 }

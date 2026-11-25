@@ -26,6 +26,7 @@ pub struct ReplayCoordinator {
     pub engine: Arc<Mutex<TickEngine>>,
     pub driver: Option<ReplayDriver>,
     pub trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
+    tick_wake: Arc<(Mutex<bool>, Condvar)>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -149,6 +150,7 @@ impl ReplayCoordinator {
             engine,
             driver: Some(driver),
             trade_store,
+            tick_wake,
             threads: vec![pub_handle],
         })
     }
@@ -159,18 +161,53 @@ impl ReplayCoordinator {
     }
 
     pub fn set_active_pair(&self, pair: (BrokerId, BrokerId)) {
-        self.engine.lock().set_active_pair(pair);
+        let changed = {
+            let mut eng = self.engine.lock();
+            let rev_before = eng.projection_revision;
+            eng.set_active_pair(pair);
+            eng.projection_revision != rev_before
+        };
+        if changed {
+            let (lock, cvar) = &*self.tick_wake;
+            let mut pending = lock.lock();
+            if !*pending {
+                *pending = true;
+                cvar.notify_one();
+            }
+        }
     }
 
     #[must_use]
     pub fn pair_selection_handler(&self) -> Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync> {
         let engine = self.engine.clone();
-        Arc::new(move |pair| engine.lock().set_active_pair(pair))
+        let tick_wake = self.tick_wake.clone();
+        Arc::new(move |pair| {
+            let changed = {
+                let mut eng = engine.lock();
+                let rev_before = eng.projection_revision;
+                eng.set_active_pair(pair);
+                eng.projection_revision != rev_before
+            };
+            if changed {
+                let (lock, cvar) = &*tick_wake;
+                let mut pending = lock.lock();
+                if !*pending {
+                    *pending = true;
+                    cvar.notify_one();
+                }
+            }
+        })
     }
 
     pub fn stop(&mut self) {
         log::info!("[ReplayCoordinator] Stopping ReplayCoordinator...");
         self.running.store(false, Ordering::SeqCst);
+        {
+            let (lock, cvar) = &*self.tick_wake;
+            let mut pending = lock.lock();
+            *pending = true;
+            cvar.notify_all();
+        }
         if let Some(mut d) = self.driver.take() {
             d.stop();
             d.wait_for_shutdown();

@@ -117,32 +117,18 @@ impl TransportReceiver {
         }
 
         let mut generation: u64 = 0;
-        let mut last_progress_time = std::time::Instant::now();
 
         while self.running.load(Ordering::SeqCst) {
             // Accept one connection at a time per broker
             match listener.accept() {
                 Ok((stream, _peer_addr)) => {
                     generation += 1;
-                    if let Err(error) = stream.set_nodelay(true) {
-                        log::warn!("Failed to enable TCP_NODELAY on the EA connection: {error}");
-                    }
-                    if let Err(error) = stream.set_nonblocking(true) {
-                        log::warn!("Failed to set the EA connection to non-blocking: {error}");
-                    }
                     self.process_accepted_connection(stream, generation);
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // Send idle progress watermark
-                    if last_progress_time.elapsed() >= self.progress_interval {
-                        let sample = self.clock.sample();
-                        self.submit_ingress_item(IngressItem::Progress {
-                            broker_id: self.broker_config.id,
-                            watermark_ns: sample.mono_ns,
-                        });
-                        last_progress_time = std::time::Instant::now();
-                    }
-                    thread::sleep(Duration::from_millis(1));
+                    // Disconnected brokers do not hold back the merge watermark; wait without
+                    // flooding the ingress queue with idle progress items.
+                    thread::sleep(Duration::from_millis(5));
                 }
                 Err(e) => {
                     log::error!(
@@ -157,21 +143,7 @@ impl TransportReceiver {
     }
 
     pub(crate) fn handle_routed_connection(&self, stream: TcpStream, generation: u64) {
-        if let Err(error) = stream.set_nodelay(true) {
-            log::warn!("Failed to enable TCP_NODELAY on the EA connection: {error}");
-        }
-        if let Err(error) = stream.set_nonblocking(true) {
-            log::warn!("Failed to set the EA connection to non-blocking: {error}");
-        }
         self.process_accepted_connection(stream, generation);
-    }
-
-    pub(crate) fn report_idle_progress(&self) {
-        let sample = self.clock.sample();
-        self.submit_ingress_item(IngressItem::Progress {
-            broker_id: self.broker_config.id,
-            watermark_ns: sample.mono_ns,
-        });
     }
 
     fn process_accepted_connection(&self, stream: TcpStream, generation: u64) {
@@ -180,7 +152,7 @@ impl TransportReceiver {
             self.broker_config.id,
             generation
         );
-        let connected_mono = self.clock.sample().mono_ns;
+        let connected_mono = self.clock.mono_ns();
         self.submit_ingress_item(IngressItem::Connected {
             broker_id: self.broker_config.id,
             generation,
@@ -233,6 +205,7 @@ impl TransportReceiver {
                 }
                 Ok(n) => {
                     last_activity = std::time::Instant::now();
+                    last_progress = last_activity;
                     // All frames completed by this read share its observation
                     // time; decoding and durable writes must not skew it.
                     let clk = self.clock.sample();
@@ -366,10 +339,10 @@ impl TransportReceiver {
                         );
                     }
                     if last_progress.elapsed() >= self.progress_interval {
-                        let sample = self.clock.sample();
+                        let watermark_ns = self.clock.mono_ns();
                         self.submit_ingress_item(IngressItem::Progress {
                             broker_id: self.broker_config.id,
-                            watermark_ns: sample.mono_ns,
+                            watermark_ns,
                         });
                         last_progress = std::time::Instant::now();
                     }

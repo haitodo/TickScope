@@ -117,7 +117,9 @@ impl ConsensusCalculator {
         let stale_after_ns = self.stale_after_ms.saturating_mul(1_000_000);
 
         let mut total_count = 0;
-        let mut fresh_quotes: Vec<&'a Quote> = Vec::new();
+        let mut stack_quotes: [Option<&'a Quote>; 32] = [None; 32];
+        let mut stack_count = 0usize;
+        let mut heap_quotes: Vec<&'a Quote> = Vec::new();
 
         for q in quotes {
             total_count += 1;
@@ -127,12 +129,25 @@ impl ConsensusCalculator {
             if q.rx_mono_ns <= now_mono {
                 let age_ns = now_mono.0 - q.rx_mono_ns.0;
                 if age_ns <= stale_after_ns {
-                    fresh_quotes.push(q);
+                    if stack_count < stack_quotes.len() && heap_quotes.is_empty() {
+                        stack_quotes[stack_count] = Some(q);
+                        stack_count += 1;
+                    } else {
+                        if heap_quotes.is_empty() {
+                            heap_quotes.reserve(stack_quotes.len() + 8);
+                            heap_quotes.extend(stack_quotes[..stack_count].iter().flatten().copied());
+                        }
+                        heap_quotes.push(q);
+                    }
                 }
             }
         }
 
-        let fresh_count = fresh_quotes.len();
+        let fresh_count = if heap_quotes.is_empty() {
+            stack_count
+        } else {
+            heap_quotes.len()
+        };
         if fresh_count == 0 {
             return ObservedBrokerConsensus {
                 fresh_count: 0,
@@ -149,6 +164,15 @@ impl ConsensusCalculator {
             };
         }
 
+        // Helper closure to access the i-th fresh quote without heap allocation for <= 32 brokers
+        let fresh_at = |idx: usize| -> &'a Quote {
+            if heap_quotes.is_empty() {
+                stack_quotes[idx].expect("index within stack_count")
+            } else {
+                heap_quotes[idx]
+            }
+        };
+
         // Mid, Bid, Ask ranges
         let mut mid_min = f64::INFINITY;
         let mut mid_max = f64::NEG_INFINITY;
@@ -162,8 +186,9 @@ impl ConsensusCalculator {
         let mut heap_mids = Vec::new();
 
         let mids: &mut [f64] = if fresh_count <= 32 {
-            for (i, q) in fresh_quotes.iter().enumerate() {
-                stack_mids[i] = q.mid;
+            for (i, slot) in stack_mids.iter_mut().take(fresh_count).enumerate() {
+                let q = fresh_at(i);
+                *slot = q.mid;
                 if q.mid < mid_min {
                     mid_min = q.mid;
                 }
@@ -186,7 +211,8 @@ impl ConsensusCalculator {
             &mut stack_mids[..fresh_count]
         } else {
             heap_mids.reserve(fresh_count);
-            for q in &fresh_quotes {
+            for i in 0..fresh_count {
+                let q = fresh_at(i);
                 heap_mids.push(q.mid);
                 if q.mid < mid_min {
                     mid_min = q.mid;
@@ -215,7 +241,7 @@ impl ConsensusCalculator {
         // Low-N MAD calculation (§70): N >= 4 computes MAD; N < 4 returns None
         let median_abs_deviation = if fresh_count >= 4 {
             if let Some(med) = consensus_mid {
-                compute_mad(fresh_quotes.iter().map(|q| q.mid), fresh_count, med)
+                compute_mad((0..fresh_count).map(|i| fresh_at(i).mid), fresh_count, med)
             } else {
                 None
             }
@@ -226,7 +252,8 @@ impl ConsensusCalculator {
         // Outlier detection (> threshold or > 3*MAD)
         let mut outliers = Vec::new();
         if let Some(med) = consensus_mid {
-            for q in &fresh_quotes {
+            for i in 0..fresh_count {
+                let q = fresh_at(i);
                 let diff = q.mid - med;
                 let abs_diff = diff.abs();
                 let mut is_outlier = false;
@@ -255,17 +282,21 @@ impl ConsensusCalculator {
 
         // Crossed snapshot detection: Bid A > Ask B
         let mut crossed_snapshots = Vec::new();
-        for (i, qa) in fresh_quotes.iter().enumerate() {
-            for (j, qb) in fresh_quotes.iter().enumerate() {
-                if i != j && qa.bid > qb.ask {
-                    let diff = qa.bid - qb.ask;
-                    crossed_snapshots.push(CrossedSnapshot {
-                        broker_a: qa.tick_id.broker_id,
-                        broker_b: qb.tick_id.broker_id,
-                        bid_a: qa.bid,
-                        ask_b: qb.ask,
-                        diff,
-                    });
+        for i in 0..fresh_count {
+            let qa = fresh_at(i);
+            for j in 0..fresh_count {
+                if i != j {
+                    let qb = fresh_at(j);
+                    if qa.bid > qb.ask {
+                        let diff = qa.bid - qb.ask;
+                        crossed_snapshots.push(CrossedSnapshot {
+                            broker_a: qa.tick_id.broker_id,
+                            broker_b: qb.tick_id.broker_id,
+                            bid_a: qa.bid,
+                            ask_b: qb.ask,
+                            diff,
+                        });
+                    }
                 }
             }
         }
@@ -297,7 +328,7 @@ fn compute_median_in_place(values: &mut [f64]) -> Option<f64> {
     if values.is_empty() {
         return None;
     }
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    values.sort_unstable_by(f64::total_cmp);
     let n = values.len();
     if n % 2 == 1 {
         Some(values[n / 2])

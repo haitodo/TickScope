@@ -50,6 +50,10 @@ impl ClockPort for SystemClock {
             unix_ns,
         }
     }
+
+    fn mono_ns(&self) -> MonoNs {
+        MonoNs(self.start_instant.elapsed().as_nanos() as u64)
+    }
 }
 
 struct ChannelIngressSink {
@@ -368,17 +372,20 @@ impl RuntimeCoordinator {
                         }
                     }
                     let mono_ns = if diagnostics_enabled {
-                        clock.sample().mono_ns
+                        clock.mono_ns()
                     } else {
                         crate::core::types::MonoNs::ZERO
                     };
-                    {
+                    let state_changed = {
                         let mut eng = engine.lock();
+                        let rev_before = eng.projection_revision;
                         eng.on_ingress_batch(batch.drain(..), mono_ns);
-                    }
+                        eng.projection_revision != rev_before
+                    };
 
-                    // Signal publisher immediately
-                    {
+                    // Signal publisher only when observable state actually changed so idle
+                    // watermark-only progress batches do not force 60Hz snapshot rebuilds.
+                    if state_changed {
                         let (lock, cvar) = &*tick_wake;
                         let mut pending = lock.lock();
                         if !*pending {
@@ -398,7 +405,20 @@ impl RuntimeCoordinator {
     }
 
     pub fn set_active_pair(&self, pair: (BrokerId, BrokerId)) {
-        self.engine.lock().set_active_pair(pair);
+        let changed = {
+            let mut eng = self.engine.lock();
+            let rev_before = eng.projection_revision;
+            eng.set_active_pair(pair);
+            eng.projection_revision != rev_before
+        };
+        if changed {
+            let (lock, cvar) = &*self.tick_wake;
+            let mut pending = lock.lock();
+            if !*pending {
+                *pending = true;
+                cvar.notify_one();
+            }
+        }
     }
 
     pub fn diagnostics_handle(&self) -> Option<DiagnosticsHandle> {
@@ -408,7 +428,23 @@ impl RuntimeCoordinator {
     #[must_use]
     pub fn pair_selection_handler(&self) -> Arc<dyn Fn((BrokerId, BrokerId)) + Send + Sync> {
         let engine = self.engine.clone();
-        Arc::new(move |pair| engine.lock().set_active_pair(pair))
+        let tick_wake = self.tick_wake.clone();
+        Arc::new(move |pair| {
+            let changed = {
+                let mut eng = engine.lock();
+                let rev_before = eng.projection_revision;
+                eng.set_active_pair(pair);
+                eng.projection_revision != rev_before
+            };
+            if changed {
+                let (lock, cvar) = &*tick_wake;
+                let mut pending = lock.lock();
+                if !*pending {
+                    *pending = true;
+                    cvar.notify_one();
+                }
+            }
+        })
     }
 
     pub fn stop(&mut self) {

@@ -25,18 +25,23 @@ pub const RECORD_KIND_RAW_FRAME: u16 = 1;
 pub const RECORD_KIND_METADATA: u16 = 2;
 pub const RECORD_KIND_DIAGNOSTIC: u16 = 3;
 
-/// Encode one log record into a self-contained envelope, CRC32C included.
+/// Encode one log record into a reusable buffer as a self-contained envelope, CRC32C included.
 ///
 /// # Errors
 ///
 /// Never fails today; the `Result` keeps a future encoding failure from changing every call site.
-pub fn encode_record(record: &LogRecord, record_index: u64) -> Result<Vec<u8>, StorageError> {
+pub fn encode_record_into(
+    record: &LogRecord,
+    record_index: u64,
+    envelope: &mut Vec<u8>,
+) -> Result<(), StorageError> {
     let estimated_payload = match record {
         LogRecord::RawFrame(raw) => 48 + raw.raw_wire_bytes.len() + raw.dispositions.len(),
         LogRecord::Metadata(meta) => 20 + meta.toml_text.len(),
         LogRecord::Diagnostic(diag) => 64 + diag.code.len() + diag.message.len(),
     };
-    let mut envelope = Vec::with_capacity(RECORD_ENVELOPE_LEN + estimated_payload);
+    envelope.clear();
+    envelope.reserve(RECORD_ENVELOPE_LEN + estimated_payload);
     envelope.resize(RECORD_ENVELOPE_LEN, 0);
 
     let (kind, flags) = match record {
@@ -106,9 +111,20 @@ pub fn encode_record(record: &LogRecord, record_index: u64) -> Result<Vec<u8>, S
     envelope[8..16].copy_from_slice(&record_index.to_le_bytes());
     // Bytes 16..24 (checksum and reserved) remain zeroed for CRC32C calculation
 
-    let checksum = crc32c(&envelope);
+    let checksum = crc32c(envelope);
     envelope[16..20].copy_from_slice(&checksum.to_le_bytes());
 
+    Ok(())
+}
+
+/// Encode one log record into a self-contained envelope, CRC32C included.
+///
+/// # Errors
+///
+/// Never fails today; the `Result` keeps a future encoding failure from changing every call site.
+pub fn encode_record(record: &LogRecord, record_index: u64) -> Result<Vec<u8>, StorageError> {
+    let mut envelope = Vec::new();
+    encode_record_into(record, record_index, &mut envelope)?;
     Ok(envelope)
 }
 
@@ -319,6 +335,7 @@ impl AsyncLogger {
         let mut last_flush = std::time::Instant::now();
         let flush_interval = Duration::from_millis(flush_interval_ms);
         let mut cached_utc_day: Option<(u64, String)> = None;
+        let mut encode_buf: Vec<u8> = Vec::with_capacity(4096);
 
         while running.load(Ordering::SeqCst) || !receiver.is_empty() {
             match receiver.recv_timeout(Duration::from_millis(10)) {
@@ -363,8 +380,12 @@ impl AsyncLogger {
                         }
 
                         let active = writers.get_mut(&broker_id).expect("writer was just opened");
-                        let bytes = encode_record(&command.record, active.next_record_index)?;
-                        active.writer.write_all(&bytes).map_err(|error| {
+                        encode_record_into(
+                            &command.record,
+                            active.next_record_index,
+                            &mut encode_buf,
+                        )?;
+                        active.writer.write_all(&encode_buf).map_err(|error| {
                             format!("failed to write broker {broker_id} log record: {error}")
                         })?;
                         active.next_record_index = active.next_record_index.saturating_add(1);
@@ -520,9 +541,9 @@ impl LogSinkPort for AsyncLogger {
     }
 
     fn append_durable(&self, record: Arc<LogRecord>) -> Result<(), String> {
+        let (reply_sender, reply_receiver) = bounded(1);
         loop {
-            let (reply_sender, reply_receiver) = bounded(1);
-            match self.try_enqueue(record.clone(), Some(reply_sender)) {
+            match self.try_enqueue(record.clone(), Some(reply_sender.clone())) {
                 AppendResult::Accepted => {
                     return reply_receiver.recv().map_err(|_| {
                         "Logger worker stopped before durable append completed".to_string()

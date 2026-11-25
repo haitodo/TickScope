@@ -93,6 +93,8 @@ pub struct DashboardApp {
     pub(crate) show_trade_overlay: bool,
     pub(crate) show_trade_history: bool,
     pub(crate) is_replay: bool,
+    pub(crate) cached_monitors: Vec<crate::ui::dpi::MonitorDescriptor>,
+    pub(crate) last_monitor_refresh: Option<Instant>,
 }
 
 impl DashboardApp {
@@ -165,6 +167,8 @@ impl DashboardApp {
             show_trade_overlay: true,
             show_trade_history: false,
             is_replay: false,
+            cached_monitors: Vec::new(),
+            last_monitor_refresh: None,
         }
     }
 
@@ -817,12 +821,11 @@ impl DashboardApp {
         let prev_mt5_auto_launch = self.mt5_auto_launch;
         let prev_mt5_auto_close = self.mt5_auto_close;
         let prev_mt5_non_minimized_broker = self.mt5_non_minimized_broker;
-        let prev_mt5_display_monitor = self.mt5_display_monitor.clone();
         let prev_always_on_top = self.always_on_top;
 
-        // Poll MT5 process statuses periodically (throttled to 1s internally)
+        // Poll MT5 process statuses asynchronously so Win32 snapshots never block UI rendering.
         self.terminal_manager
-            .poll_status(&self.broker_configs, &self.discovered_terminals, false);
+            .poll_status_async(&self.broker_configs, &self.discovered_terminals);
         #[cfg(windows)]
         if let Some(auto_login) = &mut self.oanda_auto_login {
             auto_login.sync(&self.terminal_manager, &self.exchange);
@@ -902,7 +905,6 @@ impl DashboardApp {
             || self.mt5_auto_launch != prev_mt5_auto_launch
             || self.mt5_auto_close != prev_mt5_auto_close
             || self.mt5_non_minimized_broker != prev_mt5_non_minimized_broker
-            || self.mt5_display_monitor != prev_mt5_display_monitor
             || self.always_on_top != prev_always_on_top
         {
             if self.candle_price_scale != prev_candle_scale {

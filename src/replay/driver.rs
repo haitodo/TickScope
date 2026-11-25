@@ -94,6 +94,7 @@ pub struct ReplayDriver {
     pub trade_store: Arc<RwLock<crate::core::models::ReplayTradeStore>>,
     pub arbiter: Arc<Mutex<SyncArbiter>>,
     ws_cmd_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>,
+    ws_shutdown: Arc<tokio::sync::Notify>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -117,6 +118,7 @@ impl ReplayDriver {
             trade_store,
             arbiter: Arc::new(Mutex::new(SyncArbiter::new())),
             ws_cmd_tx: Arc::new(Mutex::new(None)),
+            ws_shutdown: Arc::new(tokio::sync::Notify::new()),
             threads: Vec::new(),
         }
     }
@@ -149,9 +151,10 @@ impl ReplayDriver {
             arbiter: self.arbiter.clone(),
         });
 
-        let ws_handle = WsSyncClient::spawn(
+        let ws_handle = WsSyncClient::spawn_with_shutdown(
             ws_url,
             self.running.clone(),
+            self.ws_shutdown.clone(),
             self.ws_cmd_tx.clone(),
             move |text| {
                 ctx.handle_ws_message(text);
@@ -170,6 +173,9 @@ impl ReplayDriver {
     /// Stop the driver and join threads.
     pub fn stop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
+        *self.ws_cmd_tx.lock() = None;
+        self.ws_shutdown.notify_waiters();
+        self.ws_shutdown.notify_one();
         let (lock, cvar) = &*self.tick_wake;
         let mut pending = lock.lock();
         *pending = true;

@@ -5,7 +5,7 @@ use crate::core::models::{LeadLagMatch, PriceMode, RealtimeQuotePoint};
 use crate::core::types::{
     BrokerId, ConnectionState, Diagnostic, DiagnosticSeverity, FreshnessState, HealthState,
     HeartbeatState, IntegrityState, MonoNs, NormalizationState, ObservedTick, PhaseState, Quote,
-    SequenceDisposition, SessionId, TickId, UtcMs,
+    Sequence, SequenceDisposition, SessionId, TickId, UtcMs,
 };
 use crate::metrics::burst::MultiBrokerBurstDetector;
 use crate::metrics::consensus::ConsensusCalculator;
@@ -43,6 +43,7 @@ pub struct BrokerChannelState {
     pub auto_utc_offset: bool,
     pub active_utc_offset_sec: i32,
     pub utc_verified: bool,
+    pub(crate) fast_spread_recorded: VecDeque<(SessionId, Sequence)>,
 }
 
 /// Broker name for log messages, or `"Unknown"` when the id is not configured.
@@ -81,6 +82,7 @@ pub struct TickEngine {
     pub(crate) processing_mono_ns: MonoNs,
     pub realtime_quote_history: VecDeque<RealtimeQuotePoint>,
     pub tick_candle_trackers: HashMap<BrokerId, super::tick_candle::TickCandleTracker>,
+    pub(crate) suppress_quote_history: bool,
 }
 
 impl TickEngine {
@@ -126,6 +128,7 @@ impl TickEngine {
                     auto_utc_offset: b.auto_utc_offset,
                     active_utc_offset_sec: initial_offset,
                     utc_verified: initial_verified,
+                    fast_spread_recorded: VecDeque::new(),
                 },
             );
 
@@ -210,7 +213,21 @@ impl TickEngine {
             processing_mono_ns: MonoNs::ZERO,
             realtime_quote_history,
             tick_candle_trackers,
+            suppress_quote_history: false,
         }
+    }
+
+    /// Suppresses per-tick `realtime_quote_history` updates during bulk historical warmup
+    /// when the caller will reconstruct the quote path once at the end (e.g. replay SEEK).
+    pub fn set_suppress_quote_history(&mut self, suppress: bool) {
+        self.suppress_quote_history = suppress;
+    }
+
+    #[must_use]
+    pub fn has_pending_frames(&self) -> bool {
+        self.channels
+            .values()
+            .any(|ch| !ch.pending_frames.is_empty())
     }
 
     #[must_use]
@@ -269,6 +286,7 @@ impl TickEngine {
             ch.ledger.reset();
             ch.session_id = None;
             ch.is_connected = true;
+            ch.fast_spread_recorded.clear();
         }
 
         self.candle_book = CandleBook::with_retentions(&self.config.history.retentions);
@@ -454,6 +472,8 @@ impl TickEngine {
         let mut close_diagnostic = None;
         let mut fast_quote = None;
 
+        let mut revision_bumped = false;
+
         let is_disconnected = {
             let Some(ch) = self.channels.get_mut(&broker_id) else {
                 return;
@@ -463,6 +483,7 @@ impl TickEngine {
                 IngressItem::Connected { generation, .. } => {
                     ch.is_connected = true;
                     ch.generation = generation;
+                    ch.fast_spread_recorded.clear();
                     self.latest_quotes.remove(&broker_id);
                     self.fast_quotes.remove(&broker_id);
                     if let Some(h) = self.health_states.get_mut(&broker_id) {
@@ -472,6 +493,7 @@ impl TickEngine {
                         h.last_heartbeat_rx_mono = None;
                         h.heartbeat = HeartbeatState::Unknown;
                     }
+                    revision_bumped = true;
                 }
                 IngressItem::Progress { watermark_ns, .. } => {
                     if watermark_ns > ch.watermark {
@@ -491,6 +513,7 @@ impl TickEngine {
                 } => {
                     if generation == 0 || ch.generation == 0 || ch.generation == generation {
                         ch.is_connected = false;
+                        ch.fast_spread_recorded.clear();
                         self.latest_quotes.remove(&broker_id);
                         self.fast_quotes.remove(&broker_id);
                         if let Some(h) = self.health_states.get_mut(&broker_id) {
@@ -507,11 +530,15 @@ impl TickEngine {
                             detail_value: 0,
                             message: reason,
                         });
+                        revision_bumped = true;
                     }
                 }
             }
             !ch.is_connected
         };
+        if revision_bumped {
+            self.projection_revision += 1;
+        }
         if let Some(diagnostic) = close_diagnostic {
             self.push_diagnostic(diagnostic);
         }
@@ -611,6 +638,11 @@ impl TickEngine {
                 None => break,
             }
         }
+
+        if global_watermark > MonoNs::ZERO {
+            self.matcher.advance_watermark(global_watermark);
+            self.burst_detector.prune_older_than(global_watermark);
+        }
     }
 
     fn extract_fast_path_quote(
@@ -666,6 +698,14 @@ impl TickEngine {
         if should_update {
             if let Some(st) = self.spread_trackers.get_mut(&broker_id) {
                 st.on_quote(quote.spread, rx_mono_ns);
+                if let Some(ch) = self.channels.get_mut(&broker_id) {
+                    let cap = ch.max_pending_frames.saturating_add(16);
+                    if ch.fast_spread_recorded.len() >= cap {
+                        ch.fast_spread_recorded.pop_front();
+                    }
+                    ch.fast_spread_recorded
+                        .push_back((quote.tick_id.session_id, quote.tick_id.sequence));
+                }
             }
             if let Some(h) = self.health_states.get_mut(&broker_id) {
                 if !is_warmup {
@@ -743,6 +783,8 @@ impl TickEngine {
                 let ch = self.channels.get_mut(&broker_id).unwrap();
                 if ch.session_id != Some(rf.frame.header.session_id) {
                     ch.ledger.reset();
+                    ch.fast_spread_recorded
+                        .retain(|&(sid, _)| sid == rf.frame.header.session_id);
                 }
                 ch.session_id = Some(rf.frame.header.session_id);
 
@@ -805,6 +847,22 @@ impl TickEngine {
 
                 for tick in ticks {
                     let (disp, gap) = ch.ledger.observe(tick.sequence);
+                    let fast_spread_key = (rf.frame.header.session_id, tick.sequence);
+                    let already_counted_spread = if ch.fast_spread_recorded.front()
+                        == Some(&fast_spread_key)
+                    {
+                        ch.fast_spread_recorded.pop_front();
+                        true
+                    } else if let Some(pos) = ch
+                        .fast_spread_recorded
+                        .iter()
+                        .position(|&entry| entry == fast_spread_key)
+                    {
+                        ch.fast_spread_recorded.remove(pos);
+                        true
+                    } else {
+                        false
+                    };
                     if let Some(gap_range) = gap {
                         sequence_gaps.get_or_insert_with(Vec::new).push(gap_range);
                     }
@@ -842,8 +900,8 @@ impl TickEngine {
                                 && tick.ask >= tick.bid,
                         };
 
-                        // Update spread tracker
-                        if quote.is_valid {
+                        // Update spread tracker (skipping the tick already recorded by fast path)
+                        if quote.is_valid && !already_counted_spread {
                             if let Some(st) = self.spread_trackers.get_mut(&broker_id) {
                                 st.on_quote(quote.spread, rf.rx_mono_ns);
                             }
@@ -986,95 +1044,98 @@ impl TickEngine {
                         }
 
                         // Append point to Realtime Quote Path history for all active brokers
-                        let tick_mono_ns = if is_warmup {
-                            let tick_utc_ms = tick.broker_time_msc - (i64::from(utc_offset) * 1000);
-                            if let Some(unix_ns) = rf.rx_unix_ns {
-                                let now_utc_ms = unix_ns / 1_000_000;
-                                let age_ms = (now_utc_ms - tick_utc_ms).max(0) as u64;
-                                MonoNs(
+                        if !self.suppress_quote_history {
+                            let tick_mono_ns = if is_warmup {
+                                let tick_utc_ms =
+                                    tick.broker_time_msc - (i64::from(utc_offset) * 1000);
+                                if let Some(unix_ns) = rf.rx_unix_ns {
+                                    let now_utc_ms = unix_ns / 1_000_000;
+                                    let age_ms = (now_utc_ms - tick_utc_ms).max(0) as u64;
+                                    MonoNs(
+                                        rf.rx_mono_ns
+                                            .0
+                                            .saturating_sub(age_ms.saturating_mul(1_000_000)),
+                                    )
+                                } else {
                                     rf.rx_mono_ns
-                                        .0
-                                        .saturating_sub(age_ms.saturating_mul(1_000_000)),
-                                )
+                                }
                             } else {
                                 rf.rx_mono_ns
-                            }
-                        } else {
-                            rf.rx_mono_ns
-                        };
+                            };
 
-                        let merge_target = if !self.realtime_quote_history.is_empty()
-                            && tick_mono_ns < self.realtime_quote_history.back().unwrap().mono_ns
-                        {
-                            let idx = self
-                                .realtime_quote_history
-                                .partition_point(|p| p.mono_ns < tick_mono_ns);
-                            if idx < self.realtime_quote_history.len()
-                                && self.realtime_quote_history[idx]
-                                    .mono_ns
-                                    .0
-                                    .saturating_sub(tick_mono_ns.0)
-                                    <= 20_000_000
+                            let merge_target = if !self.realtime_quote_history.is_empty()
+                                && tick_mono_ns < self.realtime_quote_history.back().unwrap().mono_ns
                             {
-                                Some((idx, true))
-                            } else if idx > 0
-                                && tick_mono_ns
-                                    .0
-                                    .saturating_sub(self.realtime_quote_history[idx - 1].mono_ns.0)
-                                    <= 20_000_000
-                            {
-                                Some((idx - 1, true))
-                            } else {
-                                Some((idx, false))
-                            }
-                        } else {
-                            None
-                        };
-
-                        if let Some((m_idx, true)) = merge_target {
-                            let p = &mut self.realtime_quote_history[m_idx];
-                            p.broker_mids.insert(broker_id, quote.mid);
-                            p.consensus_mid = compute_median_from_mids(&p.broker_mids);
-                        } else {
-                            let mut mids = HashMap::with_capacity(self.latest_quotes.len());
-                            if quote.is_valid && quote.mid.is_finite() {
-                                mids.insert(broker_id, quote.mid);
-                            }
-                            for (&bid, q) in &self.latest_quotes {
-                                if bid != broker_id
-                                    && q.is_valid
-                                    && q.mid.is_finite()
-                                    && (is_warmup
-                                        || (!q.is_warmup
-                                            && q.rx_mono_ns <= rf.rx_mono_ns
-                                            && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
-                                                <= self
-                                                    .config
-                                                    .health
-                                                    .stale_after_ms
-                                                    .saturating_mul(1_000_000)))
+                                let idx = self
+                                    .realtime_quote_history
+                                    .partition_point(|p| p.mono_ns < tick_mono_ns);
+                                if idx < self.realtime_quote_history.len()
+                                    && self.realtime_quote_history[idx]
+                                        .mono_ns
+                                        .0
+                                        .saturating_sub(tick_mono_ns.0)
+                                        <= 20_000_000
                                 {
-                                    mids.insert(bid, q.mid);
+                                    Some((idx, true))
+                                } else if idx > 0
+                                    && tick_mono_ns
+                                        .0
+                                        .saturating_sub(self.realtime_quote_history[idx - 1].mono_ns.0)
+                                        <= 20_000_000
+                                {
+                                    Some((idx - 1, true))
+                                } else {
+                                    Some((idx, false))
+                                }
+                            } else {
+                                None
+                            };
+
+                            if let Some((m_idx, true)) = merge_target {
+                                let p = &mut self.realtime_quote_history[m_idx];
+                                p.broker_mids.insert(broker_id, quote.mid);
+                                p.consensus_mid = compute_median_from_mids(&p.broker_mids);
+                            } else {
+                                let mut mids = HashMap::with_capacity(self.latest_quotes.len());
+                                if quote.is_valid && quote.mid.is_finite() {
+                                    mids.insert(broker_id, quote.mid);
+                                }
+                                for (&bid, q) in &self.latest_quotes {
+                                    if bid != broker_id
+                                        && q.is_valid
+                                        && q.mid.is_finite()
+                                        && (is_warmup
+                                            || (!q.is_warmup
+                                                && q.rx_mono_ns <= rf.rx_mono_ns
+                                                && (rf.rx_mono_ns.0 - q.rx_mono_ns.0)
+                                                    <= self
+                                                        .config
+                                                        .health
+                                                        .stale_after_ms
+                                                        .saturating_mul(1_000_000)))
+                                    {
+                                        mids.insert(bid, q.mid);
+                                    }
+                                }
+
+                                let consensus_mid = compute_median_from_mids(&mids);
+                                let pt = RealtimeQuotePoint {
+                                    mono_ns: tick_mono_ns,
+                                    broker_mids: mids,
+                                    consensus_mid,
+                                };
+
+                                if let Some((insert_idx, false)) = merge_target {
+                                    self.realtime_quote_history.insert(insert_idx, pt);
+                                } else {
+                                    self.realtime_quote_history.push_back(pt);
                                 }
                             }
 
-                            let consensus_mid = compute_median_from_mids(&mids);
-                            let pt = RealtimeQuotePoint {
-                                mono_ns: tick_mono_ns,
-                                broker_mids: mids,
-                                consensus_mid,
-                            };
-
-                            if let Some((insert_idx, false)) = merge_target {
-                                self.realtime_quote_history.insert(insert_idx, pt);
-                            } else {
-                                self.realtime_quote_history.push_back(pt);
+                            while self.realtime_quote_history.len() > self.config.display.visible_ticks
+                            {
+                                self.realtime_quote_history.pop_front();
                             }
-                        }
-
-                        while self.realtime_quote_history.len() > self.config.display.visible_ticks
-                        {
-                            self.realtime_quote_history.pop_front();
                         }
 
                         // Update health
@@ -1327,5 +1388,180 @@ impl TickEngine {
                 self.realtime_quote_history.pop_front();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AppConfig, BrokerConfig, TimezoneRule};
+    use crate::protocol::{
+        Frame, FramePayload, Header, ReceivedFrame, TickRecord, HEADER_LENGTH, MAGIC_TICK,
+        MSG_TYPE_TICK_BATCH, PROTOCOL_VERSION, TICK_RECORD_LENGTH,
+    };
+    use std::sync::Arc;
+
+    fn make_two_broker_config() -> AppConfig {
+        AppConfig {
+            brokers: vec![
+                BrokerConfig {
+                    id: 1,
+                    name: "BrokerA".to_string(),
+                    host: "127.0.0.1".to_string(),
+                    port: 0,
+                    symbol: "USDJPY".to_string(),
+                    point_size: 0.001,
+                    pip_size: 0.01,
+                    timezone_rule: TimezoneRule::Utc,
+                    utc_offset_sec: 0,
+                    utc_verified: true,
+                    auto_utc_offset: false,
+                    terminal_path: None,
+                    receive_delay_ms: None,
+                },
+                BrokerConfig {
+                    id: 2,
+                    name: "BrokerB".to_string(),
+                    host: "127.0.0.1".to_string(),
+                    port: 0,
+                    symbol: "USDJPY".to_string(),
+                    point_size: 0.001,
+                    pip_size: 0.01,
+                    timezone_rule: TimezoneRule::Utc,
+                    utc_offset_sec: 0,
+                    utc_verified: true,
+                    auto_utc_offset: false,
+                    terminal_path: None,
+                    receive_delay_ms: None,
+                },
+            ],
+            active_pair: (1, 2),
+            ..AppConfig::default()
+        }
+    }
+
+    fn make_tick_frame(
+        broker_id: BrokerId,
+        session_id: SessionId,
+        ticks: Vec<TickRecord>,
+        rx_mono_ns: MonoNs,
+    ) -> IngressItem {
+        let seq_start = ticks.first().map_or(0, |t| t.sequence);
+        let tick_count = ticks.len() as u32;
+        IngressItem::Frame(ReceivedFrame {
+            frame: Frame {
+                header: Header {
+                    magic: MAGIC_TICK,
+                    protocol_version: PROTOCOL_VERSION,
+                    message_type: MSG_TYPE_TICK_BATCH,
+                    header_length: HEADER_LENGTH,
+                    header_flags: 0,
+                    broker_id,
+                    session_id,
+                    sequence_start: seq_start,
+                    tick_count,
+                    payload_length: tick_count * TICK_RECORD_LENGTH as u32,
+                },
+                payload: FramePayload::TickBatch(ticks),
+            },
+            raw_wire_bytes: Arc::default(),
+            run_id: crate::core::types::RunId([0u8; 16]),
+            rx_mono_ns,
+            rx_unix_ns: Some(1_700_000_000_000_000_000),
+            connection_generation: 1,
+            frame_index: seq_start + 1,
+        })
+    }
+
+    #[test]
+    fn fast_path_and_merge_do_not_double_count_spread_ticks() {
+        let mut engine = TickEngine::new(make_two_broker_config());
+        for bid in [1, 2] {
+            engine.on_ingress_item(IngressItem::Connected {
+                broker_id: bid,
+                generation: 1,
+                connected_at_mono: MonoNs(1_000_000),
+            });
+        }
+
+        // Send a 3-tick batch for broker 1 while broker 2's watermark is still 0 (fast path fires).
+        let ticks = (1..=3)
+            .map(|seq| TickRecord {
+                sequence: seq,
+                broker_time_msc: 1_700_000_000_000 + seq as i64 * 10,
+                ea_elapsed_us: 10,
+                bid: 150.000,
+                ask: 150.003,
+                last: 0.0,
+                volume: 1,
+                volume_real: 1.0,
+                flags: 0,
+                reserved: 0,
+            })
+            .collect();
+        engine.on_ingress_item(make_tick_frame(1, 100, ticks, MonoNs(50_000_000)));
+
+        // Advance broker 2 so the frame drains through `process_frame`.
+        engine.on_ingress_item(IngressItem::Progress {
+            broker_id: 2,
+            watermark_ns: MonoNs(60_000_000),
+        });
+
+        let proj = engine.make_projection_at(UtcMs(1_700_000_000_100), MonoNs(60_000_000));
+        let b1 = proj
+            .broker_overviews
+            .iter()
+            .find(|b| b.broker_id == 1)
+            .unwrap();
+        assert!(
+            (b1.tick_rate_1s - 3.0).abs() < f64::EPSILON,
+            "Expected exactly 3 ticks counted (no double-count), got {}",
+            b1.tick_rate_1s
+        );
+    }
+
+    #[test]
+    fn engine_watermark_advancement_expires_pending_matcher_events() {
+        let mut engine = TickEngine::new(make_two_broker_config());
+        for bid in [1, 2] {
+            engine.on_ingress_item(IngressItem::Connected {
+                broker_id: bid,
+                generation: 1,
+                connected_at_mono: MonoNs(1_000_000),
+            });
+        }
+
+        // Trigger a significant upward move on broker 1 (> 2 points = 0.002).
+        let mk = |seq: u64, bid: f64| TickRecord {
+            sequence: seq,
+            broker_time_msc: 1_700_000_000_000 + seq as i64 * 100,
+            ea_elapsed_us: 10,
+            bid,
+            ask: bid + 0.002,
+            last: 0.0,
+            volume: 1,
+            volume_real: 1.0,
+            flags: 0,
+            reserved: 0,
+        };
+        engine.on_ingress_item(make_tick_frame(1, 10, vec![mk(1, 150.000)], MonoNs(10_000_000)));
+        engine.on_ingress_item(make_tick_frame(1, 10, vec![mk(2, 150.010)], MonoNs(50_000_000)));
+        engine.on_ingress_item(IngressItem::Progress {
+            broker_id: 2,
+            watermark_ns: MonoNs(60_000_000),
+        });
+        assert_eq!(engine.matcher.pending_a.len(), 1);
+
+        // Advance both watermarks well past the 100ms matching window.
+        for bid in [1, 2] {
+            engine.on_ingress_item(IngressItem::Progress {
+                broker_id: bid,
+                watermark_ns: MonoNs(500_000_000),
+            });
+        }
+        assert!(
+            engine.matcher.pending_a.is_empty(),
+            "Expired pending matcher events must be pruned when global watermark advances"
+        );
     }
 }
